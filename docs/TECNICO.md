@@ -1,4 +1,4 @@
-# Gestionale case vacanza — documento tecnico
+# DigiHome — documento tecnico
 
 Versione: beta 0.1 (7 novembre 2026). Requisiti e decisioni: documento di progetto `claude/gestionale-requisiti.md`.
 

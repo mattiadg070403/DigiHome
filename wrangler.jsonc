@@ -1,9 +1,9 @@
-// Configurazione Cloudflare del gestionale (ambiente di prova, dati inventati).
+// Configurazione Cloudflare di DigiHome (ambiente di prova, dati inventati).
 // I valori riservati (ACCESS_TEAM_DOMAIN, ACCESS_AUD, BOOTSTRAP_ADMIN_EMAIL) NON stanno qui:
 // si impostano come "segreti" nel pannello Cloudflare, così non finiscono nel codice.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "gestionale-case-prova",
+  "name": "digihome-prova",
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
 
@@ -21,7 +21,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "gestionale-prova",
+      "database_name": "digihome-prova",
       "database_id": "DA_COMPILARE_DOPO_LA_CREAZIONE",
       "migrations_dir": "migrations"
     }

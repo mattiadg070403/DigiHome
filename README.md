@@ -1,6 +1,6 @@
-# Gestionale case vacanza
+# DigiHome
 
-Gestionale di **Isola Bella** e **Faro Blu**: schermata Oggi, prenotazioni, check-in e check-out guidati, avvisi, cose da fare.
+Il gestionale di **Isola Bella** e **Faro Blu**: schermata Oggi, prenotazioni, check-in e check-out guidati, avvisi, cose da fare.
 Beta 0.1, **solo dati inventati**.
 
 - Documento tecnico: [`docs/TECNICO.md`](docs/TECNICO.md)
@@ -21,11 +21,11 @@ Opzioni: `DELAY_MS=1500` simula una rete lenta, `AS=giulia@example.invalid` entr
 
 Da fare una volta sola, nel pannello Cloudflare.
 
-1. **Database.** Storage e database → D1 → *Create* → nome `gestionale-prova`. Copiare il *Database ID* in `wrangler.jsonc` al posto di `DA_COMPILARE_DOPO_LA_CREAZIONE`.
+1. **Database.** Storage e database → D1 → *Create* → nome `digihome-prova`. Copiare il *Database ID* in `wrangler.jsonc` al posto di `DA_COMPILARE_DOPO_LA_CREAZIONE`.
 2. **Zero Trust.** Aprire Zero Trust e creare il team (piano gratuito). Annotare l'indirizzo del team, del tipo `https://NOME.cloudflareaccess.com`.
 3. **Worker collegato a GitHub.** Workers e Pages → *Create* → *Import a repository* → questo archivio.
    - Comando di build: nessuno.
-   - Comando di deploy: `npx wrangler d1 migrations apply gestionale-prova --remote && npx wrangler deploy`
+   - Comando di deploy: `npx wrangler d1 migrations apply digihome-prova --remote && npx wrangler deploy`
 4. **Indirizzo.** Nel Worker: Impostazioni → Domini e route → *Add custom domain* → es. `gestione.faroblugallipoli.it`.
 5. **Controllo di accesso.** Zero Trust → Access → Applications → *Add* → *Self-hosted*:
    - dominio: lo stesso del punto 4;

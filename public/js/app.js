@@ -149,7 +149,7 @@ function buildShell() {
   const envBadge = h('span', { class: 'env-badge', hidden: true });
   const versionLine = h('span', { text: `Versione ${APP_VERSION}` });
   const side = h('nav', { class: 'side', attrs: { 'aria-label': 'Sezioni' } },
-    h('div', { class: 'brand' }, h('div', { class: 'brand-title', text: 'Le nostre case' }), h('div', { class: 'brand-sub', text: 'Isola Bella · Faro Blu' })),
+    h('div', { class: 'brand' }, h('div', { class: 'brand-title', text: 'DigiHome' }), h('div', { class: 'brand-sub', text: 'Isola Bella · Faro Blu' })),
     navBtns('nav-btn'),
     h('div', { class: 'side-foot' }, envBadge, versionLine));
   const tabbar = h('nav', { class: 'tabbar', attrs: { 'aria-label': 'Sezioni' } }, navBtns('nav-btn'));

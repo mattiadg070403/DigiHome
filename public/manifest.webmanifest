@@ -1,7 +1,7 @@
 {
-  "name": "Gestionale case",
-  "short_name": "Gestionale",
-  "description": "Gestionale delle case vacanza Isola Bella e Faro Blu",
+  "name": "DigiHome",
+  "short_name": "DigiHome",
+  "description": "DigiHome, il gestionale delle case vacanza Isola Bella e Faro Blu",
   "lang": "it",
   "start_url": "/#/oggi",
   "scope": "/",

@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+*.sqlite
+*.db
+.DS_Store
+# Mai caricare dati veri o esportazioni
+*.csv
+export/

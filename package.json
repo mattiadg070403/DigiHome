@@ -1,0 +1,11 @@
+{
+  "name": "gestionale-case",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Gestionale delle case vacanza Isola Bella e Faro Blu",
+  "scripts": {
+    "test": "node --test --test-timeout=20000 --no-warnings test/*.test.js",
+    "check": "node scripts/check.js"
+  }
+}

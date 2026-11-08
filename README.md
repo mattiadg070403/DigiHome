@@ -21,7 +21,7 @@ Opzioni: `DELAY_MS=1500` simula una rete lenta, `AS=giulia@example.invalid` entr
 
 Da fare una volta sola, nel pannello Cloudflare.
 
-1. **Database.** Storage e database → D1 → *Create* → nome `digihome-prova`. Copiare il *Database ID* in `wrangler.jsonc` al posto di `DA_COMPILARE_DOPO_LA_CREAZIONE`.
+1. **Database.** Storage e database → D1 → *Create* → nome `digihome-prova`. Il *Database ID* è già in `wrangler.jsonc`.
 2. **Zero Trust.** Aprire Zero Trust e creare il team (piano gratuito). Annotare l'indirizzo del team, del tipo `https://NOME.cloudflareaccess.com`.
 3. **Worker collegato a GitHub.** Workers e Pages → *Create* → *Import a repository* → questo archivio.
    - Comando di build: nessuno.

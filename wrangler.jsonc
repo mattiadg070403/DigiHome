@@ -22,7 +22,7 @@
     {
       "binding": "DB",
       "database_name": "digihome-prova",
-      "database_id": "DA_COMPILARE_DOPO_LA_CREAZIONE",
+      "database_id": "c9d67f09-e198-4f66-abfb-97211cfa0d41",
       "migrations_dir": "migrations"
     }
   ],

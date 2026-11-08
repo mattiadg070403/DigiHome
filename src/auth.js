@@ -78,7 +78,7 @@ export async function authenticate(request, env, { fetchImpl = fetch } = {}) {
     const teamDomain = env.ACCESS_TEAM_DOMAIN;
     const aud = env.ACCESS_AUD;
     if (!teamDomain || !aud || !/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(teamDomain)) {
-      return { status: 500, error: 'Accesso non configurato.' };
+      return { status: 500, error: 'Accesso non configurato: nel pannello Cloudflare mancano ACCESS_TEAM_DOMAIN o ACCESS_AUD (Worker → Settings → Variables and Secrets).' };
     }
     const token = request.headers.get('Cf-Access-Jwt-Assertion');
     if (!token) return { status: 401, error: 'Accesso richiesto.' };

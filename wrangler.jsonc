@@ -32,6 +32,9 @@
     "APP_ENV": "prova",
     "ALLOW_DEMO": "true"
   },
+  // Le variabili impostate nel pannello Cloudflare (es. ACCESS_TEAM_DOMAIN, ACCESS_AUD) restano
+  // anche dopo ogni pubblicazione da GitHub, anche se salvate come "Text" invece che "Secret".
+  "keep_vars": true,
 
   "observability": { "enabled": true }
 }

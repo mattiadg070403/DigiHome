@@ -7,8 +7,9 @@
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
 
-  // Nessun indirizzo pubblico automatico: il gestionale si apre solo dal dominio protetto da Access.
-  "workers_dev": false,
+  // Beta: indirizzo gratuito *.workers.dev, protetto da Cloudflare Access (attivato dal pannello).
+  // Nessun indirizzo di anteprima: ogni versione ha un solo indirizzo, quello protetto.
+  "workers_dev": true,
   "preview_urls": false,
 
   "assets": {

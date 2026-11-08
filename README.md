@@ -26,15 +26,15 @@ Da fare una volta sola, nel pannello Cloudflare.
 3. **Worker collegato a GitHub.** Workers e Pages → *Create* → *Import a repository* → questo archivio.
    - Comando di build: nessuno.
    - Comando di deploy: `npx wrangler d1 migrations apply digihome-prova --remote && npx wrangler deploy`
-4. **Indirizzo.** Nel Worker: Impostazioni → Domini e route → *Add custom domain* → es. `gestione.faroblugallipoli.it`.
-5. **Controllo di accesso.** Zero Trust → Access → Applications → *Add* → *Self-hosted*:
-   - dominio: lo stesso del punto 4;
-   - policy *Allow* con le email autorizzate;
-   - metodo di accesso: *One-time PIN* (codice via email).
+4. **Indirizzo e controllo di accesso.** Beta: indirizzo gratuito `digihome-prova.<account>.workers.dev`.
+   - Nel Worker: Impostazioni → Domini e route → riga *workers.dev* → attivare **Cloudflare Access**.
+   - In Zero Trust → Access → Applications, aprire l'applicazione creata: policy *Allow* con le email autorizzate, metodo di accesso *One-time PIN*.
    - Copiare l'*Application Audience (AUD) Tag*.
+   (Con un dominio proprio: Domini e route → *Add custom domain*, poi un'applicazione Access *Self-hosted* su quel dominio.)
+5. Team Zero Trust della beta: `https://round-art-3b9a.cloudflareaccess.com`.
 6. **Segreti del Worker.** Impostazioni → Variabili e segreti → aggiungere come **Secret**:
-   - `ACCESS_TEAM_DOMAIN` = indirizzo del team (punto 2)
-   - `ACCESS_AUD` = AUD Tag (punto 5)
+   - `ACCESS_TEAM_DOMAIN` = indirizzo del team (punto 5)
+   - `ACCESS_AUD` = AUD Tag (punto 4)
    - `BOOTSTRAP_ADMIN_EMAIL` = email dell'amministratore (diventa amministratore al primo accesso)
 7. Aprire l'indirizzo, accedere con il codice ricevuto via email, poi **Impostazioni → Carica dati di prova**.
 

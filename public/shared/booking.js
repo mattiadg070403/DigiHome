@@ -58,8 +58,12 @@ export function checkinSteps(b) {
     help: 'Annota luce e gas, utile per conoscere i consumi del soggiorno.',
   });
   steps.push({
-    key: 'alloggiati', required: false, title: 'Schedine Alloggiati inviate',
-    help: 'Vanno inviate entro 24 ore dall’arrivo. Puoi concludere il check-in e spuntarla dopo.',
+    key: 'alloggiati', required: true, title: 'Schedine Alloggiati inviate',
+    help: 'Obbligatorie: invio sul portale Alloggiati Web della Polizia entro 24 ore dall’arrivo.',
+  });
+  steps.push({
+    key: 'dms', required: true, title: 'Comunicazione DMS Puglia',
+    help: 'Obbligatoria: registra l’arrivo degli ospiti sul portale DMS della Regione Puglia.',
   });
   return steps;
 }
@@ -111,39 +115,112 @@ export function missingRequired(steps, done) {
   return steps.filter((s) => s.required && !done[s.key]);
 }
 
-/** Etichetta della fase, calcolata da fase salvata e date. */
-export function phase(b, today) {
+/* ---------- Scadenza del check-in (24 ore dall'arrivo) ---------- */
+
+/** Orario di arrivo usato per i conteggi: quello previsto, altrimenti l'inizio del check-in della casa. */
+export function arrivalTime(b, house = {}) {
+  return b.arrival_time || house.checkin_time || '14:00';
+}
+
+/** Entro quando va concluso il check-in: 24 ore dopo l'arrivo. { date, time } */
+export function checkinDeadline(b, house = {}) {
+  return { date: addDays(b.check_in, 1), time: arrivalTime(b, house) };
+}
+
+/**
+ * Il check-in è oltre le 24 ore dall'arrivo e non è concluso?
+ * `time` è l'ora attuale 'HH:MM'; se manca si guarda solo la data.
+ */
+export function checkinOverdue(b, today, { time, house } = {}) {
+  if (!isCheckinOpen(b, today)) return false;
+  const dl = checkinDeadline(b, house);
+  if (today > dl.date) return true;
+  return today === dl.date && Boolean(time) && time >= dl.time;
+}
+
+/** Check-in iniziato o dovuto e non ancora concluso (oppure concluso con passaggi obbligatori mancanti). */
+function isCheckinOpen(b, today) {
+  if (b.stage === 'confermata') return b.check_in <= today;
+  if (b.stage === 'in_casa') return checkinMissing(b).length > 0;
+  return false;
+}
+
+/** Passaggi obbligatori del check-in ancora da fare. */
+export function checkinMissing(b) {
+  return missingRequired(checkinSteps(b), parseSteps(b.checkin_steps));
+}
+
+/** Nome breve di un passaggio, per frasi come "mancano documenti, DMS Puglia". */
+export function stepLabel(s) {
+  return STEP_SHORT[s.key] || s.title.toLowerCase();
+}
+
+function missingText(list) {
+  const names = list.map(stepLabel);
+  return names.length ? `mancano ${names.join(', ')}` : 'manca solo la conferma finale';
+}
+
+const STEP_SHORT = {
+  ospiti: 'conta ospiti', documenti: 'documenti', minori: 'delega minorenni', pagamenti: 'pagamenti',
+  contratto: 'contratto', alloggiati: 'schedine Alloggiati', dms: 'DMS Puglia',
+};
+
+function deadlineText(b, house) {
+  const dl = checkinDeadline(b, house);
+  return `${fmtShort(dl.date)} alle ${dl.time}`;
+}
+
+/**
+ * Etichetta della fase, calcolata da fase salvata, date e ora.
+ * opt: { time: 'HH:MM', house } (servono per la scadenza delle 24 ore).
+ */
+export function phase(b, today, opt = {}) {
   if (b.stage === 'cancellata') return { key: 'cancellata', label: 'Cancellata' };
   if (b.stage === 'chiusa') return { key: 'chiusa', label: 'Chiusa' };
   if (b.stage === 'partita') return { key: 'partita', label: 'Da chiudere' };
   if (b.stage === 'in_casa') {
+    if (checkinMissing(b).length) return { key: 'checkin_ritardo', label: 'Check-in incompleto' };
     if (b.check_out === today) return { key: 'parte_oggi', label: 'Parte oggi' };
     if (b.check_out < today) return { key: 'checkout_mancante', label: 'Check-out da registrare' };
     return { key: 'in_casa', label: 'In casa' };
   }
   const d = daysBetween(today, b.check_in);
-  if (d === 0) return { key: 'arriva_oggi', label: 'Arriva oggi' };
-  if (d < 0) return { key: 'checkin_mancante', label: 'Check-in da registrare' };
+  if (d <= 0) {
+    if (checkinOverdue(b, today, opt)) return { key: 'checkin_ritardo', label: 'Check-in in ritardo' };
+    const started = Object.values(parseSteps(b.checkin_steps)).some(Boolean);
+    if (d < 0 || started) return { key: 'checkin_corso', label: 'Check-in in corso' };
+    return { key: 'arriva_oggi', label: 'Arriva oggi' };
+  }
   if (d === 1) return { key: 'in_arrivo', label: 'Arriva domani' };
   if (d <= 7) return { key: 'in_arrivo', label: `Arriva tra ${d} giorni` };
   return { key: 'confermata', label: 'Confermata' };
 }
 
-/** Il prossimo passo da fare, con l'azione del pulsante principale (o null). */
-export function nextStep(b, today, houseTimes = {}) {
+/** Il prossimo passo da fare, con l'azione del pulsante principale (o null). `time`: ora attuale 'HH:MM'. */
+export function nextStep(b, today, houseTimes = {}, time) {
   const outTime = houseTimes.checkout_time || '10:00';
   const inTime = houseTimes.checkin_time || '14:00';
   if (b.stage === 'cancellata') return { text: 'Prenotazione cancellata', action: null };
   if (b.stage === 'chiusa') return { text: 'Soggiorno chiuso', action: null };
   if (b.stage === 'partita') return { text: 'Ospiti partiti: chiudi il soggiorno', action: 'close', label: 'Chiudi il soggiorno' };
   if (b.stage === 'in_casa') {
-    const done = parseSteps(b.checkin_steps);
-    if (!done.alloggiati) return { text: 'Schedine Alloggiati da inviare entro 24 ore dall’arrivo', action: 'alloggiati', label: 'Segna come inviate' };
+    const missing = checkinMissing(b);
+    if (missing.length) return { text: `Check-in incompleto: ${missingText(missing)}`, action: 'checkin', label: 'Completa il check-in', urgent: true };
     if (b.check_out <= today) return { text: `Check-out ${b.check_out === today ? 'oggi' : 'da registrare'} entro le ${outTime}`, action: 'checkout', label: 'Inizia check-out' };
     return { text: `Check-out ${fmtShort(b.check_out)} entro le ${outTime}`, action: 'checkout', label: 'Prepara check-out' };
   }
   const d = daysBetween(today, b.check_in);
-  if (d <= 0) return { text: `Check-in dalle ${inTime}${b.arrival_time ? ` · arrivo previsto alle ${b.arrival_time}` : ''}`, action: 'checkin', label: 'Inizia check-in' };
+  if (d <= 0) {
+    const missing = checkinMissing(b);
+    const started = Object.values(parseSteps(b.checkin_steps)).some(Boolean);
+    if (checkinOverdue(b, today, { time, house: houseTimes })) {
+      return { text: `Check-in non concluso da oltre 24 ore: ${missingText(missing)}`, action: 'checkin', label: 'Completa il check-in', urgent: true };
+    }
+    if (d < 0 || started) {
+      return { text: `Concludi il check-in entro ${deadlineText(b, houseTimes)}: ${missingText(missing)}`, action: 'checkin', label: 'Continua il check-in' };
+    }
+    return { text: `Check-in dalle ${inTime}${b.arrival_time ? ` · arrivo previsto alle ${b.arrival_time}` : ''}`, action: 'checkin', label: 'Inizia check-in' };
+  }
   if (d <= 3 && !b.arrival_time) return { text: `Arrivo ${fmtShort(b.check_in)}: chiedi l’orario`, action: 'arrival', label: 'Segna orario di arrivo' };
   return { text: `Arrivo ${fmtShort(b.check_in)}${b.arrival_time ? ` alle ${b.arrival_time}` : ''}`, action: null };
 }
@@ -163,9 +240,12 @@ export function statusTags(b, today) {
   } else {
     tags.push({ text: `Pagato su ${CHANNELS[b.channel].label}`, tone: 'neutral' });
   }
-  if (b.stage === 'in_casa') {
+  if (b.stage === 'in_casa' || (b.stage === 'confermata' && b.check_in <= today)) {
     const done = parseSteps(b.checkin_steps);
-    tags.push(done.alloggiati ? { text: 'Schedine inviate', tone: 'ok' } : { text: 'Schedine da inviare', tone: 'warn' });
+    if (b.stage === 'in_casa' || done.alloggiati || done.dms) {
+      tags.push(done.alloggiati ? { text: 'Alloggiati inviate', tone: 'ok' } : { text: 'Alloggiati da inviare', tone: 'warn' });
+      tags.push(done.dms ? { text: 'DMS Puglia fatto', tone: 'ok' } : { text: 'DMS Puglia da fare', tone: 'warn' });
+    }
   }
   if (b.security_cents > 0) {
     const tone = b.security_status === 'da_incassare' && b.stage !== 'confermata' ? 'warn' : 'neutral';
@@ -177,9 +257,9 @@ export function statusTags(b, today) {
 
 /**
  * Avvisi: cosa manca o va fatto. level: urgente | attenzione | info
- * `all` serve a controllare le sovrapposizioni.
+ * `all` serve a controllare le sovrapposizioni; opt: { time: 'HH:MM', house } per la scadenza delle 24 ore.
  */
-export function bookingAlerts(b, today, all = []) {
+export function bookingAlerts(b, today, all = [], opt = {}) {
   const out = [];
   if (b.stage === 'cancellata' || b.stage === 'chiusa') return out;
   const add = (level, text, key) => out.push({ level, text, key, bookingId: b.id, houseId: b.house_id });
@@ -189,19 +269,25 @@ export function bookingAlerts(b, today, all = []) {
     && overlaps(b.check_in, b.check_out, o.check_in, o.check_out));
   if (clash) add('urgente', `Date sovrapposte con ${clash.guest_name} (${fmtShort(clash.check_in)} → ${fmtShort(clash.check_out)})`, 'overlap');
 
+  if (b.stage === 'confermata' || b.stage === 'in_casa') {
+    const missing = checkinMissing(b);
+    const started = Object.values(parseSteps(b.checkin_steps)).some(Boolean);
+    if (checkinOverdue(b, today, opt)) {
+      add('urgente', `Check-in non concluso da oltre 24 ore dall’arrivo: ${missingText(missing)}`, 'checkin');
+    } else if (b.stage === 'in_casa' && missing.length) {
+      add('urgente', `Check-in incompleto: ${missingText(missing)} (entro ${deadlineText(b, opt.house)})`, 'checkin');
+    } else if (b.stage === 'confermata' && (d < 0 || (d === 0 && started))) {
+      add('attenzione', `Check-in da concludere entro ${deadlineText(b, opt.house)}: ${missingText(missing)}`, 'checkin');
+    }
+  }
   if (b.stage === 'confermata') {
-    if (d < 0) add('urgente', 'Check-in non registrato', 'checkin');
     if (b.channel === 'diretto' && b.deposit_cents > 0 && !b.deposit_paid && d <= 14) add('attenzione', 'Acconto non ancora ricevuto', 'deposit');
     if (b.channel === 'diretto' && b.total_cents === 0) add('attenzione', 'Manca il prezzo totale', 'total');
     if (d >= 0 && d <= 3 && !b.arrival_time) add('attenzione', 'Manca l’orario di arrivo', 'arrival');
     if (d <= 7 && !b.phone) add('attenzione', 'Manca il numero di telefono', 'phone');
     if (d <= 7 && b.minors_delegation === 'da_chiedere') add('attenzione', 'Delega per i minorenni da chiedere', 'minors');
   }
-  if (b.stage === 'in_casa') {
-    const done = parseSteps(b.checkin_steps);
-    if (!done.alloggiati) add('urgente', 'Schedine Alloggiati da inviare (entro 24 ore dall’arrivo)', 'alloggiati');
-    if (b.check_out < today) add('urgente', 'Check-out non registrato', 'checkout');
-  }
+  if (b.stage === 'in_casa' && b.check_out < today) add('urgente', 'Check-out non registrato', 'checkout');
   if (b.stage === 'partita') add(b.check_out < addDays(today, -2) ? 'attenzione' : 'info', 'Soggiorno da chiudere: segna se chiedere la recensione', 'close');
   return out;
 }
@@ -349,6 +435,7 @@ export function arrivalReminders(b, house = {}) {
   if (b.minors_delegation === 'da_chiedere') items.push('Delega per i minorenni ancora da ricevere');
   if (b.minors_delegation === 'ricevuta') items.push('Delega per i minorenni ricevuta: controllala');
   items.push(b.arrival_time ? `Arrivo previsto alle ${b.arrival_time}` : `Orario di arrivo non ancora noto (check-in dalle ${house.checkin_time || '14:00'})`);
+  items.push(`Obbligatorio entro 24 ore dall’arrivo (${deadlineText(b, house)}): schedine Alloggiati e comunicazione DMS Puglia`);
   if (b.notes) items.push(`Note: ${b.notes}`);
   return items;
 }

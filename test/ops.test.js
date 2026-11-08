@@ -135,9 +135,14 @@ test('check-in guidato: non si conclude senza i passaggi obbligatori, poi sì', 
   for (const step of ['ospiti', 'documenti', 'pagamenti', 'contratto']) {
     await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: record.id, flow: 'checkin', step, done: true } });
   }
+  // Alloggiati e DMS Puglia sono obbligatori: senza, il check-in non si conclude.
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: record.id, version: 1 } }), 'validation');
+  await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: record.id, flow: 'checkin', step: 'alloggiati', done: true } });
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: record.id, version: 1 } }), 'validation');
+  await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: record.id, flow: 'checkin', step: 'dms', done: true } });
   const cur = await db.prepare('SELECT version, checkin_steps FROM bookings WHERE id = ?').bind(record.id).first();
   assert.equal(cur.version, 1, 'spuntare un passaggio non cambia la versione');
-  assert.deepEqual(JSON.parse(cur.checkin_steps), { ospiti: 1, documenti: 1, pagamenti: 1, contratto: 1 });
+  assert.deepEqual(JSON.parse(cur.checkin_steps), { ospiti: 1, documenti: 1, pagamenti: 1, contratto: 1, alloggiati: 1, dms: 1 });
   const r = await runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: record.id, version: 1 } });
   assert.equal(r.record.stage, 'in_casa');
   assert.equal(r.record.security_status, 'incassata');
@@ -151,7 +156,7 @@ test('delega minorenni: diventa un passaggio obbligatorio del check-in', async (
   const { db, admin } = await setup();
   const { record } = await runOp(db, admin, { opId: op(), type: 'booking.create',
     payload: { booking: booking({ check_in: T, check_out: addDays(T, 5), minors_delegation: 'da_chiedere' }) } });
-  for (const step of ['ospiti', 'documenti', 'pagamenti', 'contratto']) {
+  for (const step of ['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']) {
     await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: record.id, flow: 'checkin', step, done: true } });
   }
   await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: record.id, version: 1 } }), 'validation');
@@ -164,7 +169,7 @@ test('check-out: cauzione obbligatoria, trattenuta con importo e motivo, poi chi
   const { db, admin } = await setup();
   const { record } = await runOp(db, admin, { opId: op(), type: 'booking.create',
     payload: { booking: booking({ check_in: addDays(T, -3), check_out: T }) } });
-  for (const step of ['ospiti', 'documenti', 'pagamenti', 'contratto']) {
+  for (const step of ['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']) {
     await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: record.id, flow: 'checkin', step, done: true } });
   }
   await runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: record.id, version: 1 } });

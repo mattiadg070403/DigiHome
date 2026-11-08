@@ -13,7 +13,7 @@ export function demoBookings(today = todayRome()) {
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Famiglia Conti (prova)', phone: '+39 000 000 0001', guests: 4,
       check_in: d(-3), check_out: d(2), arrival_time: '16:00', total_cents: 98000, deposit_cents: 30000, deposit_paid: 1,
       security_cents: 20000, security_status: 'incassata', stage: 'in_casa',
-      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'contatori', 'alloggiati']) },
+      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'contatori', 'alloggiati', 'dms']) },
     { house_id: 'isola-bella', channel: 'airbnb', guest_name: 'Lena Hoffmann (prova)', phone: null, guests: 2,
       check_in: d(2), check_out: d(9), arrival_time: null, total_cents: 112000, security_cents: 0, security_status: 'nessuna', stage: 'confermata' },
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Giulia Ferri (prova)', phone: '+39 000 000 0002', guests: 3,
@@ -21,8 +21,13 @@ export function demoBookings(today = todayRome()) {
       security_cents: 20000, security_status: 'da_incassare', stage: 'confermata', minors_delegation: 'da_chiedere' },
     { house_id: 'isola-bella', channel: 'booking', guest_name: 'Pierre Laurent (prova)', guests: 2,
       check_in: d(-20), check_out: d(-13), total_cents: 84000, security_status: 'nessuna', stage: 'chiusa', review_ok: 1,
-      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati']), checkout_steps: steps(['controllo', 'chiavi']) },
+      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi']) },
     // Faro Blu
+    // Check-in lasciato a metà due giorni fa: mancano Alloggiati e DMS, quindi è oltre le 24 ore.
+    { house_id: 'faro-blu', channel: 'diretto', guest_name: 'Coppia Rizzi (prova)', phone: '+39 000 000 0005', guests: 2,
+      check_in: d(-2), check_out: d(0), arrival_time: '15:00', total_cents: 36000, deposit_cents: 10000, deposit_paid: 1,
+      security_cents: 0, security_status: 'nessuna', stage: 'confermata',
+      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto']) },
     { house_id: 'faro-blu', channel: 'booking', guest_name: 'Gruppo Ferraro (prova)', phone: '+39 000 000 0003', guests: 9,
       check_in: d(0), check_out: d(7), arrival_time: '16:30', total_cents: 245000, security_cents: 30000,
       security_status: 'da_incassare', stage: 'confermata', checkin_steps: steps(['ospiti']) },
@@ -31,7 +36,7 @@ export function demoBookings(today = todayRome()) {
       security_cents: 30000, security_status: 'da_incassare', stage: 'confermata' },
     { house_id: 'faro-blu', channel: 'airbnb', guest_name: 'Sophie Weber (prova)', guests: 6,
       check_in: d(-9), check_out: d(-2), total_cents: 168000, security_cents: 30000, security_status: 'restituita', stage: 'partita',
-      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati']), checkout_steps: steps(['controllo', 'chiavi', 'cauzione']) },
+      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi', 'cauzione']) },
   ];
 }
 

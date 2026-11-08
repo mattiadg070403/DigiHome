@@ -41,7 +41,8 @@ function list(ctx, house, mine) {
     || (season === thisYear && b.stage !== 'chiusa' && b.stage !== 'cancellata' && b.check_out >= ui.today));
 
   const groups = [
-    { key: 'subito', title: 'Da sistemare subito', test: (p) => p.key === 'checkin_mancante' || p.key === 'checkout_mancante' },
+    { key: 'subito', title: 'Da sistemare subito', test: (p) => p.key === 'checkin_ritardo' || p.key === 'checkout_mancante' },
+    { key: 'corso', title: 'Check-in in corso', test: (p) => p.key === 'checkin_corso' },
     { key: 'casa', title: 'In casa', test: (p) => ['in_casa', 'parte_oggi'].includes(p.key) },
     { key: 'arrivo', title: 'In arrivo', test: (p) => ['arriva_oggi', 'in_arrivo', 'confermata'].includes(p.key) },
     { key: 'chiudere', title: 'Da chiudere', test: (p) => p.key === 'partita' },
@@ -56,7 +57,7 @@ function list(ctx, house, mine) {
   seasonSel.style.flex = '0 0 auto';
 
   const blocks = groups.map((g) => {
-    let items = inSeason.filter((b) => g.test(phase(b, ui.today)));
+    let items = inSeason.filter((b) => g.test(phase(b, ui.today, ctx.clock(b))));
     if (g.reverse) items = items.slice().reverse();
     if (!items.length) return null;
     const rows = h('div', { class: 'card' }, h('div', { class: 'rows' }, items.map((b) => bookingRow(ctx, b))));
@@ -77,9 +78,9 @@ function list(ctx, house, mine) {
 }
 
 function bookingRow(ctx, b) {
-  const p = phase(b, ctx.ui.today);
-  const tone = ['checkin_mancante', 'checkout_mancante'].includes(p.key) ? 'bad'
-    : ['arriva_oggi', 'parte_oggi', 'partita'].includes(p.key) ? 'warn'
+  const p = phase(b, ctx.ui.today, ctx.clock(b));
+  const tone = ['checkin_ritardo', 'checkout_mancante'].includes(p.key) ? 'bad'
+    : ['arriva_oggi', 'checkin_corso', 'parte_oggi', 'partita'].includes(p.key) ? 'warn'
       : p.key === 'in_casa' ? 'ok' : '';
   const n = nights(b.check_in, b.check_out);
   return h('a', { class: 'row', href: `#/p/${b.id}` },

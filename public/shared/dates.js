@@ -23,6 +23,13 @@ export function todayRome(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
+/** Ora attuale in Italia, come 'HH:MM' (24 ore). */
+export function timeRome(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
+  const get = (t) => parts.find((x) => x.type === t)?.value || '00';
+  return `${get('hour')}:${get('minute')}`;
+}
+
 function toUtc(s) {
   const [y, m, d] = s.split('-').map(Number);
   return Date.UTC(y, m - 1, d);

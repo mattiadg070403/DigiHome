@@ -58,7 +58,8 @@ export function openDialog({ title, content, actions = [], onClose, wide = false
     setBanner(text, extra) {
       banner.replaceChildren();
       if (!text) { banner.hidden = true; return; }
-      banner.append(h('span', { text }), extra || null);
+      banner.append(h('span', { text }));
+      if (extra) banner.append(extra);
       banner.hidden = false;
     },
   };

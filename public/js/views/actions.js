@@ -9,15 +9,6 @@ export function runNextAction(ctx, b, action) {
   if (action === 'checkout') return ctx.go(`p/${b.id}/checkout`);
   if (action === 'close') return closeDialog(ctx, b);
   if (action === 'arrival') return arrivalDialog(ctx, b);
-  if (action === 'alloggiati') {
-    return ctx.act('booking.step', { id: b.id, flow: 'checkin', step: 'alloggiati', done: true }, {
-      optimistic: (d) => patchSteps(d, b.id, 'checkin_steps', 'alloggiati', 1),
-      message: 'Schedine segnate come inviate',
-      undo: () => ctx.act('booking.step', { id: b.id, flow: 'checkin', step: 'alloggiati', done: false }, {
-        optimistic: (d) => patchSteps(d, b.id, 'checkin_steps', 'alloggiati', 0),
-      }),
-    }).catch(() => {});
-  }
   return null;
 }
 

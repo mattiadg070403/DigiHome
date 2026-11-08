@@ -160,8 +160,8 @@ export function dateRangeField(opts) {
         h('div', { class: 'rp-legend' }, h('span', { class: 'rp-key occ' }), 'occupato'),
         h('button', { class: 'btn ghost icon-only', type: 'button', attrs: { 'aria-label': 'Mese successivo' }, onClick: () => shift(1) }, icon('chevron'))),
       h('div', { class: 'rp-months' }, month(shown), h('div', { class: 'rp-second' }, month(second))),
-      ci || co ? h('button', { class: 'btn ghost small', type: 'button', text: 'Cancella le date',
-        onClick: () => { ci = null; co = null; shown = opts.today.slice(0, 7); update(true); } }) : null);
+      ...(ci || co ? [h('button', { class: 'btn ghost small', type: 'button', text: 'Cancella le date',
+        onClick: () => { ci = null; co = null; shown = opts.today.slice(0, 7); update(true); } })] : []));
   }
 
   update(false);
@@ -208,7 +208,7 @@ export function timeField({ value = '', onChange, quick = ['14:00', '15:00', '16
     chips.replaceChildren(...quick.map((q) => h('button', {
       type: 'button', class: ['chip', current === q && 'on'], text: q, attrs: { 'aria-pressed': String(current === q) },
       onClick: () => { current = q; input.value = q; err.hidden = true; drawChips(); onChange(q); },
-    })), current ? h('button', { type: 'button', class: 'chip ghost', text: 'Togli', onClick: () => { current = ''; input.value = ''; drawChips(); onChange(''); } }) : null);
+    })), ...(current ? [h('button', { type: 'button', class: 'chip ghost', text: 'Togli', onClick: () => { current = ''; input.value = ''; drawChips(); onChange(''); } })] : []));
   }
   drawChips();
   const el = h('div', { class: 'time-field' }, input, chips, err);

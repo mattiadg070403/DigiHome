@@ -73,3 +73,11 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
 - **Orario** con i due punti automatici e orari rapidi; **persone** con − e + e avviso immediato oltre il massimo della casa.
 - **Promemoria per l'arrivo** (lenzuola, asciugamani, cosa incassare, delega, orario) nella scheda e come primo passaggio del check-in.
 - **Avvisi con azione**: chiedere su WhatsApp con messaggio pronto, segnare come ricevuto, completare il dato mancante.
+
+## Novità della 0.3 (8 novembre 2026)
+
+- **Schedine Alloggiati e comunicazione DMS Puglia obbligatorie.** Sono due passaggi `required` del check-in (`alloggiati`, `dms` in `checkinSteps`): il server rifiuta "Concludi check-in" se mancano. Compaiono anche nel promemoria per l'arrivo, con l'orario limite.
+- **Scadenza delle 24 ore** (`public/shared/booking.js`): arrivo = data di arrivo + orario previsto (o inizio check-in della casa); il check-in va concluso entro 24 ore. Funzioni `checkinDeadline`, `checkinOverdue`, `checkinMissing`. Nuove fasi: `checkin_corso` ("Check-in in corso") e `checkin_ritardo` ("Check-in in ritardo" / "Check-in incompleto"). Prima della scadenza: avviso di attenzione con l'orario limite e cosa manca; dopo: avviso urgente, riquadro rosso in cima a Oggi, prossimo passo rosso nella scheda della casa e banner nella procedura di check-in.
+- L'app ricalcola ogni minuto (ora italiana, `timeRome`) e ridisegna appena una prenotazione supera la scadenza.
+- Corretto il testo "null" che compariva accanto agli orari rapidi, sotto il calendario senza date e nei messaggi delle finestre (gli elementi condizionali passati a `append`/`replaceChildren` nativi).
+- Notifica push con l'app chiusa: non ancora presente (serve Web Push con service worker e un controllo programmato sul server).

@@ -17,11 +17,26 @@ export function renderToday(ctx) {
     h('div', { class: 'page-head' },
       h('div', null, h('h1', { text: 'Oggi' }), h('div', { class: 'sub', text: `${longDate.charAt(0).toUpperCase()}${longDate.slice(1)} · tutte e due le case` })),
       ctx.syncChip()),
+    overdueBanner(ctx),
     demoBanner(ctx),
     draftBanner(ctx),
     h('div', { class: 'grid-2' }, d.houses.map((house) => houseCard(ctx, house))),
     alertsSection(ctx),
     tasksSection(ctx));
+}
+
+/** In cima a Oggi: check-in non conclusi oltre le 24 ore dall'arrivo (Alloggiati e DMS sono obbligatori). */
+function overdueBanner(ctx) {
+  const d = ctx.store.data;
+  const late = d.bookings.flatMap((b) => bookingAlerts(b, ctx.ui.today, [], ctx.clock(b))
+    .filter((a) => a.key === 'checkin' && a.level === 'urgente').map((a) => ({ a, b })));
+  if (!late.length) return null;
+  const houses = Object.fromEntries(d.houses.map((x) => [x.id, x]));
+  return h('div', { class: 'banner bad urgent-list', attrs: { role: 'alert' } },
+    h('strong', { text: late.length === 1 ? 'Check-in da completare subito' : `${late.length} check-in da completare subito` }),
+    late.map(({ a, b }) => h('div', { class: 'urgent-item' },
+      h('span', { text: `${houses[b.house_id]?.name || ''} · ${b.guest_name}: ${a.text}` }),
+      h('button', { class: 'btn small', type: 'button', text: 'Completa il check-in', onClick: () => runNextAction(ctx, b, 'checkin') }))));
 }
 
 function demoBanner(ctx) {
@@ -37,7 +52,7 @@ function houseCard(ctx, house) {
   const d = store.data;
   const { current, next } = currentAndNext(d.bookings, house.id, ui.today);
   const openHouse = () => { ctx.setHouse(house.id); ctx.go('prenotazioni'); };
-  const ph = current ? phase(current, ui.today) : null;
+  const ph = current ? phase(current, ui.today, ctx.clock(current)) : null;
 
   const top = h('button', { class: 'house-top', type: 'button', onClick: openHouse, attrs: { 'aria-label': `Apri le prenotazioni di ${house.name}` } },
     h('span', { class: 'name', text: house.name }),
@@ -45,14 +60,14 @@ function houseCard(ctx, house) {
 
   let body;
   if (current) {
-    const step = nextStep(current, ui.today, house);
+    const step = nextStep(current, ui.today, house, ui.now);
     body = h('div', { class: 'house-body' },
       h('a', { href: `#/p/${current.id}`, class: 'stack' },
         h('div', null,
           h('div', { class: 'guest', text: current.guest_name }),
           h('div', { class: 'guest-meta' }, `${current.guests} ospiti · ${fmtRange(current.check_in, current.check_out)} · `, CHANNELS[current.channel].label))),
       h('div', { class: 'tags' }, statusTags(current, ui.today).map(tag)),
-      h('div', { class: 'next-box' },
+      h('div', { class: ['next-box', step.urgent && 'urgent'] },
         h('div', { class: 'next-label', text: 'Prossimo passo' }),
         h('div', { text: step.text }),
         step.action ? h('button', { class: 'btn house', type: 'button', text: step.label, onClick: () => runNextAction(ctx, current, step.action) }) : null),
@@ -111,7 +126,7 @@ function alertsSection(ctx) {
   const d = store.data;
   const houses = Object.fromEntries(d.houses.map((x) => [x.id, x]));
   // Le cose da fare scadute si vedono già nel loro elenco, con l'etichetta "scaduta".
-  const all = d.bookings.flatMap((b) => bookingAlerts(b, ui.today, d.bookings).map((a) => ({ ...a, guest: b.guest_name }))).sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
+  const all = d.bookings.flatMap((b) => bookingAlerts(b, ui.today, d.bookings, ctx.clock(b)).map((a) => ({ ...a, guest: b.guest_name }))).sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
 
   const levelIcon = { urgente: 'alert', attenzione: 'alert', info: 'chevron' };
   return h('section', { class: 'section', attrs: { 'aria-label': 'Da sistemare' } },

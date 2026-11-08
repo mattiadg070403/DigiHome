@@ -6,7 +6,7 @@ import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro } from '../../shared/money.js';
 import {
   CHANNELS, arrivalReminders, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
-  missingRequired, nextStep, parseSteps, phase, statusTags,
+  missingRequired, nextStep, parseSteps, phase, statusTags, stepLabel,
 } from '../../shared/booking.js';
 import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
@@ -28,9 +28,9 @@ export function renderDetail(ctx, id) {
   const b = d.bookings.find((x) => x.id === id);
   if (!b) return notFound(ctx);
   const house = d.houses.find((x) => x.id === b.house_id);
-  const p = phase(b, ui.today);
-  const step = nextStep(b, ui.today, house);
-  const alerts = bookingAlerts(b, ui.today, d.bookings);
+  const p = phase(b, ui.today, ctx.clock(b));
+  const step = nextStep(b, ui.today, house, ui.now);
+  const alerts = bookingAlerts(b, ui.today, d.bookings, ctx.clock(b));
   const n = nights(b.check_in, b.check_out);
   const year = Number(ui.today.slice(0, 4));
   const editable = !['cancellata', 'chiusa'].includes(b.stage);
@@ -46,7 +46,7 @@ export function renderDetail(ctx, id) {
       h('div', { class: 'btn-row' },
         editable ? h('button', { class: 'btn', type: 'button', onClick: () => openBookingForm(ctx, { existing: b }) }, icon('edit', { size: 16 }), 'Modifica') : null)));
 
-  const next = step.action || b.stage === 'confermata' ? h('div', { class: 'next-box' },
+  const next = step.action || b.stage === 'confermata' ? h('div', { class: ['next-box', step.urgent && 'urgent'] },
     h('div', { class: 'next-label', text: 'Prossimo passo' }),
     h('div', { text: step.text }),
     step.action ? h('button', { class: 'btn house', type: 'button', text: step.label, onClick: () => runNextAction(ctx, b, step.action) }) : null) : null;
@@ -228,6 +228,8 @@ export function renderFlow(ctx, id, flow) {
   const effectiveDone = isIn ? done : { ...done, cauzione: done.cauzione || false };
   const missing = missingRequired(steps, effectiveDone);
   const count = steps.filter((s) => effectiveDone[s.key]).length;
+  // Scadenza delle 24 ore: ben visibile in cima alla procedura finché il check-in non è completo.
+  const deadline = isIn ? bookingAlerts(b, ui.today, [], ctx.clock(b)).find((a) => a.key === 'checkin') : null;
 
   const toggle = (s) => {
     if (!canEdit) return;
@@ -309,13 +311,15 @@ export function renderFlow(ctx, id, flow) {
 
   let footer;
   if (finished) {
-    footer = h('div', { class: 'banner' }, h('span', { text: isIn ? 'Check-in già concluso.' : 'Check-out già concluso.' }),
-      isIn && b.stage === 'in_casa' && !done.alloggiati ? h('span', { text: 'Puoi ancora spuntare le schedine Alloggiati qui sopra.' }) : null);
+    const left = isIn && b.stage === 'in_casa' ? missing : [];
+    footer = left.length
+      ? h('div', { class: 'banner bad', text: `Check-in incompleto. Spunta qui sopra: ${left.map(stepLabel).join(', ')}.` })
+      : h('div', { class: 'banner', text: isIn ? 'Check-in concluso.' : 'Check-out concluso.' });
   } else if (!canEdit) {
     footer = h('div', { class: 'banner warn', text: isIn ? 'Il check-in non è possibile in questa fase.' : 'Il check-out si fa dopo il check-in.' });
   } else {
     finishBtn = h('button', { class: 'btn house', type: 'button', disabled: !ready, text: finishLabel, onClick: finish });
-    finishHint = h('span', { class: 'muted small', hidden: ready, text: missingNow.length ? `Mancano: ${missingNow.map((s) => s.title.toLowerCase()).join(', ')}.` : 'Indica cosa fare della cauzione.' });
+    finishHint = h('span', { class: 'muted small', hidden: ready, text: missingNow.length ? `Mancano: ${missingNow.map(stepLabel).join(', ')}.` : 'Indica cosa fare della cauzione.' });
     footer = h('div', { class: 'btn-row' }, finishBtn, finishHint);
   }
 
@@ -328,6 +332,7 @@ export function renderFlow(ctx, id, flow) {
         h('h1', { text: `${isIn ? 'Check-in' : 'Check-out'} · ${house.name}` }),
         h('div', { class: 'sub', text: `${b.guest_name} · ${b.guests} persone · ${isIn ? `arrivo ${fmtShort(b.check_in)}${b.arrival_time ? ` alle ${b.arrival_time}` : ''}` : `partenza ${fmtShort(b.check_out)} entro le ${house.checkout_time}`}` })),
       h('span', { class: 'progress', text: `${count} di ${steps.length} fatti` })),
+    deadline ? h('div', { class: ['banner', deadline.level === 'urgente' ? 'bad' : 'warn'], text: deadline.text, attrs: { role: 'status' } }) : null,
     h('div', { class: 'card' }, rows),
     h('div', { class: 'section' }, footer));
 }

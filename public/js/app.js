@@ -3,7 +3,8 @@
 import { h, icon } from './dom.js';
 import { createStore } from './store.js';
 import { APP_VERSION } from '../shared/version.js';
-import { todayRome } from '../shared/dates.js';
+import { timeRome, todayRome } from '../shared/dates.js';
+import { checkinOverdue } from '../shared/booking.js';
 import { renderToday } from './views/today.js';
 import { renderBookings } from './views/bookings.js';
 import { renderDetail, renderFlow } from './views/detail.js';
@@ -29,6 +30,7 @@ const ui = {
   drafts: {},
   history: {},
   today: todayRome(),
+  now: timeRome(),
 };
 
 /* ---------------------------- Percorsi ---------------------------- */
@@ -177,7 +179,21 @@ function updateShell() {
 
 /* ---------------------------- Disegno ---------------------------- */
 
-const ctx = { store, ui, go, setHouse, toast, act, syncChip, render: () => render() };
+/** Ora attuale e casa della prenotazione: servono per la scadenza delle 24 ore del check-in. */
+function clock(b) {
+  return { time: ui.now, house: store.data.houses.find((x) => x.id === b.house_id) || {} };
+}
+
+/** Prenotazioni oltre le 24 ore senza check-in concluso (per ridisegnare appena scatta la scadenza). */
+function overdueKey() {
+  const today = todayRome();
+  const time = timeRome();
+  return today + (store.data.bookings || [])
+    .filter((b) => checkinOverdue(b, today, { time, house: store.data.houses.find((x) => x.id === b.house_id) || {} }))
+    .map((b) => b.id).sort().join(',');
+}
+
+const ctx = { store, ui, go, setHouse, toast, act, syncChip, clock, render: () => render() };
 
 /** Ricorda il campo in cui si sta scrivendo, per rimetterlo a posto dopo il ridisegno. */
 function captureFocus() {
@@ -197,6 +213,7 @@ function restoreFocus(f) {
 function render() {
   if (!shell) return;
   ui.today = todayRome();
+  ui.now = timeRome();
   ui.route = parseRoute();
   updateShell();
   const d = store.data;
@@ -256,8 +273,12 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 window.addEventListener('online', () => store.retry());
 window.addEventListener('pageshow', (e) => { if (e.persisted) store.load(); });
 setInterval(() => { if (document.visibilityState === 'visible') store.load(); }, REFRESH_MS);
-// Cambio di giorno a mezzanotte: ridisegna con la nuova data.
-setInterval(() => { if (todayRome() !== ui.today) render(); }, 60000);
+// Ogni minuto: ridisegna se cambia il giorno o se un check-in supera le 24 ore dall'arrivo.
+let lastOverdue = '';
+setInterval(() => {
+  const key = overdueKey();
+  if (todayRome() !== ui.today || key !== lastOverdue) { lastOverdue = key; render(); }
+}, 60000);
 
 window.addEventListener('error', (e) => console.error('Errore app', e.message));
 window.addEventListener('unhandledrejection', (e) => { if (!(e.reason && e.reason.status !== undefined)) console.error('Errore app', e.reason); });

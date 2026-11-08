@@ -2,6 +2,7 @@
 
 import { h, icon } from '../dom.js';
 import { fmtShort } from '../../shared/dates.js';
+import { parseSteps } from '../../shared/booking.js';
 import { fmtEuro } from '../../shared/money.js';
 import { openBookingForm } from './form.js';
 import { arrivalDialog, runNextAction } from './actions.js';
@@ -73,9 +74,8 @@ export function alertActions(ctx, b, alert) {
     case 'phone': buttons = [edit('Aggiungi il telefono', 'phone')]; break;
     case 'total': buttons = [edit('Inserisci il prezzo', 'total_cents')]; break;
     case 'overlap': buttons = [edit('Cambia le date', null)]; break;
-    case 'checkin': buttons = [next('Inizia check-in', 'checkin')]; break;
+    case 'checkin': buttons = [next(Object.values(parseSteps(latest().checkin_steps)).some(Boolean) || latest().stage === 'in_casa' ? 'Completa il check-in' : 'Inizia check-in', 'checkin')]; break;
     case 'checkout': buttons = [next('Inizia check-out', 'checkout')]; break;
-    case 'alloggiati': buttons = [next('Segna come inviate', 'alloggiati')]; break;
     case 'close': buttons = [next('Chiudi il soggiorno', 'close')]; break;
     default: return null;
   }

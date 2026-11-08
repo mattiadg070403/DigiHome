@@ -102,6 +102,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .banner.warn { background: var(--warn-bg); color: var(--warn); }
 .banner.bad { background: var(--bad-bg); color: var(--bad); }
+.banner.urgent-list { flex-direction: column; align-items: stretch; gap: 10px; }
+.urgent-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.urgent-item > span { flex: 1 1 240px; }
+.urgent-item .btn { margin-left: 0; }
 .banner .btn { margin-left: auto; }
 
 /* ---------- Pulsanti ---------- */
@@ -148,6 +152,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .guest { font-size: 20px; font-weight: 700; }
 .guest-meta { color: var(--muted); font-size: 14px; margin-top: 2px; }
 .next-box { background: var(--house-soft); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.next-box.urgent { background: var(--bad-bg); color: var(--bad); }
+.next-box.urgent .next-label { color: var(--bad); }
 .next-label { font-size: 12px; font-weight: 750; letter-spacing: .05em; color: var(--house); text-transform: uppercase; }
 .house-foot { padding: 11px 18px; border-top: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); }
 .empty-house { color: var(--muted); }

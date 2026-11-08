@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, daysBetween, fmtRange, isIsoDate, overlaps, todayRome } from '../public/shared/dates.js';
+import { addDays, daysBetween, fmtRange, isIsoDate, overlaps, timeRome, todayRome } from '../public/shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../public/shared/money.js';
-import { balanceDue, bookingAlerts, currentAndNext, nextStep, phase, validateBooking, checkinSteps } from '../public/shared/booking.js';
+import { balanceDue, bookingAlerts, currentAndNext, nextStep, phase, validateBooking, checkinSteps, checkinDeadline, checkinOverdue } from '../public/shared/booking.js';
 
 const T = '2026-07-17';
 const b = (over = {}) => ({
@@ -43,15 +43,57 @@ test('importi: scrittura italiana e inglese, errori', () => {
 });
 
 test('fasi e prossimo passo', () => {
+  const all = '{"ospiti":1,"documenti":1,"pagamenti":1,"contratto":1,"alloggiati":1,"dms":1}';
   assert.equal(phase(b(), T).label, 'Arriva tra 5 giorni');
   assert.equal(phase(b({ check_in: T }), T).key, 'arriva_oggi');
-  assert.equal(phase(b({ check_in: addDays(T, -1) }), T).key, 'checkin_mancante');
-  assert.equal(phase(b({ stage: 'in_casa', check_in: addDays(T, -2), check_out: T }), T).key, 'parte_oggi');
+  assert.equal(phase(b({ check_in: T, checkin_steps: '{"ospiti":1}' }), T).key, 'checkin_corso');
+  assert.equal(phase(b({ check_in: addDays(T, -1), arrival_time: '16:00' }), T, { time: '10:00' }).key, 'checkin_corso');
+  assert.equal(phase(b({ check_in: addDays(T, -1), arrival_time: '16:00' }), T, { time: '16:00' }).key, 'checkin_ritardo');
+  assert.equal(phase(b({ check_in: addDays(T, -2) }), T).key, 'checkin_ritardo');
+  assert.equal(phase(b({ stage: 'in_casa', check_in: addDays(T, -2), check_out: T, checkin_steps: all }), T).key, 'parte_oggi');
+  assert.equal(phase(b({ stage: 'in_casa', check_in: addDays(T, -2), check_out: T, checkin_steps: '{"alloggiati":1}' }), T).key, 'checkin_ritardo');
   assert.equal(nextStep(b({ check_in: addDays(T, 2) }), T).action, 'arrival');
-  assert.equal(nextStep(b({ check_in: T }), T).action, 'checkin');
-  assert.equal(nextStep(b({ stage: 'in_casa', check_in: addDays(T, -1), checkin_steps: '{}' }), T).action, 'alloggiati');
-  assert.equal(nextStep(b({ stage: 'in_casa', check_in: addDays(T, -1), checkin_steps: '{"alloggiati":1}' }), T).action, 'checkout');
+  assert.equal(nextStep(b({ check_in: T }), T).label, 'Inizia check-in');
+  const going = nextStep(b({ check_in: T, arrival_time: '17:30', checkin_steps: '{"ospiti":1}' }), T, {}, '18:00');
+  assert.equal(going.label, 'Continua il check-in');
+  assert.match(going.text, /entro .* alle 17:30: mancano documenti, pagamenti, contratto, schedine Alloggiati, DMS Puglia/);
+  const late = nextStep(b({ check_in: addDays(T, -1), arrival_time: '17:30', checkin_steps: '{"ospiti":1}' }), T, {}, '18:00');
+  assert.ok(late.urgent);
+  assert.equal(late.action, 'checkin');
+  assert.equal(nextStep(b({ stage: 'in_casa', check_in: addDays(T, -1), checkin_steps: '{}' }), T).action, 'checkin');
+  assert.equal(nextStep(b({ stage: 'in_casa', check_in: addDays(T, -1), checkin_steps: all }), T).action, 'checkout');
   assert.equal(nextStep(b({ stage: 'partita' }), T).action, 'close');
+});
+
+test('Alloggiati e DMS Puglia sono obbligatori e nel promemoria', () => {
+  const steps = checkinSteps(b());
+  assert.ok(steps.find((s) => s.key === 'alloggiati').required);
+  assert.ok(steps.find((s) => s.key === 'dms').required);
+  const items = arrivalReminders(b({ check_in: T, arrival_time: '16:00' }), { checkin_time: '14:00' });
+  assert.ok(items.some((t) => t.includes('Alloggiati') && t.includes('DMS Puglia') && t.includes('16:00')));
+});
+
+test('scadenza delle 24 ore dall’arrivo', () => {
+  const house = { checkin_time: '14:00' };
+  const x = b({ check_in: addDays(T, -1), arrival_time: null, checkin_steps: '{"ospiti":1}' });
+  assert.deepEqual(checkinDeadline(x, house), { date: T, time: '14:00' });
+  assert.equal(checkinOverdue(x, T, { time: '13:59', house }), false);
+  assert.equal(checkinOverdue(x, T, { time: '14:00', house }), true);
+  assert.equal(checkinOverdue(b({ check_in: T }), T, { time: '23:59', house }), false);
+  assert.equal(checkinOverdue(b({ check_in: addDays(T, 3) }), T, { time: '23:59', house }), false);
+  const before = bookingAlerts(x, T, [], { time: '09:00', house }).find((a) => a.key === 'checkin');
+  assert.equal(before.level, 'attenzione');
+  assert.match(before.text, /entro .* alle 14:00/);
+  const after = bookingAlerts(x, T, [], { time: '15:00', house }).find((a) => a.key === 'checkin');
+  assert.equal(after.level, 'urgente');
+  assert.match(after.text, /oltre 24 ore.*schedine Alloggiati, DMS Puglia/);
+  // Arrivo oggi senza passaggi spuntati: nessun avviso, è normale.
+  assert.ok(!bookingAlerts(b({ check_in: T }), T, [], { time: '20:00', house }).some((a) => a.key === 'checkin'));
+  // Check-in concluso con tutto: nessun avviso.
+  const ok = b({ stage: 'in_casa', check_in: addDays(T, -3), checkin_steps: '{"ospiti":1,"documenti":1,"pagamenti":1,"contratto":1,"alloggiati":1,"dms":1}' });
+  assert.ok(!bookingAlerts(ok, T, [], { time: '20:00', house }).some((a) => a.key === 'checkin'));
+  assert.equal(timeRome(new Date('2026-07-16T22:30:00Z')), '00:30');
+  assert.equal(timeRome(new Date('2026-01-16T13:05:00Z')), '14:05');
 });
 
 test('saldo da incassare', () => {
@@ -65,7 +107,7 @@ test('avvisi: cosa manca', () => {
   assert.ok(list.includes('Manca l’orario di arrivo'));
   assert.ok(list.includes('Manca il numero di telefono'));
   assert.ok(list.includes('Acconto non ancora ricevuto'));
-  const late = bookingAlerts(b({ check_in: addDays(T, -1) }), T);
+  const late = bookingAlerts(b({ check_in: addDays(T, -2) }), T);
   assert.equal(late[0].level, 'urgente');
   const clash = bookingAlerts(b(), T, [b(), b({ id: 'y', guest_name: 'Altro', check_in: addDays(T, 6) })]);
   assert.ok(clash.some((a) => a.text.startsWith('Date sovrapposte')));

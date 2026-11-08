@@ -53,6 +53,7 @@ function list(ctx, house, mine) {
     onChange: (e) => { ui.season = Number(e.target.value); ctx.render(); } },
   years.map((y) => h('option', { value: String(y), text: `Stagione ${y}${y === thisYear ? ' (in corso)' : ''}`, selected: y === season })));
   seasonSel.style.width = 'auto';
+  seasonSel.style.flex = '0 0 auto';
 
   const blocks = groups.map((g) => {
     let items = inSeason.filter((b) => g.test(phase(b, ui.today)));
@@ -69,7 +70,7 @@ function list(ctx, house, mine) {
   return h('div', null,
     h('div', { class: 'btn-row' }, seasonSel,
       season !== thisYear ? h('span', { class: 'muted small', text: 'Archivio: stagione passata' }) : null),
-    h('div', { class: 'section' },
+    h('div', { class: 'section groups' },
       blocks.length ? blocks : h('div', { class: 'card' }, h('div', { class: 'empty' },
         h('p', { text: `Nessuna prenotazione per ${house.name} in questa stagione.` }),
         h('p', { class: 'small', text: 'Usa “Nuova prenotazione” per aggiungerne una.' })))));

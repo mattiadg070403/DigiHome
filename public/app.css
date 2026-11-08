@@ -302,3 +302,5 @@ details > summary { cursor: pointer; list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
 details > summary.group-title::before { content: "▸ "; }
 details[open] > summary.group-title::before { content: "▾ "; }
+.groups { display: flex; flex-direction: column; gap: 22px; }
+.groups .group-title { margin: 0 0 10px; }

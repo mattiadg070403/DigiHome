@@ -3,6 +3,7 @@
 import { h, icon } from '../dom.js';
 import { houseVars, field, openDialog, confirmDialog, switchRow } from '../ui.js';
 import { APP_VERSION } from '../../shared/version.js';
+import { timeField } from '../pickers.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -116,20 +117,21 @@ function housesSection(ctx) {
 function houseDialog(ctx, house) {
   const v = { max_guests: house.max_guests, checkin_time: house.checkin_time, checkout_time: house.checkout_time };
   const max = h('input', { class: 'input', type: 'number', min: '1', max: '50', inputmode: 'numeric', value: String(v.max_guests), onInput: (e) => { v.max_guests = Number(e.target.value); } });
-  const cin = h('input', { class: 'input', type: 'time', value: v.checkin_time, onInput: (e) => { v.checkin_time = e.target.value; } });
-  const cout = h('input', { class: 'input', type: 'time', value: v.checkout_time, onInput: (e) => { v.checkout_time = e.target.value; } });
+  const cin = timeField({ value: v.checkin_time, label: 'Check-in dalle', quick: ['13:00', '14:00', '15:00', '16:00'], onChange: (t) => { v.checkin_time = t; } });
+  const cout = timeField({ value: v.checkout_time, label: 'Check-out entro le', quick: ['09:00', '10:00', '11:00', '12:00'], onChange: (t) => { v.checkout_time = t; } });
   const dlg = openDialog({
     title: house.name,
     content: h('div', { class: 'form-grid' },
       field('Ospiti massimi', max, { full: true }),
-      field('Check-in dalle', cin),
-      field('Check-out entro le', cout)),
+      h('div', { class: 'field' }, h('div', { class: 'label', text: 'Check-in dalle' }), cin.el),
+      h('div', { class: 'field' }, h('div', { class: 'label', text: 'Check-out entro le' }), cout.el)),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
     ],
   });
   async function save() {
+    if (!v.checkin_time || !v.checkout_time) { dlg.setBanner('Scrivi gli orari di check-in e check-out (es. 14:00).'); return; }
     try {
       await ctx.act('house.update', { id: house.id, version: house.version, changes: v }, { message: 'Salvato' });
       dlg.close();

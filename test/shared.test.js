@@ -92,3 +92,61 @@ test('validazione condivisa e passaggi del check-in', () => {
   assert.equal(checkinSteps(b()).some((s) => s.key === 'minori'), false);
   assert.equal(checkinSteps(b({ minors_delegation: 'da_chiedere' })).some((s) => s.key === 'minori'), true);
 });
+
+import { parseItDate, formatItDate, maskDate, maskTime, parseTime } from '../public/shared/dates.js';
+import { occupiedNights, rangeFree, nextBlocked, arrivalReminders } from '../public/shared/booking.js';
+
+test('date scritte a mano: maschera e lettura', () => {
+  assert.equal(maskDate('08'), '08/');
+  assert.equal(maskDate('0811'), '08/11/');
+  assert.equal(maskDate('08112026'), '08/11/2026');
+  assert.equal(maskDate('08/11/2026x9'), '08/11/2026');
+  assert.equal(maskDate('08', true), '08', 'cancellando non rimette la barra');
+  assert.equal(parseItDate('08/11/2026'), '2026-11-08');
+  assert.equal(parseItDate('8/11/26'), '2026-11-08');
+  assert.equal(parseItDate('31/02/2026'), null);
+  assert.equal(parseItDate('08/13/2026'), null);
+  assert.equal(formatItDate('2026-11-08'), '08/11/2026');
+});
+
+test('orari scritti a mano', () => {
+  assert.equal(maskTime('16'), '16:');
+  assert.equal(maskTime('1630'), '16:30');
+  assert.equal(maskTime('16', true), '16');
+  assert.equal(parseTime('1630'), '16:30');
+  assert.equal(parseTime('9:05'), '09:05');
+  assert.equal(parseTime('25:00'), null);
+  assert.equal(parseTime('16:7'), null);
+  assert.equal(parseTime(''), '');
+});
+
+test('disponibilità per il calendario', () => {
+  const list = [
+    { id: 'a', house_id: 'h', stage: 'confermata', check_in: '2026-07-10', check_out: '2026-07-13' },
+    { id: 'b', house_id: 'h', stage: 'cancellata', check_in: '2026-07-20', check_out: '2026-07-25' },
+    { id: 'c', house_id: 'altra', stage: 'confermata', check_in: '2026-07-01', check_out: '2026-07-30' },
+  ];
+  const occ = occupiedNights(list, 'h');
+  assert.deepEqual([...occ], ['2026-07-10', '2026-07-11', '2026-07-12']);
+  assert.equal(rangeFree(occ, '2026-07-05', '2026-07-10'), true, 'si può partire il giorno in cui arriva un altro');
+  assert.equal(rangeFree(occ, '2026-07-13', '2026-07-15'), true, 'si può arrivare il giorno in cui parte un altro');
+  assert.equal(rangeFree(occ, '2026-07-09', '2026-07-11'), false);
+  assert.equal(nextBlocked(occ, '2026-07-05'), '2026-07-10');
+  assert.equal(occupiedNights(list, 'h', 'a').size, 0, 'la prenotazione che si modifica non blocca sé stessa');
+});
+
+test('promemoria per l’arrivo', () => {
+  const items = arrivalReminders(b({ guests: 4, linens: 1, towels: 0, deposit_paid: 1, security_cents: 30000, security_status: 'da_incassare', minors_delegation: 'da_chiedere' }), { checkin_time: '14:00' });
+  assert.ok(items.includes('Lenzuola per 4 persone'));
+  assert.ok(items.includes('Asciugamani non inclusi'));
+  assert.ok(items.some((t) => t.startsWith('Da incassare: saldo 700 € + cauzione 300 €')));
+  assert.ok(items.includes('Delega per i minorenni ancora da ricevere'));
+  assert.ok(items.some((t) => t.includes('check-in dalle 14:00')));
+  const airbnb = arrivalReminders(b({ channel: 'airbnb', security_cents: 0 }), {});
+  assert.ok(airbnb.includes('Soggiorno già pagato su Airbnb'));
+});
+
+test('senza acconto non si segnala l’acconto mancante', () => {
+  const x = b({ deposit_cents: 0, deposit_paid: 0, check_in: addDays(T, 3) });
+  assert.ok(!bookingAlerts(x, T).some((a) => a.key === 'deposit'));
+});

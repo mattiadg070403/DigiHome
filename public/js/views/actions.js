@@ -2,7 +2,7 @@
 
 import { h } from '../dom.js';
 import { openDialog, confirmDialog, field, switchRow } from '../ui.js';
-import { isTime } from '../../shared/dates.js';
+import { timeField } from '../pickers.js';
 
 export function runNextAction(ctx, b, action) {
   if (action === 'checkin') return ctx.go(`p/${b.id}/checkin`);
@@ -39,21 +39,22 @@ function latest(ctx, id) {
 }
 
 export function arrivalDialog(ctx, b) {
-  const input = h('input', { class: 'input', type: 'time', value: b.arrival_time || '', step: '300' });
+  let value = b.arrival_time || '';
+  const time = timeField({ value, label: 'Orario di arrivo', onChange: (t) => { value = t; } });
   const dlg = openDialog({
     title: 'Orario di arrivo',
-    content: field(`A che ora arriva ${b.guest_name}?`, input, { hint: 'Puoi cambiarlo quando vuoi.' }),
+    content: h('div', { class: 'field' }, h('div', { class: 'label', text: `A che ora arriva ${b.guest_name}?` }), time.el,
+      h('div', { class: 'hint', text: 'Scrivi le cifre (es. 1630) oppure tocca un orario.' })),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
     ],
   });
   async function save() {
-    const v = input.value;
-    if (v && !isTime(v)) { dlg.setBanner('Orario non valido.'); return; }
+    if (value === null) { dlg.setBanner('Orario non valido (es. 16:30).'); return; }
     const cur = latest(ctx, b.id);
     try {
-      await ctx.act('booking.update', { id: b.id, version: cur.version, changes: { arrival_time: v || null } }, { message: 'Orario salvato' });
+      await ctx.act('booking.update', { id: b.id, version: cur.version, changes: { arrival_time: value || null } }, { message: 'Orario salvato' });
       dlg.close();
     } catch (e) {
       dlg.setBanner(e.message);

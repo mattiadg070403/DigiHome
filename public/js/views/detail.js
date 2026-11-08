@@ -5,11 +5,12 @@ import { houseVars, tag, chan, field, setFieldError } from '../ui.js';
 import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro } from '../../shared/money.js';
 import {
-  CHANNELS, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
+  CHANNELS, arrivalReminders, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
   missingRequired, nextStep, parseSteps, phase, statusTags,
 } from '../../shared/booking.js';
 import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
+import { alertActions, waNumber } from './contact.js';
 
 function notFound(ctx) {
   return h('div', { class: 'card' }, h('div', { class: 'empty' },
@@ -51,21 +52,28 @@ export function renderDetail(ctx, id) {
     step.action ? h('button', { class: 'btn house', type: 'button', text: step.label, onClick: () => runNextAction(ctx, b, step.action) }) : null) : null;
   if (next) next.style.marginBottom = '18px';
 
+  // Ogni avviso ha il suo pulsante per sistemarlo subito (chiedere, segnare, completare).
   const alertBox = alerts.length ? h('div', { class: 'card' }, h('div', { class: 'rows' }, alerts.map((a) =>
-    h('div', { class: 'row alert-row' }, h('span', { class: ['lvl', a.level] }, icon('alert', { size: 16 })), h('span', { class: 'row-main' }, h('span', { class: 'row-title', text: a.text })))))) : null;
+    h('div', { class: 'row alert-row' }, h('span', { class: ['lvl', a.level] }, icon('alert', { size: 16 })),
+      h('span', { class: 'row-main' }, h('span', { class: 'row-title', text: a.text }), alertActions(ctx, b, a)))))) : null;
+
+  // Promemoria per l'arrivo: cosa preparare e cosa incassare.
+  const reminders = b.stage === 'confermata' ? panel('Promemoria per l’arrivo',
+    h('ul', { class: 'remind' }, arrivalReminders(b, house).map((t) => h('li', { text: t })))) : null;
+  if (reminders) reminders.style.marginBottom = '18px';
   if (alertBox) alertBox.style.marginBottom = '18px';
 
   const due = balanceDue(b);
   const money = [
     ['Totale', b.total_cents ? fmtEuro(b.total_cents) : '—'],
     b.channel === 'diretto' ? ['Acconto', b.deposit_cents ? `${fmtEuro(b.deposit_cents)} · ${b.deposit_paid ? 'ricevuto' : 'non ancora ricevuto'}` : '—'] : ['Pagamento', `tramite ${CHANNELS[b.channel].label}`],
-    b.channel === 'diretto' && b.stage === 'confermata' ? [b.deposit_paid ? 'Saldo all’arrivo' : 'Ancora da incassare', fmtEuro(due)] : null,
+    b.channel === 'diretto' && b.stage === 'confermata' && b.total_cents > 0 ? [b.deposit_paid ? 'Saldo all’arrivo' : 'Ancora da incassare', fmtEuro(due)] : null,
     ['Cauzione', b.security_cents ? `${fmtEuro(b.security_cents)} · ${SECURITY_STATUS[b.security_status].toLowerCase()}` : 'nessuna'],
     b.security_status === 'trattenuta' ? ['Trattenuto', `${fmtEuro(b.security_withheld_cents)} · ${b.security_note || ''}`] : null,
   ].filter(Boolean);
 
   const phoneDigits = (b.phone || '').replace(/[^\d+]/g, '');
-  const waNumber = phoneDigits.replace(/^\+/, '').replace(/^00/, '');
+  const wa = waNumber(b.phone);
   const contacts = h('div', { class: 'stack' },
     kv([
       ['Telefono', b.phone || '—'],
@@ -74,7 +82,7 @@ export function renderDetail(ctx, id) {
     ]),
     b.phone ? h('div', { class: 'btn-row' },
       h('a', { class: 'btn small', href: `tel:${phoneDigits}` }, icon('phone', { size: 16 }), 'Chiama'),
-      waNumber.length >= 8 ? h('a', { class: 'btn small', href: `https://wa.me/${waNumber}`, target: '_blank', rel: 'noopener noreferrer' }, icon('chat', { size: 16 }), 'WhatsApp') : null) : null);
+      wa ? h('a', { class: 'btn small', href: `https://wa.me/${wa}`, target: '_blank', rel: 'noopener noreferrer' }, icon('chat', { size: 16 }), 'WhatsApp') : null) : null);
 
   const details = kv([
     ['Lenzuola', b.linens ? 'sì' : 'no'],
@@ -90,7 +98,7 @@ export function renderDetail(ctx, id) {
 
   return h('div', { vars: houseVars(house) },
     h('div', { class: 'page-head' }, backLink(ctx, b), ctx.syncChip()),
-    head, next, alertBox,
+    head, next, alertBox, reminders,
     h('div', { class: 'grid-2' },
       panel('Soldi', kv(money)),
       panel('Contatti', contacts),
@@ -260,7 +268,9 @@ export function renderFlow(ctx, id, flow) {
       h('span', { class: 'flow-num' }, isDone ? icon('check', { size: 16 }) : String(i + 1)),
       h('span', { class: 'row-main' },
         h('span', { class: 'flow-title' }, s.title, s.required ? null : h('span', { class: 'opt', text: 'facoltativo' })),
-        h('span', { class: 'flow-help', text: s.help })),
+        h('span', { class: 'flow-help', text: s.help }),
+        // Dentro un pulsante si usano solo elementi "in linea": niente elenchi veri.
+        s.reminders ? h('span', { class: 'remind' }, arrivalReminders(b, house).map((t) => h('span', { text: `• ${t}` }))) : null),
     ];
     if (!isIn && s.key === 'cauzione') {
       secNum = content[0];
@@ -333,8 +343,8 @@ function securityChoice(ctx, b, sec, onChange) {
   const choose = (status) => { sec.status = status; ctx.render(); };
   return h('div', { class: 'stack' },
     h('div', { class: 'seg', attrs: { role: 'group', 'aria-label': 'Cauzione' } },
-      h('button', { type: 'button', attrs: { 'aria-pressed': String(sec.status === 'restituita') }, onClick: () => choose('restituita') }, `Restituita tutta (${fmtEuro(b.security_cents)})`),
-      h('button', { type: 'button', attrs: { 'aria-pressed': String(sec.status === 'trattenuta') }, onClick: () => choose('trattenuta') }, 'Trattengo una parte')),
+      h('button', { type: 'button', attrs: { 'aria-pressed': String(sec.status === 'restituita') }, onClick: () => choose('restituita') }, 'Restituita tutta'),
+      h('button', { type: 'button', attrs: { 'aria-pressed': String(sec.status === 'trattenuta') }, onClick: () => choose('trattenuta') }, 'Ne trattengo una parte')),
     sec.status === 'trattenuta' ? h('div', { class: 'form-grid' },
       field('Quanto trattieni (€)', amount, { error: amountProblem() || null }),
       field('Motivo', note)) : null);

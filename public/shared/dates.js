@@ -94,3 +94,52 @@ export function overlaps(a1, b1, a2, b2) {
 export function isTime(s) {
   return typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 }
+
+/* ---------- Date e orari scritti a mano ---------- */
+
+/** "08/11/2026" (o "8/11/26") → "2026-11-08"; null se non è una data valida. */
+export function parseItDate(text) {
+  const m = String(text || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!m) return null;
+  const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  const iso = `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+  return isIsoDate(iso) ? iso : null;
+}
+
+/** "2026-11-08" → "08/11/2026" */
+export function formatItDate(iso) {
+  if (!isIsoDate(iso)) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Mentre si scrive una data: tiene solo le cifre e mette le barre da sola.
+ * "0811" → "08/11/", "08112026" → "08/11/2026". Se si cancella, non rimette la barra.
+ */
+export function maskDate(raw, deleting = false) {
+  const digits = String(raw || '').replace(/\D/g, '').slice(0, 8);
+  let out = digits.slice(0, 2);
+  if (digits.length > 2 || (digits.length === 2 && !deleting)) out += '/';
+  out += digits.slice(2, 4);
+  if (digits.length > 4 || (digits.length === 4 && !deleting)) out += '/';
+  out += digits.slice(4, 8);
+  return out;
+}
+
+/** Mentre si scrive un orario: "1630" → "16:30", "9" → "9", "930" → "9:30" non ambiguo solo con 4 cifre. */
+export function maskTime(raw, deleting = false) {
+  const digits = String(raw || '').replace(/\D/g, '').slice(0, 4);
+  if (digits.length <= 2) return digits.length === 2 && !deleting ? `${digits}:` : digits;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+/** "16:30", "1630", "9:05" → "16:30" / "09:05"; null se non valido. Vuoto → "". */
+export function parseTime(text) {
+  const s = String(text || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2}):?(\d{2})$/);
+  if (!m) return null;
+  const out = `${m[1].padStart(2, '0')}:${m[2]}`;
+  return isTime(out) ? out : null;
+}

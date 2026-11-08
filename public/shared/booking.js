@@ -30,6 +30,10 @@ export const MINORS = {
 export function checkinSteps(b) {
   const steps = [
     {
+      key: 'preparazione', required: false, title: 'Casa pronta per l’arrivo',
+      help: 'Controlla i promemoria qui sotto prima che arrivino gli ospiti.', reminders: true,
+    },
+    {
       key: 'ospiti', required: true, title: 'Conta gli ospiti',
       help: `Prenotati ${b.guests}. Controlla che siano ${b.guests} persone; se sono di più, modifica la prenotazione.`,
     },
@@ -150,7 +154,7 @@ export function statusTags(b, today) {
   if (b.stage === 'cancellata') return [{ text: 'Cancellata', tone: 'neutral' }];
   if (b.channel === 'diretto') {
     if (b.stage === 'confermata') {
-      tags.push(b.deposit_paid ? { text: 'Acconto ricevuto', tone: 'ok' } : { text: 'Acconto non ricevuto', tone: 'warn' });
+      if (b.deposit_cents > 0) tags.push(b.deposit_paid ? { text: 'Acconto ricevuto', tone: 'ok' } : { text: 'Acconto non ricevuto', tone: 'warn' });
       const due = balanceDue(b);
       if (due > 0) tags.push({ text: `${b.deposit_paid ? 'Saldo all’arrivo' : 'Ancora da incassare'}: ${fmtEuro(due)}`, tone: 'neutral' });
     } else {
@@ -178,27 +182,27 @@ export function statusTags(b, today) {
 export function bookingAlerts(b, today, all = []) {
   const out = [];
   if (b.stage === 'cancellata' || b.stage === 'chiusa') return out;
-  const add = (level, text) => out.push({ level, text, bookingId: b.id, houseId: b.house_id });
+  const add = (level, text, key) => out.push({ level, text, key, bookingId: b.id, houseId: b.house_id });
   const d = daysBetween(today, b.check_in);
 
   const clash = all.find((o) => o.id !== b.id && o.house_id === b.house_id && o.stage !== 'cancellata'
     && overlaps(b.check_in, b.check_out, o.check_in, o.check_out));
-  if (clash) add('urgente', `Date sovrapposte con ${clash.guest_name} (${fmtShort(clash.check_in)} → ${fmtShort(clash.check_out)})`);
+  if (clash) add('urgente', `Date sovrapposte con ${clash.guest_name} (${fmtShort(clash.check_in)} → ${fmtShort(clash.check_out)})`, 'overlap');
 
   if (b.stage === 'confermata') {
-    if (d < 0) add('urgente', 'Check-in non registrato');
-    if (b.channel === 'diretto' && !b.deposit_paid && d <= 14) add('attenzione', 'Acconto non ancora ricevuto');
-    if (b.channel === 'diretto' && b.total_cents === 0) add('attenzione', 'Manca il prezzo totale');
-    if (d >= 0 && d <= 3 && !b.arrival_time) add('attenzione', 'Manca l’orario di arrivo');
-    if (d <= 7 && !b.phone) add('attenzione', 'Manca il numero di telefono');
-    if (d <= 7 && b.minors_delegation === 'da_chiedere') add('attenzione', 'Delega per i minorenni da chiedere');
+    if (d < 0) add('urgente', 'Check-in non registrato', 'checkin');
+    if (b.channel === 'diretto' && b.deposit_cents > 0 && !b.deposit_paid && d <= 14) add('attenzione', 'Acconto non ancora ricevuto', 'deposit');
+    if (b.channel === 'diretto' && b.total_cents === 0) add('attenzione', 'Manca il prezzo totale', 'total');
+    if (d >= 0 && d <= 3 && !b.arrival_time) add('attenzione', 'Manca l’orario di arrivo', 'arrival');
+    if (d <= 7 && !b.phone) add('attenzione', 'Manca il numero di telefono', 'phone');
+    if (d <= 7 && b.minors_delegation === 'da_chiedere') add('attenzione', 'Delega per i minorenni da chiedere', 'minors');
   }
   if (b.stage === 'in_casa') {
     const done = parseSteps(b.checkin_steps);
-    if (!done.alloggiati) add('urgente', 'Schedine Alloggiati da inviare (entro 24 ore dall’arrivo)');
-    if (b.check_out < today) add('urgente', 'Check-out non registrato');
+    if (!done.alloggiati) add('urgente', 'Schedine Alloggiati da inviare (entro 24 ore dall’arrivo)', 'alloggiati');
+    if (b.check_out < today) add('urgente', 'Check-out non registrato', 'checkout');
   }
-  if (b.stage === 'partita') add(b.check_out < addDays(today, -2) ? 'attenzione' : 'info', 'Soggiorno da chiudere: segna se chiedere la recensione');
+  if (b.stage === 'partita') add(b.check_out < addDays(today, -2) ? 'attenzione' : 'info', 'Soggiorno da chiudere: segna se chiedere la recensione', 'close');
   return out;
 }
 
@@ -303,4 +307,48 @@ export function validateBooking(input, { house, partial = false } = {}) {
     else v.security_status = input.security_status;
   }
   return { ok: Object.keys(errors).length === 0, value: v, errors };
+}
+
+/* ---------- Disponibilità (calendario) ---------- */
+
+/** Notti occupate in una casa: insieme di date 'AAAA-MM-GG' (la notte tra quel giorno e il successivo). */
+export function occupiedNights(bookings, houseId, excludeId = null) {
+  const out = new Set();
+  for (const b of bookings) {
+    if (b.house_id !== houseId || b.stage === 'cancellata' || b.id === excludeId) continue;
+    for (let d = b.check_in; d < b.check_out; d = addDays(d, 1)) out.add(d);
+  }
+  return out;
+}
+
+/** Tutte le notti da a (compreso) a b (escluso) sono libere? */
+export function rangeFree(nightsSet, a, b) {
+  for (let d = a; d < b; d = addDays(d, 1)) if (nightsSet.has(d)) return false;
+  return true;
+}
+
+/** Primo giorno dopo `from` in cui inizia una notte occupata (oltre quel giorno non si può partire). */
+export function nextBlocked(nightsSet, from, limitDays = 400) {
+  for (let i = 0, d = from; i < limitDays; i++, d = addDays(d, 1)) if (nightsSet.has(d)) return d;
+  return null;
+}
+
+/* ---------- Promemoria per l'arrivo ---------- */
+
+/** Cose da preparare e da incassare per un arrivo, in parole semplici. */
+export function arrivalReminders(b, house = {}) {
+  const items = [];
+  items.push(b.linens ? `Lenzuola per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Lenzuola non incluse: non prepararle');
+  items.push(b.towels ? `Asciugamani per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Asciugamani non inclusi');
+  const due = balanceDue(b);
+  const money = [];
+  if (due > 0) money.push(`${b.deposit_paid ? 'saldo' : 'totale'} ${fmtEuro(due)}`);
+  if (b.security_cents > 0 && b.security_status === 'da_incassare') money.push(`cauzione ${fmtEuro(b.security_cents)}`);
+  if (money.length) items.push(`Da incassare: ${money.join(' + ')}`);
+  else if (b.channel !== 'diretto') items.push(`Soggiorno già pagato su ${CHANNELS[b.channel].label}`);
+  if (b.minors_delegation === 'da_chiedere') items.push('Delega per i minorenni ancora da ricevere');
+  if (b.minors_delegation === 'ricevuta') items.push('Delega per i minorenni ricevuta: controllala');
+  items.push(b.arrival_time ? `Arrivo previsto alle ${b.arrival_time}` : `Orario di arrivo non ancora noto (check-in dalle ${house.checkin_time || '14:00'})`);
+  if (b.notes) items.push(`Note: ${b.notes}`);
+  return items;
 }

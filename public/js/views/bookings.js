@@ -4,7 +4,7 @@ import { h, icon } from '../dom.js';
 import { houseVars, segmented, chan } from '../ui.js';
 import { addDays, fmtShort, fmtRange, monthName, nights, weekday } from '../../shared/dates.js';
 import { phase } from '../../shared/booking.js';
-import { openBookingForm } from './form.js';
+import { openBookingForm, draftBanner } from './form.js';
 
 export function renderBookings(ctx) {
   const { store, ui } = ctx;
@@ -28,7 +28,7 @@ export function renderBookings(ctx) {
   switches.style.marginBottom = '20px';
 
   return h('div', { vars: houseVars(house) },
-    head, switches,
+    head, draftBanner(ctx), switches,
     ui.bookingsView === 'calendario' ? calendar(ctx, house, mine) : list(ctx, house, mine));
 }
 

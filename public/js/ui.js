@@ -21,7 +21,7 @@ export function chan(channel) {
  * Finestra modale. Restituisce { el, body, close, setBanner }.
  * La finestra non viene mai ridisegnata dagli aggiornamenti dei dati: quello che scrivi resta.
  */
-export function openDialog({ title, content, actions = [], onClose, wide = false }) {
+export function openDialog({ title, content, actions = [], onClose, wide = false, canClose }) {
   const titleId = nextId('dlg');
   const banner = h('div', { class: 'banner warn', hidden: true, attrs: { role: 'alert' } });
   const body = h('div', { class: 'dlg-body' }, banner, content);
@@ -30,7 +30,7 @@ export function openDialog({ title, content, actions = [], onClose, wide = false
     h('div', { class: 'dlg' },
       h('div', { class: 'dlg-head' },
         h('h2', { id: titleId, text: title }),
-        h('button', { class: 'btn ghost icon-only', type: 'button', attrs: { 'aria-label': 'Chiudi' }, onClick: () => close() }, icon('close'))),
+        h('button', { class: 'btn ghost icon-only', type: 'button', attrs: { 'aria-label': 'Chiudi' }, onClick: () => requestClose() }, icon('close'))),
       body, foot));
   let closed = false;
   function close() {
@@ -40,14 +40,20 @@ export function openDialog({ title, content, actions = [], onClose, wide = false
     dlg.remove();
     if (onClose) onClose();
   }
-  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
-  dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+  // Chiudere costa una scelta esplicita (X, Annulla, Esc). Toccare fuori dalla finestra NON la chiude:
+  // sull'iPad chiudere la tastiera o il selettore di date/orari genera tocchi "fuori" involontari.
+  async function requestClose() {
+    if (closed) return;
+    if (canClose && !(await canClose())) return;
+    close();
+  }
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); requestClose(); });
   document.body.append(dlg);
   dlg.showModal();
   const first = body.querySelector('input:not([type=hidden]), select, textarea');
   if (first && window.matchMedia('(pointer: fine)').matches) first.focus();
   return {
-    el: dlg, body, close,
+    el: dlg, body, close, requestClose,
     get closed() { return closed; },
     setBanner(text, extra) {
       banner.replaceChildren();

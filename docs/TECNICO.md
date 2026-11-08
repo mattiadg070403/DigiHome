@@ -64,3 +64,12 @@ Tabelle principali:
 - Impostazioni (solo admin): utenti e case.
 
 Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, importazione da screenshot con l'AI, preventivi, contratto digitale, check-in online, Alloggiati/ISTAT, contabilità, analisi di mercato.
+
+## Novità della 0.2 (8 novembre 2026)
+
+- **Le finestre non si chiudono più toccando fuori.** Sull'iPad chiudere la tastiera o il selettore di date generava un tocco "fuori" che chiudeva il modulo (e sul computer il clic per tornare nella finestra). Ora si chiude solo con X, Annulla o Esc, e con dati non salvati chiede conferma.
+- **Bozza sul dispositivo.** Il modulo della prenotazione si salva da solo mentre si scrive (localStorage, chiave `dh.bozza.prenotazione`), si riprende dopo ricarica o chiusura della scheda, si cancella al salvataggio e scade dopo 48 ore. Contiene i dati dell'ospite solo su quel dispositivo.
+- **Calendario stile Airbnb** (`public/js/pickers.js`): primo tocco arrivo, secondo partenza; notti occupate barrate e non selezionabili; si può arrivare il giorno in cui parte un altro e partire il giorno in cui arriva il successivo. Date scrivibili anche a mano (gg/mm/aaaa, barre automatiche, passaggio automatico alla partenza), con controllo della partenza prima dell'arrivo.
+- **Orario** con i due punti automatici e orari rapidi; **persone** con − e + e avviso immediato oltre il massimo della casa.
+- **Promemoria per l'arrivo** (lenzuola, asciugamani, cosa incassare, delega, orario) nella scheda e come primo passaggio del check-in.
+- **Avvisi con azione**: chiedere su WhatsApp con messaggio pronto, segnare come ricevuto, completare il dato mancante.

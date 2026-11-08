@@ -154,7 +154,7 @@ function buildShell() {
     h('div', { class: 'side-foot' }, envBadge, versionLine));
   const tabbar = h('nav', { class: 'tabbar', attrs: { 'aria-label': 'Sezioni' } }, navBtns('nav-btn'));
   const updateBar = h('div', { class: 'banner warn', hidden: true, attrs: { role: 'status' } },
-    h('span', { text: 'È disponibile una nuova versione del gestionale.' }),
+    h('span', { text: 'È disponibile una nuova versione di DigiHome.' }),
     h('button', { class: 'btn small', type: 'button', text: 'Aggiorna', onClick: () => location.reload() }));
   const main = h('main', { class: 'main', id: 'main' }, h('div', { class: 'page' }, updateBar), view);
   const root = h('div', { class: 'shell' }, side, main, tabbar);

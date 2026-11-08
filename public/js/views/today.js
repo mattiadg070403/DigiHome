@@ -5,6 +5,7 @@ import { houseVars, tag, chan } from '../ui.js';
 import { fmtLong, fmtRange, fmtShort, daysBetween } from '../../shared/dates.js';
 import { CHANNELS, LEVEL_ORDER, bookingAlerts, currentAndNext, nextStep, phase, statusTags } from '../../shared/booking.js';
 import { runNextAction } from './actions.js';
+import { draftBanner } from './form.js';
 
 export function renderToday(ctx) {
   const { store, ui } = ctx;
@@ -17,6 +18,7 @@ export function renderToday(ctx) {
       h('div', null, h('h1', { text: 'Oggi' }), h('div', { class: 'sub', text: `${longDate.charAt(0).toUpperCase()}${longDate.slice(1)} · tutte e due le case` })),
       ctx.syncChip()),
     demoBanner(ctx),
+    draftBanner(ctx),
     h('div', { class: 'grid-2' }, d.houses.map((house) => houseCard(ctx, house))),
     alertsSection(ctx),
     tasksSection(ctx));

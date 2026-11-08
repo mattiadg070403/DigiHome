@@ -304,3 +304,58 @@ details > summary.group-title::before { content: "▸ "; }
 details[open] > summary.group-title::before { content: "▾ "; }
 .groups { display: flex; flex-direction: column; gap: 22px; }
 .groups .group-title { margin: 0 0 10px; }
+
+/* ---------- Selettore del periodo (stile Airbnb) ---------- */
+.rp { display: flex; flex-direction: column; gap: 10px; }
+.rp-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #D6D3CC; border-radius: 12px; overflow: hidden; }
+.rp-box { display: flex; flex-direction: column; padding: 8px 12px; gap: 2px; cursor: text; }
+.rp-box + .rp-box { border-left: 1px solid #D6D3CC; }
+.rp-lbl { font-size: 12px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+.rp-box .input { border: 0; padding: 0; min-height: 30px; font-size: 17px; background: transparent; }
+.rp-box .input:focus-visible { outline: none; }
+.rp-box:focus-within { background: #FBFAF7; box-shadow: inset 0 0 0 2px var(--ink); border-radius: 12px; }
+.rp-box .input[aria-invalid="true"] { color: var(--bad); }
+.rp-cal { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 12px; }
+.rp-nav { display: flex; align-items: center; justify-content: space-between; }
+.rp-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.rp-key { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.rp-key.occ { background: repeating-linear-gradient(135deg, #E4E2DC 0 3px, #F4F3EF 3px 6px); }
+.rp-months { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.rp-title { text-align: center; font-weight: 700; margin: 2px 0 8px; }
+.rp-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 2px; }
+.rp-dow { text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; padding-bottom: 4px; }
+.rp-day {
+  aspect-ratio: 1 / 1; min-height: 40px; border: 0; background: transparent; padding: 0; cursor: pointer; position: relative;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 550; color: var(--ink);
+}
+.rp-day span { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 999px; position: relative; z-index: 1; }
+.rp-day:not(:disabled):hover span { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.rp-day.past { color: #A9A59C; }
+.rp-day.today span { text-decoration: underline; text-underline-offset: 3px; }
+.rp-day.occ, .rp-day:disabled { color: #B9B5AC; cursor: not-allowed; }
+.rp-day.occ span { text-decoration: line-through; background: repeating-linear-gradient(135deg, transparent 0 4px, #EFEDE8 4px 8px); }
+.rp-day.range { background: var(--house-soft); }
+.rp-day.sel span { background: var(--house); color: #fff; text-decoration: none; }
+.rp-day.start.has-range { background: linear-gradient(90deg, transparent 50%, var(--house-soft) 50%); }
+.rp-day.end.has-range { background: linear-gradient(90deg, var(--house-soft) 50%, transparent 50%); }
+@media (max-width: 700px) { .rp-months { grid-template-columns: minmax(0, 1fr); } .rp-second { display: none; } }
+
+/* Orario e scelte rapide */
+.time-field { display: flex; flex-direction: column; gap: 8px; }
+.time-field .input { max-width: 140px; font-size: 17px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #D6D3CC; background: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip.ghost { border-color: transparent; color: var(--muted); }
+
+/* Numero di persone */
+.stepper { display: inline-flex; align-items: center; gap: 8px; }
+.stepper .input { width: 70px; text-align: center; font-size: 17px; }
+.stepper .btn { width: 44px; padding: 0; font-size: 20px; }
+
+/* Le scelte a pulsanti non si allungano a tutta larghezza */
+.stack > .seg, .field > .seg, .row-main > .seg { align-self: flex-start; max-width: 100%; flex-wrap: wrap; }
+
+/* Promemoria */
+.remind { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: var(--ink-2); }
+.alert-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

@@ -2,6 +2,8 @@
 // È separata da quella di prova (wrangler.jsonc nella cartella principale):
 // altro Worker, altro database, niente dati di prova.
 // In Workers Builds questo Worker usa "Root directory" = produzione e il ramo GitHub "produzione".
+// Comando di deploy: npx wrangler d1 migrations apply DB --remote && npx wrangler deploy
+// Database nell'Unione Europea (giurisdizione EU, scelta alla creazione).
 // I valori riservati (ACCESS_TEAM_DOMAIN, ACCESS_AUD, BOOTSTRAP_ADMIN_EMAIL) si impostano come Secret nel pannello.
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
@@ -21,8 +23,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "digihome",
-      "database_id": "ecc769f4-efa7-4f87-9375-b72fdf7c825a",
+      "database_name": "digihome-ue",
+      "database_id": "1c78a49d-f157-4f7c-856e-0fa991261f17",
       "migrations_dir": "../migrations"
     }
   ],

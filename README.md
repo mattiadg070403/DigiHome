@@ -61,11 +61,11 @@ Serve che l'email sia in **entrambi** gli elenchi.
 
 Da fare una volta sola nel pannello Cloudflare:
 
-1. **Database.** D1 → *Create* → nome `digihome`. Il *Database ID* va scritto in `produzione/wrangler.jsonc`.
+1. **Database.** D1 → *Create* → nome `digihome-ue`, *Data location* → *Specify jurisdiction* → **EU**. Il *Database ID* va scritto in `produzione/wrangler.jsonc` e `calendario/wrangler.jsonc`.
 2. **Worker.** Workers e Pages → *Create* → *Import a repository* → questo archivio.
    - Nome del progetto: `digihome`. Ramo di produzione: `produzione`. *Root directory*: `produzione`.
    - Comando di build: nessuno.
-   - Comando di deploy: `npx wrangler d1 migrations apply digihome --remote && npx wrangler deploy`
+   - Comando di deploy: `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy` (DB è il nome del collegamento al database: non cambia se si cambia database)
    - *Builds for non-production branches*: disattivato (anche nel Worker di prova).
 3. **Accesso.** Nel Worker: Access → *Protect this Worker* → *All traffic* → policy con solo le email autorizzate. Copiare l'AUD Tag.
 4. **Segreti** (come *Secret*): `ACCESS_TEAM_DOMAIN` (lo stesso della prova), `ACCESS_AUD` (quello nuovo), `BOOTSTRAP_ADMIN_EMAIL`.

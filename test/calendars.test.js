@@ -372,6 +372,14 @@ test('giro completo senza doppioni: DigiHome → Booking → DigiHome', async ()
   assert.equal((await bookings()).length, 1);
 });
 
+test('calendario pubblico senza date occupate: un solo evento nel passato, che non blocca niente', () => {
+  const t = buildIcs([]);
+  const p = parseIcs(t);
+  assert.equal(p.events.length, 1);
+  assert.equal(p.events[0].start, '2000-01-01');
+  assert.equal(p.events[0].end, '2000-01-02');
+});
+
 test('formato del calendario pubblico', () => {
   const t = buildIcs([{ id: 'x1', check_in: '2026-07-10', check_out: '2026-07-14' }], new Date('2026-07-01T10:20:30.000Z'));
   assert.ok(t.startsWith('BEGIN:VCALENDAR\r\n'));

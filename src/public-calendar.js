@@ -26,7 +26,10 @@ const ymd = (iso) => iso.replaceAll('-', '');
 export function buildIcs(bookings, now = new Date()) {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//DigiHome//Calendario//IT', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
-  for (const b of bookings) {
+  // Alcune piattaforme rifiutano un calendario senza eventi ("link non valido"): se non c'è nessuna data
+  // occupata si mette un evento di un giorno nel passato (1 gennaio 2000), che non blocca niente.
+  const list = bookings.length ? bookings : [{ id: 'nessuna-data-occupata', check_in: '2000-01-01', check_out: '2000-01-02' }];
+  for (const b of list) {
     lines.push('BEGIN:VEVENT', `UID:${b.id}@digihome`, `DTSTAMP:${stamp}`,
       `DTSTART;VALUE=DATE:${ymd(b.check_in)}`, `DTEND;VALUE=DATE:${ymd(b.check_out)}`,
       'SUMMARY:Non disponibile', 'TRANSP:OPAQUE', 'END:VEVENT');

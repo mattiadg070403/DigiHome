@@ -27,7 +27,30 @@ export const MINORS = {
 };
 
 /** Passaggi del check-in. `required`: senza questo non si conclude. */
-export function checkinSteps(b) {
+/* ---------- Extra (soldi a parte: tassa di soggiorno, supplementi) ---------- */
+
+export const EXTRA_KINDS = { tassa_soggiorno: 'Tassa di soggiorno', altro: 'Altro' };
+
+/** Nome da mostrare per un extra. */
+export function extraLabel(x) {
+  return x.kind === 'altro' ? (x.label || 'Extra') : `${EXTRA_KINDS[x.kind] || 'Extra'}${x.label ? ` (${x.label})` : ''}`;
+}
+
+/** Extra (non eliminati) di una prenotazione. */
+export function extrasOf(b, extras = []) {
+  return extras.filter((x) => x.booking_id === b.id && !x.deleted);
+}
+
+/** Somma degli extra; con unpaid = true solo quelli ancora da incassare. */
+export function extrasTotal(list, { unpaid = false } = {}) {
+  return list.reduce((n, x) => n + (unpaid && x.paid ? 0 : x.amount_cents), 0);
+}
+
+/**
+ * Passaggi del check-in. opt.extras: extra della prenotazione (solo per i testi d'aiuto).
+ * Il contratto serve solo per le prenotazioni dirette: con Airbnb e Booking valgono le loro condizioni.
+ */
+export function checkinSteps(b, opt = {}) {
   const steps = [
     {
       key: 'preparazione', required: false, title: 'Casa pronta per l’arrivo',
@@ -48,11 +71,13 @@ export function checkinSteps(b) {
       help: 'Se ci sono minorenni senza genitori, serve la delega firmata con il documento del genitore.',
     });
   }
-  steps.push({ key: 'pagamenti', required: true, title: paymentTitle(b), help: paymentHelp(b) });
-  steps.push({
-    key: 'contratto', required: true, title: 'Contratto firmato',
-    help: 'Fai firmare il contratto al capogruppo.',
-  });
+  steps.push({ key: 'pagamenti', required: true, title: paymentTitle(b, opt.extras), help: paymentHelp(b, opt.extras) });
+  if (b.channel === 'diretto') {
+    steps.push({
+      key: 'contratto', required: true, title: 'Contratto firmato',
+      help: 'Fai firmare il contratto al capogruppo.',
+    });
+  }
   steps.push({
     key: 'contatori', required: false, title: 'Lettura dei contatori',
     help: 'Annota luce e gas, utile per conoscere i consumi del soggiorno.',
@@ -78,11 +103,12 @@ export function checkoutSteps(b) {
   ];
 }
 
-function paymentTitle(b) {
-  return b.channel === 'diretto' ? 'Saldo e cauzione' : 'Cauzione';
+function paymentTitle(b, extras = []) {
+  if (b.channel === 'diretto') return 'Saldo e cauzione';
+  return extras.length ? 'Extra e cauzione' : 'Cauzione';
 }
 
-function paymentHelp(b) {
+function paymentHelp(b, extras = []) {
   const parts = [];
   if (b.channel === 'diretto') {
     const due = balanceDue(b);
@@ -90,6 +116,8 @@ function paymentHelp(b) {
   } else {
     parts.push(`Il soggiorno è pagato tramite ${CHANNELS[b.channel].label}.`);
   }
+  const unpaid = extras.filter((x) => !x.paid);
+  if (unpaid.length) parts.push(`Extra da incassare: ${unpaid.map((x) => `${extraLabel(x).toLowerCase()} ${fmtEuro(x.amount_cents)}`).join(', ')} (segnali come incassati nella scheda).`);
   if (b.security_cents > 0) parts.push(`Cauzione: ${fmtEuro(b.security_cents)}.`);
   return parts.join(' ');
 }
@@ -234,7 +262,10 @@ export function guestsLabel(b) {
 /** Etichette di stato brevi per le schede. tone: ok | warn | neutral */
 export function statusTags(b, today) {
   const tags = [];
-  if (b.stage === 'cancellata') return [{ text: b.ext_gone ? 'Cancellata in automatico' : 'Cancellata', tone: 'neutral' }];
+  if (b.stage === 'cancellata') {
+    if (b.ext_cancel_warn) return [{ text: `Ancora attiva su ${CHANNELS[b.channel]?.label || 'piattaforma'}`, tone: 'warn' }];
+    return [{ text: b.ext_gone ? 'Cancellata in automatico' : 'Cancellata', tone: 'neutral' }];
+  }
   if (b.needs_details) tags.push({ text: 'Dati da completare', tone: 'warn' });
   if (b.channel === 'diretto') {
     if (b.stage === 'confermata') {
@@ -275,6 +306,13 @@ export function bookingAlerts(b, today, all = [], opt = {}) {
     add('attenzione', `Cancellata in automatico: non è più nel calendario ${from} (${fmtShort(b.check_in)} → ${fmtShort(b.check_out)})`, 'ext_cancelled');
     return out;
   }
+  // Cancellata a mano nel gestionale: sulla piattaforma è ancora attiva finché non la cancelli anche lì.
+  if (b.stage === 'cancellata' && b.ext_cancel_warn && b.check_out >= today) {
+    add('urgente', `Cancellata solo nel gestionale: su ${from} la prenotazione (${fmtShort(b.check_in)} → ${fmtShort(b.check_out)}) risulta ancora attiva. `
+      + `Se l'ospite ha cancellato, cancellala anche su ${from}; se è stato un errore, ripristinala. `
+      + 'Finché non lo confermi, le date restano bloccate sull’altra piattaforma.', 'manual_cancel');
+    return out;
+  }
   if (b.stage === 'cancellata' || b.stage === 'chiusa') return out;
   const d = daysBetween(today, b.check_in);
   if (b.stage === 'confermata' && b.ext_gone) add('urgente', `Non risulta più nel calendario ${from}: controlla se è stata cancellata`, 'ext_gone');
@@ -303,6 +341,12 @@ export function bookingAlerts(b, today, all = [], opt = {}) {
     if (d >= 0 && d <= 3 && !b.arrival_time) add('attenzione', 'Manca l’orario di arrivo', 'arrival');
     if (d <= 7 && !b.phone && !b.needs_details) add('attenzione', 'Manca il numero di telefono', 'phone');
     if (d <= 7 && b.minors_delegation === 'da_chiedere') add('attenzione', 'Delega per i minorenni da chiedere', 'minors');
+  }
+  // Extra non ancora incassati quando l'ospite è già arrivato o partito.
+  const unpaidExtras = (opt.extras || []).filter((x) => !x.paid);
+  if (unpaidExtras.length && (b.stage === 'in_casa' || b.stage === 'partita' || (b.stage === 'confermata' && d <= 0))) {
+    add(b.stage === 'partita' ? 'urgente' : 'attenzione',
+      `Extra da incassare: ${unpaidExtras.map((x) => `${extraLabel(x).toLowerCase()} ${fmtEuro(x.amount_cents)}`).join(', ')}`, 'extras');
   }
   if (b.stage === 'in_casa' && b.check_out < today) add('urgente', 'Check-out non registrato', 'checkout');
   if (b.stage === 'partita') add(b.check_out < addDays(today, -2) ? 'attenzione' : 'info', 'Soggiorno da chiudere: segna se chiedere la recensione', 'close');
@@ -439,7 +483,7 @@ export function nextBlocked(nightsSet, from, limitDays = 400) {
 /* ---------- Promemoria per l'arrivo ---------- */
 
 /** Cose da preparare e da incassare per un arrivo, in parole semplici. */
-export function arrivalReminders(b, house = {}) {
+export function arrivalReminders(b, house = {}, extras = []) {
   const items = [];
   if (b.needs_details) items.push('Numero di ospiti ancora da completare: chiedilo prima di preparare la casa');
   else {
@@ -449,8 +493,9 @@ export function arrivalReminders(b, house = {}) {
   const due = balanceDue(b);
   const money = [];
   if (due > 0) money.push(`${b.deposit_paid ? 'saldo' : 'totale'} ${fmtEuro(due)}`);
+  for (const x of extras.filter((e) => !e.paid)) money.push(`${extraLabel(x).toLowerCase()} ${fmtEuro(x.amount_cents)}`);
   if (b.security_cents > 0 && b.security_status === 'da_incassare') money.push(`cauzione ${fmtEuro(b.security_cents)}`);
-  if (money.length) items.push(`Da incassare: ${money.join(' + ')}`);
+  if (money.length) items.push(`Da incassare: ${money.join(' + ')}${b.channel !== 'diretto' ? ` (il soggiorno è già pagato su ${CHANNELS[b.channel].label})` : ''}`);
   else if (b.channel !== 'diretto') items.push(`Soggiorno già pagato su ${CHANNELS[b.channel].label}`);
   if (b.minors_delegation === 'da_chiedere') items.push('Delega per i minorenni ancora da ricevere');
   if (b.minors_delegation === 'ricevuta') items.push('Delega per i minorenni ricevuta: controllala');

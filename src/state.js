@@ -16,6 +16,7 @@ export async function readState(db, user) {
       AND (done = 0 OR done_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-14 days'))
       ORDER BY COALESCE(due_date, '9999-12-31'), created_at`),
     db.prepare("SELECT * FROM calendars ORDER BY house_id, channel"),
+    db.prepare('SELECT * FROM booking_extras WHERE deleted = 0 ORDER BY created_at'),
   ]);
   const rows = (i) => results[i].results || [];
   return {
@@ -28,6 +29,7 @@ export async function readState(db, user) {
     tasks: rows(5),
     // Stato dei calendari di Airbnb e Booking: solo per l'amministratore, e mai con il link riservato.
     calendars: isAdmin ? rows(6).map(publicCalendar) : [],
+    extras: rows(7),
   };
 }
 
@@ -37,7 +39,8 @@ export async function readHistory(db, entityId) {
     FROM audit_log a LEFT JOIN users u ON u.email = a.user_email
     WHERE (a.entity = 'booking' AND a.entity_id = ?)
        OR (a.entity = 'note' AND a.entity_id IN (SELECT id FROM booking_notes WHERE booking_id = ?))
-    ORDER BY a.id DESC LIMIT 200`).bind(SYSTEM_EMAIL, entityId, entityId).all();
+       OR (a.entity = 'extra' AND a.entity_id IN (SELECT id FROM booking_extras WHERE booking_id = ?))
+    ORDER BY a.id DESC LIMIT 200`).bind(SYSTEM_EMAIL, entityId, entityId, entityId).all();
   return (r.results || []).map((x) => ({ ...x, changes: x.changes ? JSON.parse(x.changes) : null }));
 }
 
@@ -56,11 +59,13 @@ export async function readExport(db) {
     q('SELECT * FROM tasks ORDER BY created_at'),
     q('SELECT * FROM calendars ORDER BY house_id, channel'),
     q('SELECT * FROM audit_log ORDER BY id'),
+    q('SELECT * FROM booking_extras ORDER BY created_at'),
   ]);
   const rows = (i) => r[i].results || [];
   return {
     rev: rows(0)[0]?.rev ?? 0,
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
     calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
+    extras: rows(8),
   };
 }

@@ -135,3 +135,79 @@ test('controllo veloce: se il contatore non è cambiato i dati restano gli stess
   assert.equal(store.data, before);
   assert.equal(calls, 2);
 });
+
+function memoryStorage(initial = []) {
+  let saved = initial;
+  return { read: () => saved, write: (list) => { saved = list; }, get saved() { return saved; } };
+}
+
+test('modifiche non ancora salvate: restano sul dispositivo e ripartono al riavvio con lo stesso codice', async () => {
+  const storage = memoryStorage();
+  // Primo avvio: rete assente, la modifica resta in attesa
+  const s1 = createStore({ storage, sleep: async () => {}, fetchImpl: async (url) => {
+    if (url === '/api/ops') throw new TypeError('offline');
+    return reply(snapshot(1));
+  } });
+  await s1.load({ force: true });
+  s1.mutate('task.toggle', { id: 't1', done: true }).catch(() => {});
+  await tick(); await tick();
+  assert.equal(s1.status.state, 'error');
+  assert.equal(storage.saved.length, 1);
+  const { opId } = storage.saved[0];
+  // L'app si chiude e si riapre: la modifica riparte da sola
+  const sent = [];
+  const s2 = createStore({ storage, sleep: async () => {}, fetchImpl: async (url, opts) => {
+    if (url === '/api/ops') { sent.push(JSON.parse(opts.body)); return reply({ ok: true, record: { id: 't1', rev: 2, done: 1 } }); }
+    return reply(snapshot(1, { tasks: [{ id: 't1', rev: 1, done: 0 }] }));
+  } });
+  await s2.load({ force: true });
+  assert.equal(s2.resume(), 1);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].opId, opId, 'stesso codice: il server non la esegue due volte');
+  assert.equal(storage.saved.length, 0, 'confermata: tolta dal dispositivo');
+  assert.equal(s2.status.state, 'saved');
+});
+
+test('modifiche rimaste troppo a lungo (oltre 72 ore) non si rimandano', async () => {
+  const storage = memoryStorage([{ opId: 'vecchia-operazione-123', type: 'task.toggle', payload: { id: 't1', done: true }, at: Date.now() - 80 * 3600 * 1000 }]);
+  const s = createStore({ storage, fetchImpl: async () => reply(snapshot(1)) });
+  await s.load({ force: true });
+  assert.equal(s.resume(), 0);
+  assert.equal(storage.saved.length, 0);
+});
+
+test('sessione scaduta durante un salvataggio: la modifica non si perde e riparte dopo l’accesso', async () => {
+  const storage = memoryStorage();
+  let expired = true;
+  const sent = [];
+  const store = createStore({ storage, sleep: async () => {}, fetchImpl: async (url, opts) => {
+    if (expired) return { ok: false, status: 0, type: 'opaqueredirect', json: async () => { throw new Error('no'); } };
+    if (url === '/api/ops') { sent.push(JSON.parse(opts.body)); return reply({ ok: true, record: { id: 't1', rev: 2, done: 1 } }); }
+    return reply(snapshot(1));
+  } });
+  let rejected = false;
+  store.mutate('task.toggle', { id: 't1', done: true }).catch(() => { rejected = true; });
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(store.status.state, 'auth');
+  assert.equal(rejected, false, 'non è stata scartata');
+  assert.equal(storage.saved.length, 1);
+  expired = false;
+  store.retry();
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(sent.length, 1);
+  assert.equal(storage.saved.length, 0);
+});
+
+test('un record eliminato confermato dal server sparisce subito dall’elenco (niente "ricomparsa")', async () => {
+  const store = createStore({ fetchImpl: async (url) => {
+    if (url === '/api/ops') return reply({ ok: true, record: { id: 'n1', rev: 3, deleted: 1, text: 'x' } });
+    return reply(snapshot(2, { notes: [{ id: 'n1', rev: 2, deleted: 0, text: 'x' }] }));
+  } });
+  await store.load({ force: true });
+  const seen = [];
+  store.subscribe(() => seen.push(store.data.notes.length));
+  await store.mutate('note.delete', { id: 'n1' }, { optimistic: (d) => ({ ...d, notes: [] }) });
+  assert.equal(store.data.notes.length, 0);
+  assert.ok(!seen.includes(1), 'la nota non è mai ricomparsa');
+});

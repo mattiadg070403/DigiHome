@@ -111,3 +111,29 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
   - Contenuto: solo date (UID `<id>@digihome`, "Non disponibile") delle prenotazioni non cancellate degli altri canali, dal giorno prima in poi.
   - Niente giri a vuoto: Airbnb rimanda le nostre date come "Not available", che si ignora; Booking le rimanda come date chiuse coperte da prenotazioni di altri canali, che si ignorano. C'è un test del giro completo.
   - Solo nella versione definitiva (`CALENDAR_PUBLIC_URL`); nella prova il dialogo lo spiega.
+
+## Novità della 0.5 (10 novembre 2026)
+
+- **Extra della prenotazione** (`migrations/0005_extra.sql`, tabella `booking_extras`): soldi a parte rispetto al soggiorno, per esempio la tassa di soggiorno degli ospiti Airbnb e Booking o un supplemento.
+  - Ogni extra ha tipo (`tassa_soggiorno` | `altro`), descrizione, importo in centesimi, incassato sì/no con data, eliminazione reversibile e registro.
+  - Operazioni: `extra.add`, `extra.update`, `extra.delete`, `extra.restore`.
+  - Nella scheda: elenco, "Totale prenotazione" = soggiorno + extra, aiuto al calcolo della tassa (persone × notti × tariffa).
+  - Gli extra da incassare compaiono nel promemoria, nel passaggio dei pagamenti del check-in e negli avvisi (urgente se l'ospite è già partito).
+  - Pronti per la contabilità: una riga per voce, con tipo e data di incasso.
+- **Contratto solo per le prenotazioni dirette**: il passaggio "Contratto firmato" non c'è più per Airbnb e Booking, anche nel controllo del server.
+- **Cancellazione di una prenotazione Airbnb/Booking nel gestionale** (`migrations/0004_avviso_cancellazione.sql`, `ext_cancel_warn`).
+  - Compare un avviso urgente: sulla piattaforma è ancora attiva. Pulsanti: "Fatto, cancellata anche su …", "Non era una prenotazione vera", "Ripristina".
+  - L'avviso si toglie da solo quando la prenotazione sparisce anche dal calendario della piattaforma.
+  - Finché non è confermata, le sue date restano bloccate sull'altra piattaforma (calendario pubblico).
+  - Il messaggio di conferma spiega cosa succede per ogni canale.
+- **Affidabilità dei salvataggi**
+  - Coda delle modifiche copiata sul dispositivo (`dh.outbox`, massimo 72 ore): se l'app si chiude, si ricarica o la sessione scade, al riavvio le modifiche ripartono con lo stesso codice (nessun doppione).
+  - Sessione scaduta riconosciuta (`redirect: 'manual'`): la modifica resta in attesa invece di essere scartata.
+  - Nuovo tentativo automatico appena torna la rete. Avviso del browser se si chiude la pagina con modifiche in sospeso.
+  - I record eliminati non "ricompaiono" per un attimo dopo la conferma.
+- **Errori dell'app registrati sul server** (`POST /api/log`): solo id utente, messaggio, schermata e versione, nessun dato degli ospiti.
+- **Sicurezza**
+  - Le chiavi di Access si riscaricano al massimo una volta al minuto anche con token inventati.
+  - Codice di prenotazione duplicato → 409 invece di errore del server.
+  - Massimo 90 notti controllato anche sulle modifiche parziali.
+- Sottotitolo del menu preso dai nomi delle case (niente nomi scritti nel codice).

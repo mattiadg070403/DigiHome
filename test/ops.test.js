@@ -292,3 +292,43 @@ test('il contatore cresce di uno per ogni modifica riuscita, mai per quelle rifi
   assert.equal(st.rev, 2);
   assert.equal(st.bookings[0].rev, 2);
 });
+
+test('extra della prenotazione (es. tassa di soggiorno): aggiunta, incasso, modifica, eliminazione e ripristino', async () => {
+  const { db, admin } = await setup();
+  const { record: b } = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ channel: 'airbnb', total_cents: 50000 }) } });
+  const add = await runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'tassa_soggiorno', amount_cents: 1200, paid: 0 } } });
+  assert.equal(add.record.amount_cents, 1200);
+  assert.equal(add.record.paid, 0);
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'altro', amount_cents: 500 } } }), 'validation');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'tassa_soggiorno', amount_cents: 0 } } }), 'validation');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'boh', amount_cents: 100 } } }), 'validation');
+  const paid = await runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: add.record.id, version: add.record.version, changes: { paid: 1 } } });
+  assert.equal(paid.record.paid, 1);
+  assert.ok(paid.record.paid_at);
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: add.record.id, version: add.record.version, changes: { paid: 0 } } }), 'conflict');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: add.record.id, version: paid.record.version, changes: { booking_id: 'x' } } }), 'validation');
+  const del = await runOp(db, admin, { opId: op(), type: 'extra.delete', payload: { id: add.record.id } });
+  assert.equal(del.record.deleted, 1);
+  let st = await readState(db, admin);
+  assert.equal(st.extras.length, 0);
+  await runOp(db, admin, { opId: op(), type: 'extra.restore', payload: { id: add.record.id } });
+  st = await readState(db, admin);
+  assert.equal(st.extras.length, 1);
+  const hist = await readHistory(db, b.id);
+  assert.ok(hist.some((x) => x.entity === 'extra' && x.action === 'create'));
+  // Prenotazione cancellata: niente nuovi extra
+  const cur = await db.prepare('SELECT version FROM bookings WHERE id = ?').bind(b.id).first();
+  await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: b.id, version: cur.version } });
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'tassa_soggiorno', amount_cents: 100 } } }), 'state');
+});
+
+test('contratto solo per le prenotazioni dirette: Airbnb e Booking concludono il check-in senza', async () => {
+  const { db, admin } = await setup();
+  const { record: b } = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ channel: 'booking', check_in: T, check_out: addDays(T, 2) }) } });
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: b.id, flow: 'checkin', step: 'contratto', done: true } }), 'validation');
+  for (const step of ['ospiti', 'documenti', 'pagamenti', 'alloggiati', 'dms']) {
+    await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: b.id, flow: 'checkin', step, done: true } });
+  }
+  const r = await runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: b.id, version: b.version } });
+  assert.equal(r.record.stage, 'in_casa');
+});

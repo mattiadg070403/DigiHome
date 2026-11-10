@@ -3,6 +3,9 @@
 const enc = new TextEncoder();
 let certCache = { url: null, at: 0, keys: [] };
 const CERT_TTL_MS = 60 * 60 * 1000;
+// Una chiave sconosciuta fa riscaricare le chiavi di Access, ma al massimo una volta al minuto
+// (così token inventati non possono far scaricare le chiavi a ogni richiesta).
+const CERT_REFRESH_MIN_MS = 60 * 1000;
 
 function b64urlToBytes(s) {
   const pad = '='.repeat((4 - (s.length % 4)) % 4);
@@ -19,8 +22,9 @@ function decodePart(s) {
 
 async function getKeys(teamDomain, fetchImpl, force = false) {
   const url = `${teamDomain}/cdn-cgi/access/certs`;
-  const fresh = certCache.url === url && Date.now() - certCache.at < CERT_TTL_MS;
-  if (fresh && !force) return certCache.keys;
+  const age = Date.now() - certCache.at;
+  const fresh = certCache.url === url && age < CERT_TTL_MS;
+  if (fresh && (!force || age < CERT_REFRESH_MIN_MS)) return certCache.keys;
   const res = await fetchImpl(url);
   if (!res.ok) throw new Error('certs');
   const body = await res.json();

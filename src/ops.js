@@ -2,7 +2,7 @@
 // Ogni operazione: controllo, scrittura, registro modifiche e contatore in un'unica transazione.
 
 import { CHANNELS, checkinSteps, checkoutSteps, missingRequired, parseSteps, validateBooking } from '../public/shared/booking.js';
-import { fmtShort, isIsoDate, isTime } from '../public/shared/dates.js';
+import { daysBetween, fmtShort, isIsoDate, isTime } from '../public/shared/dates.js';
 import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
@@ -45,7 +45,7 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras' };
 
 export async function commit(db, { main, user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
@@ -122,6 +122,7 @@ async function bookingCreate(db, user, opId, p) {
   const { ok, value, errors } = validateBooking(b, { house });
   if (!ok) throw bad('Controlla i campi evidenziati', { errors });
   const id = isId(p.id) ? p.id : crypto.randomUUID();
+  if (await getBooking(db, id)) throw new OpError(409, 'state', 'Prenotazione già salvata.');
   const at = nowIso();
   const row = {
     id, house_id: house.id,
@@ -170,6 +171,7 @@ async function bookingUpdate(db, user, opId, p) {
   if (!ok) throw bad('Controlla i campi evidenziati', { errors });
   const merged = { ...cur, ...value };
   if (merged.check_out <= merged.check_in) throw bad('La partenza deve essere dopo l’arrivo', { errors: { check_out: 'La partenza deve essere dopo l’arrivo' } });
+  if (daysBetween(merged.check_in, merged.check_out) > 90) throw bad('Soggiorno troppo lungo (massimo 90 notti)', { errors: { check_out: 'Soggiorno troppo lungo (massimo 90 notti)' } });
   if (merged.deposit_cents > merged.total_cents) throw bad('L’acconto supera il totale', { errors: { deposit_cents: 'L’acconto supera il totale' } });
   if (value.security_cents !== undefined && cur.security_status === 'nessuna' && value.security_cents > 0) value.security_status = 'da_incassare';
   if (value.security_cents === 0 && cur.security_status === 'da_incassare') value.security_status = 'nessuna';
@@ -280,7 +282,11 @@ function bookingClose(db, user, opId, p) {
 }
 
 function bookingCancel(db, user, opId, p) {
-  return setStage(db, user, opId, p, { from: ['confermata', 'in_casa', 'partita'], to: 'cancellata', action: 'cancel' });
+  // Prenotazione di Airbnb/Booking cancellata qui: sulla piattaforma resta attiva → avviso finché non si conferma.
+  return setStage(db, user, opId, p, {
+    from: ['confermata', 'in_casa', 'partita'], to: 'cancellata', action: 'cancel',
+    extraSet: ", ext_cancel_warn = CASE WHEN channel <> 'diretto' AND ext_gone = 0 THEN 1 ELSE 0 END",
+  });
 }
 
 function bookingRestore(db, user, opId, p) {
@@ -288,7 +294,7 @@ function bookingRestore(db, user, opId, p) {
   // da qui in poi la gestisci tu e l'aggiornamento automatico non la ricancella.
   return setStage(db, user, opId, p, {
     from: ['cancellata'], to: (cur) => cur.prev_stage || 'confermata', action: 'restore',
-    extraSet: ', ext_uid = CASE WHEN ext_gone = 1 THEN NULL ELSE ext_uid END, ext_gone = 0',
+    extraSet: ', ext_uid = CASE WHEN ext_gone = 1 THEN NULL ELSE ext_uid END, ext_gone = 0, ext_cancel_warn = 0',
   });
 }
 
@@ -298,12 +304,14 @@ async function bookingExtAck(db, user, opId, p) {
   const cur = await getBooking(db, p.id);
   if (!cur) throw notFound();
   if (cur.version !== p.version) throw conflictError(cur);
-  if (!cur.ext_gone) return { record: cur, unchanged: true };
+  if (!cur.ext_gone && !cur.ext_cancel_warn) return { record: cur, unchanged: true };
   // Ancora valida anche se non è più nel calendario: si stacca dal calendario, così non viene ricancellata.
-  const main = db.prepare(`UPDATE bookings SET ext_gone = 0, ext_uid = CASE WHEN stage = 'cancellata' THEN ext_uid ELSE NULL END,
+  const main = db.prepare(`UPDATE bookings SET ext_gone = 0, ext_cancel_warn = 0,
+      ext_uid = CASE WHEN stage <> 'cancellata' AND ext_gone = 1 THEN NULL ELSE ext_uid END,
       version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
     WHERE id = ? AND version = ?`).bind(nowIso(), user.email, p.id, p.version);
-  const done = await commit(db, { main, user, opId, entity: 'booking', entityId: p.id, action: 'ext_ack', changes: { ext_gone: [1, 0] } });
+  const changes = cur.ext_gone ? { ext_gone: [1, 0] } : { ext_cancel_warn: [1, 0] };
+  const done = await commit(db, { main, user, opId, entity: 'booking', entityId: p.id, action: 'ext_ack', changes });
   if (!done) await explainBookingFailure(db, p.id, p.version);
   return { record: await getBooking(db, p.id) };
 }
@@ -339,6 +347,79 @@ async function noteSetDeleted(db, user, opId, p, deleted) {
     .bind(deleted, p.id, deleted ? 0 : 1);
   const done = await commit(db, { main, user, opId, entity: 'note', entityId: p.id, action: deleted ? 'delete' : 'restore' });
   const record = await db.prepare('SELECT * FROM booking_notes WHERE id = ?').bind(p.id).first();
+  if (!record) throw notFound();
+  return { record, unchanged: !done };
+}
+
+/* ------------------------------- Extra ------------------------------- */
+
+const EXTRA_KINDS = ['tassa_soggiorno', 'altro'];
+
+function validateExtra(input, partial) {
+  const v = {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(input, k);
+  if (!partial || has('kind')) {
+    if (!EXTRA_KINDS.includes(input.kind)) throw bad('Scegli il tipo di extra');
+    v.kind = input.kind;
+  }
+  if (!partial || has('label')) {
+    const s = String(input.label ?? '').trim();
+    if (s.length > 80) throw bad('Descrizione troppo lunga');
+    v.label = s || null;
+  }
+  if (!partial || has('amount_cents')) {
+    const n = Number(input.amount_cents);
+    if (!Number.isSafeInteger(n) || n < 1 || n > 100000000) throw bad('Importo non valido', { errors: { amount_cents: 'Importo non valido' } });
+    v.amount_cents = n;
+  }
+  if (!partial || has('paid')) v.paid = input.paid ? 1 : 0;
+  return v;
+}
+
+async function extraAdd(db, user, opId, p) {
+  if (!isId(p.bookingId)) throw bad('Richiesta non valida');
+  const b = await getBooking(db, p.bookingId);
+  if (!b) throw notFound();
+  if (b.stage === 'cancellata') throw new OpError(409, 'state', 'La prenotazione è cancellata.');
+  const v = validateExtra(p.extra || {}, false);
+  if (v.kind === 'altro' && !v.label) throw bad('Scrivi a cosa si riferisce', { errors: { label: 'Scrivi a cosa si riferisce' } });
+  const id = isId(p.id) ? p.id : crypto.randomUUID();
+  if (await db.prepare('SELECT 1 FROM booking_extras WHERE id = ?').bind(id).first()) throw new OpError(409, 'state', 'Extra già salvato.');
+  const at = nowIso();
+  const main = db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, paid_at, created_at, created_by, updated_at, updated_by, rev)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
+    .bind(id, b.id, v.kind, v.label, v.amount_cents, v.paid, v.paid ? at : null, at, user.email, at, user.email);
+  await commit(db, { main, user, opId, entity: 'extra', entityId: id, action: 'create', changes: { booking_id: b.id, ...v } });
+  return { record: await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(id).first() };
+}
+
+async function extraUpdate(db, user, opId, p) {
+  if (!isId(p.id) || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(p.id).first();
+  if (!cur || cur.deleted) throw notFound();
+  if (cur.version !== p.version) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.', { current: cur });
+  for (const k of Object.keys(p.changes || {})) if (!['kind', 'label', 'amount_cents', 'paid'].includes(k)) throw bad('Campo non modificabile');
+  const v = validateExtra(p.changes || {}, true);
+  if ((v.kind ?? cur.kind) === 'altro' && !('label' in v ? v.label : cur.label)) throw bad('Scrivi a cosa si riferisce');
+  const changes = diff(cur, v);
+  if (!Object.keys(changes).length) return { record: cur, unchanged: true };
+  const cols = Object.keys(changes);
+  const at = nowIso();
+  const paidAt = 'paid' in changes ? (v.paid ? at : null) : cur.paid_at;
+  const main = db.prepare(`UPDATE booking_extras SET ${cols.map((c) => `${c} = ?, `).join('')}paid_at = ?,
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND version = ? AND deleted = 0`)
+    .bind(...cols.map((c) => v[c]), paidAt, at, user.email, p.id, p.version);
+  const done = await commit(db, { main, user, opId, entity: 'extra', entityId: p.id, action: 'update', changes });
+  if (!done) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
+  return { record: await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(p.id).first() };
+}
+
+async function extraSetDeleted(db, user, opId, p, deleted) {
+  if (!isId(p.id)) throw bad('Richiesta non valida');
+  const main = db.prepare(`UPDATE booking_extras SET deleted = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND deleted = ?`).bind(deleted, nowIso(), user.email, p.id, deleted ? 0 : 1);
+  const done = await commit(db, { main, user, opId, entity: 'extra', entityId: p.id, action: deleted ? 'delete' : 'restore' });
+  const record = await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(p.id).first();
   if (!record) throw notFound();
   return { record, unchanged: !done };
 }
@@ -595,6 +676,10 @@ const HANDLERS = {
   'booking.ext_ack': bookingExtAck,
   'calendar.update': calendarUpdate,
   'calendar.regenerate': calendarRegenerate,
+  'extra.add': extraAdd,
+  'extra.update': extraUpdate,
+  'extra.delete': (db, u, o, p) => extraSetDeleted(db, u, o, p, 1),
+  'extra.restore': (db, u, o, p) => extraSetDeleted(db, u, o, p, 0),
   'note.add': noteAdd,
   'note.delete': (db, u, o, p) => noteSetDeleted(db, u, o, p, 1),
   'note.restore': (db, u, o, p) => noteSetDeleted(db, u, o, p, 0),

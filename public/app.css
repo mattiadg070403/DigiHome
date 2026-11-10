@@ -365,3 +365,9 @@ details[open] > summary.group-title::before { content: "▾ "; }
 /* Promemoria */
 .remind { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: var(--ink-2); }
 .alert-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+/* Extra della prenotazione */
+.extras { border-top: 1px solid var(--line); padding-top: 12px; }
+.extras-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.extra-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 6px 0; }
+.extra-row .row-main { flex: 1 1 180px; }

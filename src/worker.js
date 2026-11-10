@@ -68,6 +68,14 @@ async function handleApi(request, env, url) {
         const body = await readJson(request);
         return json(await runOp(env.DB, user, body));
       }
+      if (path === '/api/log') {
+        // Errori imprevisti dell'app: finiscono nei log di Cloudflare (senza email né dati degli ospiti).
+        const b = await readJson(request);
+        const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, n);
+        console.error('Errore app', JSON.stringify({ user: user.id, kind: clip(b.kind, 20), message: clip(b.message, 300),
+          stack: clip(b.stack, 1500), route: clip(b.route, 30), version: clip(b.version, 20) }));
+        return json({ ok: true });
+      }
       if (path === '/api/calendars/sync') {
         // "Aggiorna ora": i calendari aggiornati nell'ultimo minuto non si riscaricano.
         await readJson(request);

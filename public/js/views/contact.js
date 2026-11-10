@@ -82,9 +82,21 @@ export function alertActions(ctx, b, alert) {
     case 'checkout': buttons = [next('Inizia check-out', 'checkout')]; break;
     case 'close': buttons = [next('Chiudi il soggiorno', 'close')]; break;
     case 'details': buttons = [edit('Completa i dati', 'guest_name')]; break;
+    case 'extras': buttons = [h('button', { class: 'btn small', type: 'button', onClick: () => {
+      const unpaid = ctx.store.data.extras.filter((x) => x.booking_id === b.id && !x.deleted && !x.paid);
+      for (const x of unpaid) {
+        ctx.act('extra.update', { id: x.id, version: x.version, changes: { paid: 1 } }, {
+          optimistic: (d) => ({ ...d, extras: d.extras.map((e) => (e.id === x.id ? { ...e, paid: 1 } : e)) }),
+        }).catch(() => {});
+      }
+      ctx.toast(unpaid.length === 1 ? 'Extra segnato come incassato' : 'Extra segnati come incassati');
+    } }, icon('check', { size: 16 }), 'Segna incassati')]; break;
     case 'ext_gone': buttons = [
       h('button', { class: 'btn small', type: 'button', text: 'Sì, è cancellata', onClick: () => cancelBooking(ctx, latest()) }),
       ack('No, è ancora valida', 'Segnata come ancora valida')]; break;
+    case 'manual_cancel': buttons = [ack(`Fatto, cancellata anche su ${b.channel === 'airbnb' ? 'Airbnb' : 'Booking'}`, 'Avviso tolto'),
+      ack('Non era una prenotazione vera', 'Avviso tolto'),
+      h('button', { class: 'btn small', type: 'button', text: 'Ripristina', onClick: () => restoreBooking(ctx, latest()) })]; break;
     case 'ext_cancelled': buttons = [ack('Ok, visto', 'Avviso tolto'),
       h('button', { class: 'btn small', type: 'button', text: 'Ripristina', onClick: () => restoreBooking(ctx, latest()) })]; break;
     default: return null;

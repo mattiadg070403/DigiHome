@@ -7,11 +7,28 @@
 // - Un aggiornamento dei dati più vecchio di quello che l'app ha già viene scartato.
 // - Aggiornare i dati non tocca mai la schermata: chi disegna decide cosa ridisegnare.
 // - Gli errori restano visibili finché non si risolvono.
+// - Le modifiche non ancora confermate sono copiate sul dispositivo (fino a 72 ore): se l'app si chiude,
+//   si ricarica o la sessione scade, al riavvio ripartono con lo stesso codice (il server non le ripete).
 
-const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [] };
-const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars' };
+const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [], extras: [] };
+const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'extras' };
 const TIMEOUT_MS = 15000;
 const RETRIES = [1000, 3000, 8000];
+const OUTBOX_KEY = 'dh.outbox';
+const OUTBOX_MAX_AGE_MS = 72 * 60 * 60 * 1000;
+
+/** Memoria del dispositivo (localStorage), con ripiego silenzioso se non disponibile. */
+const deviceStorage = {
+  read() {
+    try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); } catch { return []; }
+  },
+  write(list) {
+    try {
+      if (list.length) localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
+      else localStorage.removeItem(OUTBOX_KEY);
+    } catch { /* memoria piena o non disponibile: si continua solo in memoria */ }
+  },
+};
 
 export class ApiError extends Error {
   constructor(status, body) {
@@ -22,7 +39,10 @@ export class ApiError extends Error {
   }
 }
 
-export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => crypto.randomUUID(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() } = {}) {
+const noStorage = { read: () => [], write: () => {} };
+
+export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => crypto.randomUUID(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(),
+  storage = typeof localStorage === 'undefined' ? noStorage : deviceStorage } = {}) {
   let data = { ...EMPTY };
   let maxSeenRev = -1;
   let loadSeq = 0;
@@ -34,6 +54,11 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
   const listeners = new Set();
   let lastSync = 0;
   let staleRetries = 0;
+
+  /** Copia sul dispositivo delle modifiche non ancora confermate (solo i dati da rimandare). */
+  function saveOutbox() {
+    storage.write(queue.map((op) => ({ opId: op.opId, type: op.type, payload: op.payload, at: op.at })));
+  }
 
   function emit(kind) {
     for (const fn of listeners) fn(kind);
@@ -55,12 +80,18 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
         body: body ? JSON.stringify(body) : undefined,
         credentials: 'same-origin',
         cache: 'no-store',
+        // La pagina di accesso di Cloudflare arriva come reindirizzamento: non lo si segue, così si capisce
+        // che la sessione è scaduta (invece di scambiarlo per "connessione assente").
+        redirect: 'manual',
         signal: ctrl ? ctrl.signal : undefined,
       });
     } catch {
       throw new ApiError(0, { code: 'network', message: 'Connessione assente o lenta.' });
     } finally {
       if (timer) clearTimeout(timer);
+    }
+    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+      throw new ApiError(401, { code: 'auth', message: 'Sessione scaduta: tocca "Accedi" per entrare di nuovo. Le modifiche non salvate restano su questo dispositivo.' });
     }
     let parsed = null;
     try {
@@ -81,7 +112,8 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     const i = list.findIndex((x) => x.id === record.id);
     if (i >= 0 && (list[i].rev ?? -1) > (record.rev ?? -1)) return;
     const next = list.slice();
-    if (i >= 0) next[i] = record; else next.push(record);
+    // Un record eliminato (note, cose da fare, extra) esce dall'elenco, come quando si ricarica dal server.
+    if (record.deleted) { if (i >= 0) next.splice(i, 1); } else if (i >= 0) next[i] = record; else next.push(record);
     if (key === 'bookings') next.sort((a, b) => (a.check_in < b.check_in ? -1 : a.check_in > b.check_in ? 1 : 0));
     data = { ...data, [key]: next };
     if (typeof record.rev === 'number') maxSeenRev = Math.max(maxSeenRev, record.rev);
@@ -124,7 +156,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       return false;
     }
     staleRetries = 0;
-    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [] };
+    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [], extras: res.extras || [] };
     maxSeenRev = Math.max(maxSeenRev, res.rev);
     emit('data');
     return true;
@@ -137,8 +169,9 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
    */
   function mutate(type, payload, { optimistic } = {}) {
     return new Promise((resolve, reject) => {
-      const op = { opId: newId(), type, payload, optimistic, resolve, reject, before: null };
+      const op = { opId: newId(), type, payload, optimistic, resolve, reject, before: null, at: now() };
       queue.push(op);
+      saveOutbox();
       if (optimistic) {
         op.before = data;
         const next = optimistic(data);
@@ -176,7 +209,14 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
           running = false;
           return;
         }
+        if (error && (error.code === 'auth' || error.status === 401)) {
+          // Sessione scaduta: la modifica resta in attesa (anche sul dispositivo) e riparte dopo l'accesso.
+          setStatus({ state: 'auth', message: error.message, failedOp: op });
+          running = false;
+          return;
+        }
         queue.shift();
+        saveOutbox();
         if (error) {
           if (op.optimistic && op.before) restore(op);
           setStatus({ state: queue.length ? 'saving' : 'saved', message: '' });
@@ -215,6 +255,28 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     emit('data');
   }
 
+  /**
+   * Al riavvio: rimette in coda le modifiche rimaste sul dispositivo e le invia.
+   * Restituisce quante sono.
+   */
+  function resume() {
+    const saved = storage.read();
+    const fresh = Array.isArray(saved) ? saved.filter((x) => x && typeof x.opId === 'string' && typeof x.type === 'string'
+      && x.payload && typeof x.at === 'number' && now() - x.at < OUTBOX_MAX_AGE_MS) : [];
+    const known = new Set(queue.map((op) => op.opId));
+    for (const x of fresh) {
+      if (known.has(x.opId)) continue;
+      queue.push({ opId: x.opId, type: x.type, payload: x.payload, at: x.at, optimistic: null, before: null,
+        resolve: () => {}, reject: () => {} });
+    }
+    saveOutbox();
+    if (queue.length) {
+      setStatus({ state: 'saving', message: 'Invio delle modifiche rimaste in sospeso…', failedOp: null });
+      pump();
+    }
+    return fresh.length;
+  }
+
   /** Riprova la modifica rimasta in attesa (pulsante "Riprova"). */
   function retry() {
     if (queue.length) {
@@ -232,6 +294,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     load,
     mutate,
     retry,
+    resume,
     request,
     newId,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },

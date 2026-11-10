@@ -103,7 +103,9 @@ export async function cancelBooking(ctx, b) {
   if (!ok) return;
   const cur = latest(ctx, b.id);
   await ctx.act('booking.cancel', { id: b.id, version: cur.version }, {
-    message: 'Prenotazione cancellata',
+    message: b.channel !== 'diretto' && !b.ext_gone
+      ? `Cancellata nel gestionale. Su ${b.channel === 'airbnb' ? 'Airbnb' : 'Booking'} resta attiva: guarda l'avviso in Oggi.`
+      : 'Prenotazione cancellata',
     undo: (res) => ctx.act('booking.restore', { id: b.id, version: res.record.version }, { message: 'Prenotazione ripristinata' }),
   }).catch(() => {});
 }

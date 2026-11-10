@@ -386,3 +386,61 @@ test('formato del calendario pubblico', () => {
   assert.ok(t.includes('DTSTAMP:20260701T102030Z'));
   assert.ok(t.endsWith('END:VCALENDAR\r\n'));
 });
+
+test('cancellata a mano una prenotazione Airbnb: avviso importante finché non si conferma o finché non sparisce da Airbnb', async () => {
+  const { db, admin, connect, bookings } = await setup();
+  const { bookingAlerts } = await import('../public/shared/booking.js');
+  await connect('faro-blu:airbnb', AIRBNB_URL);
+  const blk = ev({ uid: 'blk', start: addDays(T, 300), end: addDays(T, 301), summary: 'Airbnb (Not available)' });
+  const withA1 = fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14) }), blk) });
+  await syncAll(db, { fetcher: withA1 });
+  let [b] = await bookings();
+  await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: b.id, version: b.version } });
+  [b] = await bookings();
+  assert.equal(b.ext_cancel_warn, 1);
+  const al = bookingAlerts(b, T);
+  assert.equal(al[0].key, 'manual_cancel');
+  assert.equal(al[0].level, 'urgente');
+  assert.match(al[0].text, /su Airbnb .* risulta ancora attiva/);
+  // Ancora su Airbnb: l'avviso resta
+  await syncAll(db, { fetcher: withA1 });
+  [b] = await bookings();
+  assert.equal(b.ext_cancel_warn, 1);
+  // Cancellata anche su Airbnb: l'avviso si toglie da solo, la prenotazione resta cancellata
+  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(blk) }) });
+  [b] = await bookings();
+  assert.equal(b.ext_cancel_warn, 0);
+  assert.equal(b.stage, 'cancellata');
+  assert.equal(bookingAlerts(b, T).length, 0);
+});
+
+test('avviso di cancellazione: "Ho capito" e "Ripristina" lo tolgono; le dirette non lo hanno', async () => {
+  const { db, admin, bookings } = await setup();
+  const mk = (channel, n) => runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', channel, guest_name: `Ospite ${n}`, guests: 2, total_cents: 10000, check_in: addDays(T, 10 * n), check_out: addDays(T, 10 * n + 3) } } });
+  for (const [ch, n] of [['booking', 1], ['airbnb', 2], ['diretto', 3]]) {
+    const r = await mk(ch, n);
+    await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: r.record.id, version: r.record.version } });
+  }
+  let list = await bookings();
+  assert.deepEqual(list.map((x) => x.ext_cancel_warn), [1, 1, 0]);
+  const ack = await runOp(db, admin, { opId: op(), type: 'booking.ext_ack', payload: { id: list[0].id, version: list[0].version } });
+  assert.equal(ack.record.ext_cancel_warn, 0);
+  const res = await runOp(db, admin, { opId: op(), type: 'booking.restore', payload: { id: list[1].id, version: list[1].version } });
+  assert.equal(res.record.ext_cancel_warn, 0);
+  assert.equal(res.record.stage, 'confermata');
+});
+
+test('prenotazione Booking cancellata solo nel gestionale: su Airbnb le date restano bloccate finché non si conferma', async () => {
+  const { db, admin } = await setup();
+  const r = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', channel: 'booking', guest_name: 'Ospite', guests: 2, check_in: addDays(T, 5), check_out: addDays(T, 8) } } });
+  await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: r.record.id, version: r.record.version } });
+  const tok = (await db.prepare("SELECT export_token FROM calendars WHERE id = 'faro-blu:airbnb'").first()).export_token;
+  const events = async () => parseIcs(await (await publicCalendar.fetch(new Request(`https://x.invalid/cal/${tok}.ics`), { DB: db })).text()).events
+    .filter((e) => e.start > '2001-01-01');
+  assert.equal((await events()).length, 1, 'ancora bloccate');
+  const cur = await db.prepare('SELECT version FROM bookings WHERE id = ?').bind(r.record.id).first();
+  await runOp(db, admin, { opId: op(), type: 'booking.ext_ack', payload: { id: r.record.id, version: cur.version } });
+  assert.equal((await events()).length, 0, 'confermato: date libere');
+});

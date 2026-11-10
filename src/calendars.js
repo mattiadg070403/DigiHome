@@ -145,6 +145,16 @@ export async function applyEvents(db, cal, events, today = todayRome()) {
     if (await create(db, cal, ev)) out.created++;
   }
 
+  // Cancellate a mano nel gestionale ma ancora sulla piattaforma: quando spariscono anche dal calendario
+  // della piattaforma (cancellate pure lì), l'avviso si toglie da solo.
+  if (events.length > 0) {
+    for (const c of linked) {
+      if (c.stage === 'cancellata' && c.ext_cancel_warn === 1 && !inFeed.has(c.ext_uid)) {
+        if (await write(db, c, { ext_cancel_warn: 0 }, { ext_cancel_warn: [1, 0], motivo: [null, `cancellata anche su ${LABEL[ch]}`] }, 'sync')) out.updated++;
+      }
+    }
+  }
+
   const feedHasEvents = events.length > 0;
   for (const g of gone) {
     if (feedHasEvents) {

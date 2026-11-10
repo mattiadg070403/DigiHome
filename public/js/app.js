@@ -4,13 +4,20 @@ import { h, icon } from './dom.js';
 import { createStore } from './store.js';
 import { APP_VERSION } from '../shared/version.js';
 import { timeRome, todayRome } from '../shared/dates.js';
-import { checkinOverdue } from '../shared/booking.js';
+import { checkinOverdue, extrasOf } from '../shared/booking.js';
 import { renderToday } from './views/today.js';
 import { renderBookings } from './views/bookings.js';
 import { renderDetail, renderFlow } from './views/detail.js';
 import { renderSettings } from './views/settings.js';
 
 const REFRESH_MS = 30000;
+
+// Ricaricare apposta (Accedi, Aggiorna, Riprova) non deve far comparire la domanda "Vuoi uscire?".
+let leavingOnPurpose = false;
+function reloadApp() {
+  leavingOnPurpose = true;
+  location.reload();
+}
 
 function readPref(key, fallback) {
   try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
@@ -129,7 +136,7 @@ function buildChip() {
     state === 'saved' ? icon('check', { size: 16 }) : h('span', { class: 'dot' }),
     h('span', { text: labels[s.state] || '' }));
   if (s.state === 'error' || s.state === 'offline') chip.append(h('button', { type: 'button', text: 'Riprova', onClick: () => store.retry() }));
-  if (s.state === 'auth') chip.append(h('button', { type: 'button', text: 'Accedi', onClick: () => location.reload() }));
+  if (s.state === 'auth') chip.append(h('button', { type: 'button', text: 'Accedi', onClick: reloadApp }));
   return chip;
 }
 
@@ -148,20 +155,21 @@ function buildShell() {
     class: cls, href: `#/${n.path}`, dataset: { nav: n.name },
   }, icon(n.icon, { size: 20 }), h('span', { text: n.label })));
   const view = h('div', { class: 'page', id: 'view' });
+  const brandSub = h('div', { class: 'brand-sub' });
   const envBadge = h('span', { class: 'env-badge', hidden: true });
   const versionLine = h('span', { text: `Versione ${APP_VERSION}` });
   const side = h('nav', { class: 'side', attrs: { 'aria-label': 'Sezioni' } },
-    h('div', { class: 'brand' }, h('div', { class: 'brand-title', text: 'DigiHome' }), h('div', { class: 'brand-sub', text: 'Isola Bella · Faro Blu' })),
+    h('div', { class: 'brand' }, h('div', { class: 'brand-title', text: 'DigiHome' }), brandSub),
     navBtns('nav-btn'),
     h('div', { class: 'side-foot' }, envBadge, versionLine));
   const tabbar = h('nav', { class: 'tabbar', attrs: { 'aria-label': 'Sezioni' } }, navBtns('nav-btn'));
   const updateBar = h('div', { class: 'banner warn', hidden: true, attrs: { role: 'status' } },
     h('span', { text: 'È disponibile una nuova versione di DigiHome.' }),
-    h('button', { class: 'btn small', type: 'button', text: 'Aggiorna', onClick: () => location.reload() }));
+    h('button', { class: 'btn small', type: 'button', text: 'Aggiorna', onClick: reloadApp }));
   const main = h('main', { class: 'main', id: 'main' }, h('div', { class: 'page' }, updateBar), view);
   const root = h('div', { class: 'shell' }, side, main, tabbar);
   document.getElementById('app').replaceChildren(root);
-  shell = { view, envBadge, updateBar };
+  shell = { view, envBadge, updateBar, brandSub };
 }
 
 function updateShell() {
@@ -169,6 +177,7 @@ function updateShell() {
   for (const a of document.querySelectorAll('[data-nav]')) {
     if (a.dataset.nav === current) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
+  shell.brandSub.textContent = (store.data.houses || []).map((x) => x.name).join(' · ');
   const info = store.info;
   if (info.env && info.env !== 'produzione') {
     shell.envBadge.hidden = false;
@@ -181,7 +190,7 @@ function updateShell() {
 
 /** Ora attuale e casa della prenotazione: servono per la scadenza delle 24 ore del check-in. */
 function clock(b) {
-  return { time: ui.now, house: store.data.houses.find((x) => x.id === b.house_id) || {} };
+  return { time: ui.now, house: store.data.houses.find((x) => x.id === b.house_id) || {}, extras: extrasOf(b, store.data.extras) };
 }
 
 /** Prenotazioni oltre le 24 ore senza check-in concluso (per ridisegnare appena scatta la scadenza). */
@@ -223,7 +232,7 @@ function render() {
       : s.state === 'offline-start' ? 'Connessione assente. Il gestionale riproverà da solo.'
         : 'Caricamento…';
     shell.view.replaceChildren(h('div', { class: 'loading-screen' }, h('p', { text: msg }),
-      s.state === 'auth' || s.state === 'offline-start' ? h('button', { class: 'btn', type: 'button', text: 'Riprova', onClick: () => location.reload() }) : null));
+      s.state === 'auth' || s.state === 'offline-start' ? h('button', { class: 'btn', type: 'button', text: s.state === 'auth' ? 'Accedi' : 'Riprova', onClick: reloadApp }) : null));
     return;
   }
   if (!d.houses.some((x) => x.id === ui.houseId) && d.houses[0]) ui.houseId = d.houses[0].id;
@@ -269,10 +278,14 @@ store.subscribe((kind) => {
 
 // Aggiornamento dei dati: al ritorno sull'app, quando torna la connessione, e ogni 30 secondi.
 // Non azzera mai la schermata: aggiorna i dati e ridisegna mantenendo campi, posizione e finestre aperte.
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') store.load(); });
+// Se una modifica è ferma per la rete, si riprova da sola appena possibile.
+const tryAgainIfStuck = () => { if (store.status.state === 'error' && navigator.onLine !== false) store.retry(); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { tryAgainIfStuck(); store.load(); } });
 window.addEventListener('online', () => store.retry());
 window.addEventListener('pageshow', (e) => { if (e.persisted) store.load(); });
-setInterval(() => { if (document.visibilityState === 'visible') store.load(); }, REFRESH_MS);
+setInterval(() => { if (document.visibilityState === 'visible') { tryAgainIfStuck(); store.load(); } }, REFRESH_MS);
+// Chiudere la pagina con modifiche non ancora inviate: il browser chiede conferma (restano comunque sul dispositivo).
+window.addEventListener('beforeunload', (e) => { if (store.pending && !leavingOnPurpose) { e.preventDefault(); e.returnValue = ''; } });
 // Ogni minuto: ridisegna se cambia il giorno o se un check-in supera le 24 ore dall'arrivo.
 let lastOverdue = '';
 setInterval(() => {
@@ -280,10 +293,23 @@ setInterval(() => {
   if (todayRome() !== ui.today || key !== lastOverdue) { lastOverdue = key; render(); }
 }, 60000);
 
-window.addEventListener('error', (e) => console.error('Errore app', e.message));
-window.addEventListener('unhandledrejection', (e) => { if (!(e.reason && e.reason.status !== undefined)) console.error('Errore app', e.reason); });
+// Errori imprevisti dell'app: si registrano anche sul server (senza dati personali), per poterli correggere.
+let reported = 0;
+function reportError(kind, err) {
+  console.error('Errore app', err);
+  if (reported >= 5) return;
+  reported += 1;
+  const message = String((err && (err.message || err.reason)) || err || '').slice(0, 300);
+  const stack = String((err && err.stack) || '').slice(0, 1500);
+  store.request('/api/log', { method: 'POST', body: { kind, message, stack, route: ui.route.name, version: APP_VERSION } }).catch(() => {});
+}
+window.addEventListener('error', (e) => reportError('error', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => { if (!(e.reason && e.reason.status !== undefined)) reportError('promise', e.reason); });
 
 buildShell();
 lastRoute = location.hash;
 render();
-store.load({ force: true });
+store.load({ force: true }).then(() => {
+  const n = store.resume();
+  if (n) toast(`${n === 1 ? 'Una modifica rimasta in sospeso viene salvata ora' : `${n} modifiche rimaste in sospeso vengono salvate ora`}.`);
+});

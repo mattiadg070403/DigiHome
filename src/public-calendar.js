@@ -38,12 +38,16 @@ export function buildIcs(bookings, now = new Date()) {
   return `${lines.join('\r\n')}\r\n`;
 }
 
-/** Prenotazioni da pubblicare per quel codice (null se il codice non esiste). */
+/**
+ * Prenotazioni da pubblicare per quel codice (null se il codice non esiste).
+ * Una prenotazione di Airbnb/Booking cancellata solo nel gestionale (ext_cancel_warn = 1) è ancora attiva
+ * sulla piattaforma: le sue date restano bloccate sull'altra finché la cancellazione non è confermata.
+ */
 export async function exportFor(db, token, today = todayRome()) {
   const cal = await db.prepare('SELECT house_id, channel FROM calendars WHERE export_token = ?').bind(token).first();
   if (!cal) return null;
   const r = await db.prepare(`SELECT id, check_in, check_out FROM bookings
-    WHERE house_id = ? AND stage <> 'cancellata' AND channel <> ? AND check_out >= ?
+    WHERE house_id = ? AND (stage <> 'cancellata' OR ext_cancel_warn = 1) AND channel <> ? AND check_out >= ?
     ORDER BY check_in`).bind(cal.house_id, cal.channel, addDays(today, -1)).all();
   return r.results || [];
 }

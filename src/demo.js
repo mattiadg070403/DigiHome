@@ -15,7 +15,7 @@ export function demoBookings(today = todayRome()) {
       security_cents: 20000, security_status: 'incassata', stage: 'in_casa',
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'contatori', 'alloggiati', 'dms']) },
     { house_id: 'isola-bella', channel: 'airbnb', guest_name: 'Lena Hoffmann (prova)', phone: null, guests: 2,
-      check_in: d(2), check_out: d(9), arrival_time: null, total_cents: 112000, security_cents: 0, security_status: 'nessuna', stage: 'confermata' },
+      check_in: d(2), check_out: d(9), arrival_time: null, total_cents: 112000, security_cents: 0, security_status: 'nessuna', stage: 'confermata', extras: [{ kind: 'tassa_soggiorno', amount_cents: 2800, paid: 0 }] },
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Giulia Ferri (prova)', phone: '+39 000 000 0002', guests: 3,
       check_in: d(12), check_out: d(19), total_cents: 126000, deposit_cents: 30000, deposit_paid: 0,
       security_cents: 20000, security_status: 'da_incassare', stage: 'confermata', minors_delegation: 'da_chiedere' },
@@ -56,20 +56,27 @@ export function demoTasks(today = todayRome()) {
 export async function loadDemo(db, user) {
   const at = new Date().toISOString();
   const stmts = [
+    db.prepare('DELETE FROM booking_extras'),
     db.prepare('DELETE FROM booking_notes'),
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM bookings'),
-    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task')"),
+    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra')"),
   ];
   for (const b of demoBookings()) {
     const row = {
       id: crypto.randomUUID(), phone: null, arrival_time: null, deposit_cents: 0, deposit_paid: 0, security_cents: 0,
       minors_delegation: 'non_serve', checkin_steps: '{}', checkout_steps: '{}', review_ok: null, ...b,
     };
+    const extras = row.extras || [];
+    delete row.extras;
     const cols = Object.keys(row);
     stmts.push(db.prepare(`INSERT INTO bookings (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
       VALUES (${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT})`)
       .bind(...cols.map((c) => row[c]), at, user.email, at, user.email));
+    for (const x of extras) {
+      stmts.push(db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, created_at, created_by, rev)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), row.id, x.kind, x.label || null, x.amount_cents, x.paid, at, user.email));
+    }
   }
   for (const t of demoTasks()) {
     stmts.push(db.prepare(`INSERT INTO tasks (id, title, house_id, due_date, created_at, created_by, rev)

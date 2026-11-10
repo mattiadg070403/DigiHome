@@ -80,10 +80,24 @@ export function closeDialog(ctx, b) {
   }
 }
 
+/** Testo della conferma: cosa succede alle date, qui e sulle piattaforme. */
+function cancelText(b) {
+  const name = b.guest_name;
+  if (b.channel === 'diretto') {
+    return `La prenotazione di ${name} verrà segnata come cancellata e le date torneranno libere, anche su Airbnb e Booking (se collegati, entro qualche ora). Potrai ripristinarla se le date sono ancora libere.`;
+  }
+  const platform = b.channel === 'airbnb' ? 'Airbnb' : 'Booking';
+  if (b.ext_gone) {
+    return `Non risulta più nel calendario di ${platform}: verrà segnata come cancellata e le date torneranno libere.`;
+  }
+  return `Attenzione: cancellarla qui NON la cancella su ${platform}. Se l'ospite ha cancellato, fallo su ${platform}: il gestionale se ne accorge da solo. `
+    + `Cancellala qui solo se non è una prenotazione vera (per esempio date che hai chiuso a mano su ${platform}): le date tornano libere nel gestionale e sull'altra piattaforma.`;
+}
+
 export async function cancelBooking(ctx, b) {
   const ok = await confirmDialog({
     title: 'Cancellare la prenotazione?',
-    text: `La prenotazione di ${b.guest_name} verrà segnata come cancellata e le date torneranno libere. Potrai ripristinarla se le date sono ancora libere.`,
+    text: cancelText(b),
     okLabel: 'Cancella prenotazione', danger: true,
   });
   if (!ok) return;

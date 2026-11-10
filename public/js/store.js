@@ -104,7 +104,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       }
       return false;
     }
-    info = { version: res.version, env: res.env, demo: Boolean(res.demo) };
+    info = { version: res.version, env: res.env, demo: Boolean(res.demo), calendarBase: res.calendarBase || null };
     lastSync = now();
     if (seq < appliedSeq) return false;
     appliedSeq = seq;

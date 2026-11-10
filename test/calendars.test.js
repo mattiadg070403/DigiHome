@@ -301,3 +301,80 @@ test('durante il soggiorno cambia solo la partenza; i soggiorni iniziati non si 
   [b] = await bookings();
   assert.equal(b.stage, 'in_casa');
 });
+
+import publicCalendar, { buildIcs } from '../src/public-calendar.js';
+
+test('calendario pubblico per Airbnb: solo date delle prenotazioni dirette e di Booking, nessun nome', async () => {
+  const { db, admin, collab } = await setup();
+  const mk = (over) => runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', guest_name: 'Nome Riservato', guests: 2, total_cents: 10000, ...over } } });
+  const dir = await mk({ channel: 'diretto', check_in: addDays(T, 5), check_out: addDays(T, 8) });
+  await mk({ channel: 'booking', check_in: addDays(T, 10), check_out: addDays(T, 12) });
+  await mk({ channel: 'airbnb', check_in: addDays(T, 20), check_out: addDays(T, 22) });
+  await mk({ channel: 'diretto', check_in: addDays(T, -30), check_out: addDays(T, -25) });
+  const canc = await mk({ channel: 'diretto', check_in: addDays(T, 40), check_out: addDays(T, 42) });
+  await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: canc.record.id, version: canc.record.version } });
+  await mk({ house_id: 'isola-bella', channel: 'diretto', check_in: addDays(T, 5), check_out: addDays(T, 8) });
+
+  const env = { DB: db };
+  const tok = (await db.prepare("SELECT export_token FROM calendars WHERE id = 'faro-blu:airbnb'").first()).export_token;
+  assert.match(tok, /^[a-f0-9]{48}$/);
+  const get = (path, method = 'GET') => publicCalendar.fetch(new Request(`https://cal.example.invalid${path}`, { method }), env);
+  const r = await get(`/cal/${tok}.ics`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('Content-Type'), 'text/calendar; charset=utf-8');
+  assert.equal(r.headers.get('Cache-Control'), 'no-store');
+  const body = await r.text();
+  assert.ok(!body.includes('Nome Riservato'), 'nessun nome');
+  assert.equal((body.match(/BEGIN:VEVENT/g) || []).length, 2, 'diretta + Booking della stessa casa; non Airbnb, non passate, non cancellate, non l’altra casa');
+  assert.ok(body.includes(`DTSTART;VALUE=DATE:${ymd(addDays(T, 5))}`));
+  assert.ok(body.includes(`UID:${dir.record.id}@digihome`));
+  // Il calendario si rilegge correttamente
+  const parsed = parseIcs(body);
+  assert.equal(parsed.events.length, 2);
+  // Codici sbagliati, altre pagine, altri metodi
+  assert.equal((await get(`/cal/${'0'.repeat(48)}.ics`)).status, 404);
+  assert.equal((await get('/cal/abc.ics')).status, 404);
+  assert.equal((await get('/api/state')).status, 404);
+  assert.equal((await get('/')).status, 404);
+  assert.equal((await get(`/cal/${tok}.ics`, 'POST')).status, 405);
+  assert.match(await (await get('/robots.txt')).text(), /Disallow: \//);
+  // I codici li vede solo l'amministratore; nella copia dei dati non ci sono
+  assert.deepEqual((await readState(db, collab)).calendars, []);
+  assert.ok((await readState(db, admin)).calendars.every((c) => /^[a-f0-9]{48}$/.test(c.export_token)));
+  const { readExport } = await import('../src/state.js');
+  assert.ok(!JSON.stringify(await readExport(db)).includes(tok));
+  // Link nuovo: quello vecchio smette di funzionare (solo amministratore)
+  const cal = await db.prepare("SELECT version FROM calendars WHERE id = 'faro-blu:airbnb'").first();
+  await assert.rejects(runOp(db, collab, { opId: op(), type: 'calendar.regenerate', payload: { id: 'faro-blu:airbnb', version: cal.version } }), (e) => e.code === 'forbidden');
+  const re = await runOp(db, admin, { opId: op(), type: 'calendar.regenerate', payload: { id: 'faro-blu:airbnb', version: cal.version } });
+  assert.notEqual(re.record.export_token, tok);
+  assert.equal((await get(`/cal/${tok}.ics`)).status, 404);
+  assert.equal((await get(`/cal/${re.record.export_token}.ics`)).status, 200);
+  // Il calendario per Booking contiene la diretta e Airbnb, non Booking
+  const tokB = (await db.prepare("SELECT export_token FROM calendars WHERE id = 'faro-blu:booking'").first()).export_token;
+  const bodyB = await (await get(`/cal/${tokB}.ics`)).text();
+  assert.ok(bodyB.includes(`DTSTART;VALUE=DATE:${ymd(addDays(T, 20))}`));
+  assert.ok(!bodyB.includes(`DTSTART;VALUE=DATE:${ymd(addDays(T, 10))}`));
+});
+
+test('giro completo senza doppioni: DigiHome → Booking → DigiHome', async () => {
+  const { db, admin, connect, bookings } = await setup();
+  await connect('faro-blu:booking', BOOKING_URL);
+  await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', channel: 'diretto', guest_name: 'Diretto', guests: 2, total_cents: 10000, check_in: addDays(T, 5), check_out: addDays(T, 8) } } });
+  // Booking importa il calendario di DigiHome e lo riesporta come date chiuse (stesse date)
+  const tokB = (await db.prepare("SELECT export_token FROM calendars WHERE id = 'faro-blu:booking'").first()).export_token;
+  const ours = parseIcs(await (await publicCalendar.fetch(new Request(`https://x.invalid/cal/${tokB}.ics`), { DB: db })).text()).events;
+  const echo = ics(...ours.map((e, i) => ev({ uid: `eco${i}@booking.com`, start: e.start, end: e.end, summary: 'CLOSED - Not available' })));
+  const [r] = await syncAll(db, { fetcher: fetcherFor({ [BOOKING_URL]: echo }) });
+  assert.equal(r.created, 0);
+  assert.equal((await bookings()).length, 1);
+});
+
+test('formato del calendario pubblico', () => {
+  const t = buildIcs([{ id: 'x1', check_in: '2026-07-10', check_out: '2026-07-14' }], new Date('2026-07-01T10:20:30.000Z'));
+  assert.ok(t.startsWith('BEGIN:VCALENDAR\r\n'));
+  assert.ok(t.includes('DTSTAMP:20260701T102030Z'));
+  assert.ok(t.endsWith('END:VCALENDAR\r\n'));
+});

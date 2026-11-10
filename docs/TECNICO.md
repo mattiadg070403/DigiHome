@@ -104,4 +104,10 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
 - **Dati da completare.** Il modulo mostra l'avviso e nasconde il canale. Salvarlo azzera `needs_details`. Promemoria, avvisi ed elenchi mostrano "ospiti da completare".
 - **Copia dei dati** (`GET /api/export`, solo amministratore): tutte le tabelle e il registro in un file JSON, senza i link dei calendari.
 - **Versione definitiva**: `produzione/wrangler.jsonc` (Worker `digihome`, database `digihome`, `ALLOW_DEMO = false`, ramo `produzione`). Un test controlla che resti separata dalla prova.
-- Non incluso: link che DigiHome dà ad Airbnb/Booking con le prenotazioni dirette. Richiede un indirizzo pubblico fuori da Cloudflare Access (Access protegge tutto il Worker). Da valutare.
+- **Calendario pubblico per Airbnb e Booking** (`src/public-calendar.js`, `calendario/wrangler.jsonc`, `migrations/0003_calendario_pubblico.sql`).
+  - Worker separato (`digihome-calendario`) senza Cloudflare Access, perché le piattaforme non possono fare il login. Cloudflare Access protegge tutto il Worker principale e non permette di aprire un solo percorso.
+  - Risponde solo a `GET /cal/<48 caratteri esadecimali>.ics`; tutto il resto dà 404. Nessuna intestazione che permetta cache o indicizzazione.
+  - Per ogni casa e piattaforma c'è un codice casuale di 192 bit (`calendars.export_token`), rigenerabile dall'amministratore.
+  - Contenuto: solo date (UID `<id>@digihome`, "Non disponibile") delle prenotazioni non cancellate degli altri canali, dal giorno prima in poi.
+  - Niente giri a vuoto: Airbnb rimanda le nostre date come "Not available", che si ignora; Booking le rimanda come date chiuse coperte da prenotazioni di altri canali, che si ignorano. C'è un test del giro completo.
+  - Solo nella versione definitiva (`CALENDAR_PUBLIC_URL`); nella prova il dialogo lo spiega.

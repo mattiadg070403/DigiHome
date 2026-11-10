@@ -30,7 +30,9 @@
   "vars": {
     "APP_ENV": "produzione",
     // Mai dati di prova nella versione definitiva: il pulsante "Carica dati di prova" non esiste qui.
-    "ALLOW_DEMO": "false"
+    "ALLOW_DEMO": "false",
+    // Indirizzo del calendario pubblico (cartella calendario/): serve a mostrare il link da dare ad Airbnb e Booking.
+    "CALENDAR_PUBLIC_URL": "https://digihome-calendario.mattia-digirolamo03.workers.dev"
   },
   "keep_vars": true,
 

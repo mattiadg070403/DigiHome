@@ -24,3 +24,15 @@ test('versione definitiva separata da quella di prova e senza dati di prova', ()
   assert.equal(prod.keep_vars, true);
   assert.deepEqual(prod.triggers.crons, prova.triggers.crons);
 });
+
+test('calendario pubblico: Worker a parte, stesso database della definitiva, nessun file dell’app', () => {
+  const prod = jsonc('../produzione/wrangler.jsonc');
+  const cal = jsonc('../calendario/wrangler.jsonc');
+  assert.equal(cal.name, 'digihome-calendario');
+  assert.equal(cal.main, '../src/public-calendar.js');
+  assert.equal(cal.assets, undefined);
+  assert.equal(cal.vars, undefined);
+  assert.equal(cal.d1_databases[0].database_name, prod.d1_databases[0].database_name);
+  assert.equal(cal.d1_databases[0].database_id, prod.d1_databases[0].database_id);
+  assert.equal(prod.vars.CALENDAR_PUBLIC_URL, `https://${cal.name}.mattia-digirolamo03.workers.dev`);
+});

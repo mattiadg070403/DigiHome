@@ -1,0 +1,24 @@
+// Calendario pubblico di DigiHome (VERSIONE DEFINITIVA): il link che Airbnb e Booking leggono
+// per sapere quali date sono occupate. Worker separato e SENZA Cloudflare Access, perché Airbnb e Booking
+// non possono fare il login. Fa una sola cosa: /cal/<codice segreto>.ics → solo date occupate, nessun nome.
+// In Workers Builds questo Worker usa "Root directory" = calendario e il ramo GitHub "produzione".
+// Usa lo stesso database della versione definitiva, solo in lettura (vedi src/public-calendar.js).
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "digihome-calendario",
+  "main": "../src/public-calendar.js",
+  "compatibility_date": "2025-09-01",
+
+  "workers_dev": true,
+  "preview_urls": false,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "digihome",
+      "database_id": "DA-INSERIRE"
+    }
+  ],
+
+  "observability": { "enabled": true }
+}

@@ -67,7 +67,9 @@ function calendarsSection(ctx) {
           h('span', { class: 'row-title', text: `${houses[c.house_id].name} · ${PLATFORM[c.channel]}` }),
           h('span', { class: 'row-sub' }, st.tone ? h('span', { class: ['tag', st.tone], text: st.tone === 'ok' ? 'Collegato' : 'Da controllare' }) : null,
             h('span', { text: st.text }))),
-        h('span', { class: 'row-end' }, h('button', { class: 'btn small', type: 'button', text: c.connected ? 'Cambia' : 'Collega', onClick: () => calendarDialog(ctx, c) })));
+        h('span', { class: 'row-end btn-row' },
+          h('button', { class: 'btn small', type: 'button', text: c.connected ? 'Cambia' : 'Collega', attrs: { 'aria-label': `${c.connected ? 'Cambia' : 'Collega'} il calendario ${PLATFORM[c.channel]} di ${houses[c.house_id].name}` }, onClick: () => calendarDialog(ctx, c) }),
+          h('button', { class: 'btn small', type: 'button', text: `Link per ${c.channel === 'airbnb' ? 'Airbnb' : 'Booking'}`, onClick: () => exportDialog(ctx, c) })));
     });
   const anyConnected = cals.some((c) => c.connected);
   return h('section', { class: 'section' },
@@ -97,6 +99,65 @@ export async function syncNow(ctx, btn) {
   } finally {
     if (btn && btn.isConnected) { btn.disabled = false; btn.lastChild.textContent = 'Aggiorna ora'; }
   }
+}
+
+const IMPORT_WHERE = {
+  airbnb: 'Su Airbnb, dal computer: Annunci → scegli la casa → Disponibilità → Sincronizza calendari → Importa calendario → incolla il link e chiamalo "DigiHome".',
+  booking: 'Sull’extranet di Booking.com: Tariffe e disponibilità → Sincronizza calendari → Aggiungi connessione calendario (Importa) → incolla il link e chiamalo "DigiHome".',
+};
+
+/** Il link che DigiHome dà alla piattaforma: date occupate dalle prenotazioni dirette e dall'altra piattaforma. */
+function exportDialog(ctx, cal) {
+  const d = ctx.store.data;
+  const house = d.houses.find((x) => x.id === cal.house_id);
+  const name = PLATFORM[cal.channel];
+  const other = cal.channel === 'airbnb' ? 'Booking' : 'Airbnb';
+  const base = ctx.store.info.calendarBase;
+  const current = () => (ctx.store.data.calendars || []).find((c) => c.id === cal.id) || cal;
+  const link = () => `${base}/cal/${current().export_token}.ics`;
+  const box = h('div', { class: 'stack' });
+  const draw = () => {
+    if (!base || !current().export_token) {
+      box.replaceChildren(h('p', { class: 'small', text: 'Questo link è disponibile solo nella versione definitiva del gestionale.' }));
+      return;
+    }
+    const out = h('input', { class: 'input', type: 'text', readonly: true, value: link(), spellcheck: 'false', attrs: { 'aria-label': `Link per ${name}` } });
+    out.addEventListener('focus', () => out.select());
+    const copy = async () => {
+      try {
+        await navigator.clipboard.writeText(link());
+        ctx.toast('Link copiato');
+      } catch {
+        out.focus();
+        out.select();
+        ctx.toast('Tieni premuto sul link e scegli Copia', { bad: true });
+      }
+    };
+    box.replaceChildren(
+      h('p', { class: 'small', text: `Incollalo su ${name}: così le prenotazioni dirette e quelle di ${other} bloccano da sole le date su ${name}.` }),
+      h('p', { class: 'small', text: IMPORT_WHERE[cal.channel] }),
+      field(`Link da incollare su ${name}`, out),
+      h('div', { class: 'btn-row' }, h('button', { class: 'btn small primary', type: 'button', onClick: copy }, icon('check', { size: 16 }), 'Copia il link')),
+      h('p', { class: 'hint', text: `Contiene solo le date occupate, senza nomi né altri dati. ${name} lo rilegge da solo ogni poche ore.` }),
+      h('div', null, h('button', { class: 'btn small danger', type: 'button', text: 'Crea un link nuovo', onClick: regenerate })),
+      h('p', { class: 'hint', text: `Se il link è finito nelle mani sbagliate: quello vecchio smette di funzionare e va incollato quello nuovo su ${name}.` }));
+  };
+  async function regenerate() {
+    const ok = await confirmDialog({ title: 'Creare un link nuovo?', text: `Il link attuale smetterà subito di funzionare: dovrai incollare quello nuovo su ${name}, altrimenti ${name} non vedrà più le date occupate.`, okLabel: 'Crea link nuovo', danger: true });
+    if (!ok) return;
+    try {
+      await ctx.act('calendar.regenerate', { id: cal.id, version: current().version }, { message: 'Link nuovo creato' });
+      draw();
+    } catch (e) {
+      dlg.setBanner(e.message);
+    }
+  }
+  draw();
+  const dlg = openDialog({
+    title: `${house.name} · link per ${name}`,
+    content: box,
+    actions: [h('button', { class: 'btn', type: 'button', text: 'Chiudi', onClick: () => dlg.close() })],
+  });
 }
 
 function calendarDialog(ctx, cal) {

@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { FakeD1, freshDb } from '../test/d1.js';
 import worker from '../src/worker.js';
+import publicCalendar from '../src/public-calendar.js';
 import { loadDemo } from '../src/demo.js';
 
 const PORT = Number(process.env.PORT || 8787);
@@ -62,7 +63,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 const env = {
-  DB: db, ASSETS, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
+  DB: db, ASSETS, CALENDAR_PUBLIC_URL: `http://localhost:${PORT}`, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
 };
 
 createServer(async (req, res) => {
@@ -73,7 +74,8 @@ createServer(async (req, res) => {
   for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
   const request = new Request(`http://localhost:${PORT}${req.url}`, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : body });
   if (process.env.DELAY_MS && req.url.startsWith('/api/')) await new Promise((r) => setTimeout(r, Number(process.env.DELAY_MS)));
-  const response = await worker.fetch(request, env);
+  // Il calendario pubblico (in Cloudflare è un Worker a parte) risponde su /cal/.
+  const response = req.url.startsWith('/cal/') ? await publicCalendar.fetch(request, env) : await worker.fetch(request, env);
   res.writeHead(response.status, Object.fromEntries(response.headers));
   res.end(Buffer.from(await response.arrayBuffer()));
 }).listen(PORT, () => console.log(`Gestionale di prova su http://localhost:${PORT}`));

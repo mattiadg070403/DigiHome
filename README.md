@@ -69,12 +69,18 @@ Da fare una volta sola nel pannello Cloudflare:
    - *Builds for non-production branches*: disattivato (anche nel Worker di prova).
 3. **Accesso.** Nel Worker: Access → *Protect this Worker* → *All traffic* → policy con solo le email autorizzate. Copiare l'AUD Tag.
 4. **Segreti** (come *Secret*): `ACCESS_TEAM_DOMAIN` (lo stesso della prova), `ACCESS_AUD` (quello nuovo), `BOOTSTRAP_ADMIN_EMAIL`.
-5. Aprire l'indirizzo, entrare, poi Impostazioni → collegare i calendari di Airbnb e Booking.
+5. **Calendario pubblico** (il link che Airbnb e Booking leggono): un terzo Worker, `digihome-calendario`.
+   - Workers e Pages → *Create* → *Import a repository* → questo archivio.
+   - Ramo `produzione`. *Root directory*: `calendario`. Comando di deploy: `npx wrangler deploy`.
+   - **Nessun** Cloudflare Access su questo Worker: Airbnb e Booking non possono fare il login. Risponde solo a `/cal/<codice segreto>.ics`, con le sole date occupate.
+6. Aprire l'indirizzo, entrare, poi Impostazioni → collegare i calendari di Airbnb e Booking.
 
 ## Calendari di Airbnb e Booking
 
 In Impostazioni → *Calendari di Airbnb e Booking* si incolla, per ogni casa, il link "Esporta calendario" della piattaforma.
 Il server lo legge ogni 30 minuti (o subito con *Aggiorna ora*): le prenotazioni nuove entrano da sole, le date cambiate si aggiornano, quelle cancellate si segnano come cancellate. Il link è riservato: resta solo nel database e non viene mai mandato all'app.
+
+Nell'altra direzione, *Link per Airbnb* / *Link per Booking* dà il link da incollare su quella piattaforma (Importa calendario): contiene solo le date occupate dalle prenotazioni dirette e dall'altra piattaforma. Quando tutte e due le direzioni sono collegate, si toglie il collegamento diretto tra Airbnb e Booking: DigiHome fa da calendario centrale.
 
 ## Copie di sicurezza
 

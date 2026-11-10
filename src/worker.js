@@ -38,7 +38,8 @@ async function handleApi(request, env, url) {
 
   if (request.method === 'GET') {
     if (path === '/api/state') {
-      const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION };
+      const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION,
+        calendarBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.CALENDAR_PUBLIC_URL || '') ? env.CALENDAR_PUBLIC_URL : null };
       // Controllo veloce: se l'app ha già l'ultima versione dei dati, non li rimanda.
       const known = url.searchParams.get('rev');
       if (known !== null && /^\d{1,12}$/.test(known)) {

@@ -61,6 +61,6 @@ export async function readExport(db) {
   return {
     rev: rows(0)[0]?.rev ?? 0,
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
-    calendars: rows(6).map(publicCalendar), audit_log: rows(7),
+    calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
   };
 }

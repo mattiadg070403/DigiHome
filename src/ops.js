@@ -536,8 +536,28 @@ export function publicCalendar(c) {
     id: c.id, house_id: c.house_id, channel: c.channel,
     connected: c.import_url ? 1 : 0, url_hint: c.import_url ? maskCalendarUrl(c.import_url) : null,
     last_sync_at: c.last_sync_at, last_ok_at: c.last_ok_at, last_error: c.last_error, last_count: c.last_count,
+    // Codice del calendario che DigiHome dà a questa piattaforma (solo date occupate; lo vede solo l'amministratore).
+    export_token: c.export_token,
     version: c.version, rev: c.rev,
   };
+}
+
+function newToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Nuovo codice per il calendario dato alla piattaforma: il link vecchio smette di funzionare. */
+async function calendarRegenerate(db, user, opId, p) {
+  requireAdmin(user);
+  if (typeof p.id !== 'string' || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first();
+  if (!cur) throw notFound();
+  const main = db.prepare(`UPDATE calendars SET export_token = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND version = ?`).bind(newToken(), nowIso(), user.email, p.id, p.version);
+  const done = await commit(db, { main, user, opId, entity: 'calendar', entityId: p.id, action: 'regenerate', changes: { link_per_la_piattaforma: ['vecchio', 'nuovo'] } });
+  if (!done) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
+  return { record: publicCalendar(await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first()) };
 }
 
 async function calendarUpdate(db, user, opId, p) {
@@ -574,6 +594,7 @@ const HANDLERS = {
   'booking.step_back': bookingStepBack,
   'booking.ext_ack': bookingExtAck,
   'calendar.update': calendarUpdate,
+  'calendar.regenerate': calendarRegenerate,
   'note.add': noteAdd,
   'note.delete': (db, u, o, p) => noteSetDeleted(db, u, o, p, 1),
   'note.restore': (db, u, o, p) => noteSetDeleted(db, u, o, p, 0),

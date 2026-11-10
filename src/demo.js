@@ -15,7 +15,7 @@ export function demoBookings(today = todayRome()) {
       security_cents: 20000, security_status: 'incassata', stage: 'in_casa',
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'contatori', 'alloggiati', 'dms']) },
     { house_id: 'isola-bella', channel: 'airbnb', guest_name: 'Lena Hoffmann (prova)', phone: null, guests: 2,
-      check_in: d(2), check_out: d(9), arrival_time: null, total_cents: 112000, security_cents: 0, security_status: 'nessuna', stage: 'confermata', extras: [{ kind: 'tassa_soggiorno', amount_cents: 2800, paid: 0 }] },
+      check_in: d(2), check_out: d(9), arrival_time: null, total_cents: 112000, security_cents: 0, security_status: 'nessuna', stage: 'confermata', extras: [{ kind: 'altro', label: 'Garage', amount_cents: 1500, paid: 0 }] },
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Giulia Ferri (prova)', phone: '+39 000 000 0002', guests: 3,
       check_in: d(12), check_out: d(19), total_cents: 126000, deposit_cents: 30000, deposit_paid: 0,
       security_cents: 20000, security_status: 'da_incassare', stage: 'confermata', minors_delegation: 'da_chiedere' },

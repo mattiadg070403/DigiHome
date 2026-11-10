@@ -4,6 +4,7 @@
 import { CHANNELS, checkinSteps, checkoutSteps, missingRequired, parseSteps, validateBooking } from '../public/shared/booking.js';
 import { daysBetween, fmtShort, isIsoDate, isTime } from '../public/shared/dates.js';
 import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
+import { checkTaxSettings } from '../public/shared/tax.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
@@ -369,11 +370,21 @@ function validateExtra(input, partial) {
   }
   if (!partial || has('amount_cents')) {
     const n = Number(input.amount_cents);
-    if (!Number.isSafeInteger(n) || n < 1 || n > 100000000) throw bad('Importo non valido', { errors: { amount_cents: 'Importo non valido' } });
+    if (!Number.isSafeInteger(n) || n < 0 || n > 100000000) throw bad('Importo non valido', { errors: { amount_cents: 'Importo non valido' } });
     v.amount_cents = n;
+  }
+  if (has('persons')) {
+    const p = input.persons === null || input.persons === '' ? null : Number(input.persons);
+    if (p !== null && (!Number.isInteger(p) || p < 0 || p > 50)) throw bad('Numero di persone non valido');
+    v.persons = p;
   }
   if (!partial || has('paid')) v.paid = input.paid ? 1 : 0;
   return v;
+}
+
+/** Importo 0 solo per la tassa (tutti esenti); per gli altri extra serve un importo. */
+function checkExtraAmount(kind, amount) {
+  if (kind !== 'tassa_soggiorno' && amount < 1) throw bad('Scrivi l’importo', { errors: { amount_cents: 'Scrivi l’importo' } });
 }
 
 async function extraAdd(db, user, opId, p) {
@@ -383,12 +394,19 @@ async function extraAdd(db, user, opId, p) {
   if (b.stage === 'cancellata') throw new OpError(409, 'state', 'La prenotazione è cancellata.');
   const v = validateExtra(p.extra || {}, false);
   if (v.kind === 'altro' && !v.label) throw bad('Scrivi a cosa si riferisce', { errors: { label: 'Scrivi a cosa si riferisce' } });
+  checkExtraAmount(v.kind, v.amount_cents);
+  if (v.kind === 'tassa_soggiorno'
+    && await db.prepare("SELECT 1 FROM booking_extras WHERE booking_id = ? AND kind = 'tassa_soggiorno' AND deleted = 0").bind(b.id).first()) {
+    throw new OpError(409, 'state', 'La tassa di soggiorno di questa prenotazione c’è già: modificala.');
+  }
   const id = isId(p.id) ? p.id : crypto.randomUUID();
   if (await db.prepare('SELECT 1 FROM booking_extras WHERE id = ?').bind(id).first()) throw new OpError(409, 'state', 'Extra già salvato.');
   const at = nowIso();
-  const main = db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, paid_at, created_at, created_by, updated_at, updated_by, rev)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
-    .bind(id, b.id, v.kind, v.label, v.amount_cents, v.paid, v.paid ? at : null, at, user.email, at, user.email);
+  // Tassa con importo 0 (tutti esenti): non c'è niente da incassare.
+  const paid = v.amount_cents === 0 ? 1 : v.paid;
+  const main = db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, persons, amount_cents, paid, paid_at, created_at, created_by, updated_at, updated_by, rev)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
+    .bind(id, b.id, v.kind, v.label, v.persons ?? null, v.amount_cents, paid, paid ? at : null, at, user.email, at, user.email);
   await commit(db, { main, user, opId, entity: 'extra', entityId: id, action: 'create', changes: { booking_id: b.id, ...v } });
   return { record: await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(id).first() };
 }
@@ -398,9 +416,11 @@ async function extraUpdate(db, user, opId, p) {
   const cur = await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(p.id).first();
   if (!cur || cur.deleted) throw notFound();
   if (cur.version !== p.version) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.', { current: cur });
-  for (const k of Object.keys(p.changes || {})) if (!['kind', 'label', 'amount_cents', 'paid'].includes(k)) throw bad('Campo non modificabile');
+  for (const k of Object.keys(p.changes || {})) if (!['label', 'amount_cents', 'paid', 'persons'].includes(k)) throw bad('Campo non modificabile');
   const v = validateExtra(p.changes || {}, true);
-  if ((v.kind ?? cur.kind) === 'altro' && !('label' in v ? v.label : cur.label)) throw bad('Scrivi a cosa si riferisce');
+  if (cur.kind === 'altro' && !('label' in v ? v.label : cur.label)) throw bad('Scrivi a cosa si riferisce');
+  checkExtraAmount(cur.kind, v.amount_cents ?? cur.amount_cents);
+  if ((v.amount_cents ?? cur.amount_cents) === 0) v.paid = 1;
   const changes = diff(cur, v);
   if (!Object.keys(changes).length) return { record: cur, unchanged: true };
   const cols = Object.keys(changes);
@@ -597,6 +617,11 @@ async function houseUpdate(db, user, opId, p) {
       if (!isTime(c[k])) throw bad('Orario non valido');
       v[k] = c[k];
     }
+  }
+  if ('tourist_tax' in c) {
+    const t = checkTaxSettings(c.tourist_tax);
+    if (!t.ok) throw bad(t.error);
+    v.tourist_tax = JSON.stringify(t.value);
   }
   const changes = diff(cur, v);
   if (!Object.keys(changes).length) return { record: cur, unchanged: true };

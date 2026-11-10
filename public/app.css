@@ -371,3 +371,9 @@ details[open] > summary.group-title::before { content: "▾ "; }
 .extras-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .extra-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 6px 0; }
 .extra-row .row-main { flex: 1 1 180px; }
+
+/* Tariffe della tassa di soggiorno (Impostazioni → Case) */
+.tax-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.tax-month { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.tax-month .input { padding-left: 8px; padding-right: 8px; min-width: 0; }
+@media (max-width: 560px) { .tax-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

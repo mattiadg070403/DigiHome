@@ -82,6 +82,7 @@ export function alertActions(ctx, b, alert) {
     case 'checkout': buttons = [next('Inizia check-out', 'checkout')]; break;
     case 'close': buttons = [next('Chiudi il soggiorno', 'close')]; break;
     case 'details': buttons = [edit('Completa i dati', 'guest_name')]; break;
+    case 'tax': buttons = [edit('Apri la tassa di soggiorno', 'tax_amount')]; break;
     case 'extras': buttons = [h('button', { class: 'btn small', type: 'button', onClick: () => {
       const unpaid = ctx.store.data.extras.filter((x) => x.booking_id === b.id && !x.deleted && !x.paid);
       for (const x of unpaid) {

@@ -1,13 +1,13 @@
 // Scheda della prenotazione e procedure guidate di check-in e check-out.
 
 import { h, icon, newId } from '../dom.js';
-import { houseVars, tag, chan, field, setFieldError, openDialog, segmented, switchRow, confirmDialog } from '../ui.js';
+import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, confirmDialog } from '../ui.js';
 import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
   CHANNELS, arrivalReminders, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
   missingRequired, nextStep, parseSteps, phase, statusTags, stepLabel, guestsLabel,
-  EXTRA_KINDS, extraLabel, extrasTotal } from '../../shared/booking.js';
+  extraLabel, extrasTotal } from '../../shared/booking.js';
 import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
 import { alertActions, waNumber } from './contact.js';
@@ -145,83 +145,58 @@ function extrasBlock(ctx, b) {
       h('span', { class: 'row-sub' }, tag({ text: x.paid ? 'Incassato' : 'Da incassare', tone: x.paid ? 'ok' : 'warn' }))),
     editable ? h('span', { class: 'btn-row' },
       h('button', { class: 'btn small', type: 'button', text: x.paid ? 'Segna da incassare' : 'Segna incassato', onClick: () => togglePaid(x) }),
-      h('button', { class: 'btn small ghost', type: 'button', text: 'Modifica', onClick: () => extraDialog(ctx, b, latest(x)) }),
-      h('button', { class: 'btn small ghost', type: 'button', attrs: { 'aria-label': `Togli ${extraLabel(x)}` }, onClick: () => remove(x) }, icon('close', { size: 16 }))) : null));
+      x.kind === 'tassa_soggiorno'
+        ? h('button', { class: 'btn small ghost', type: 'button', text: 'Modifica', onClick: () => openBookingForm(ctx, { existing: ctx.store.data.bookings.find((y) => y.id === b.id) || b, focus: 'tax_amount' }) })
+        : [h('button', { class: 'btn small ghost', type: 'button', text: 'Modifica', onClick: () => extraDialog(ctx, b, latest(x)) }),
+          h('button', { class: 'btn small ghost', type: 'button', attrs: { 'aria-label': `Togli ${extraLabel(x)}` }, onClick: () => remove(x) }, icon('close', { size: 16 }))]) : null));
   const sum = extrasTotal(list);
   const grand = (b.total_cents || 0) + sum;
   return h('div', { class: 'stack extras' },
     h('div', { class: 'extras-head' }, h('strong', { text: 'Extra (a parte)' }),
       editable ? h('button', { class: 'btn small', type: 'button', onClick: () => extraDialog(ctx, b, null) }, icon('plus', { size: 16 }), 'Aggiungi extra') : null),
-    list.length ? rows : h('p', { class: 'hint', text: b.channel === 'diretto'
-      ? 'Nessun extra. Puoi aggiungere supplementi o la tassa di soggiorno se la incassi a parte.'
-      : `Nessun extra. Aggiungi qui la tassa di soggiorno o altro che l’ospite paga a parte, fuori da ${CHANNELS[b.channel].label}.` }),
+    list.length ? rows : h('p', { class: 'hint', text: `Nessun extra. La tassa di soggiorno si inserisce in "Modifica"; qui puoi aggiungere altro che l’ospite paga a parte${b.channel !== 'diretto' ? `, fuori da ${CHANNELS[b.channel].label}` : ''}.` }),
     list.length ? kv([
       ['Totale extra', `${fmtEuro(sum)}${extrasTotal(list, { unpaid: true }) ? ` · da incassare ${fmtEuro(extrasTotal(list, { unpaid: true }))}` : ' · tutto incassato'}`],
-      ['Totale prenotazione', `${fmtEuro(grand)}${b.channel !== 'diretto' ? ` (${CHANNELS[b.channel].label} ${fmtEuro(b.total_cents || 0)} + extra ${fmtEuro(sum)})` : ''}`],
+      b.total_cents > 0
+        ? ['Totale prenotazione', `${fmtEuro(grand)} (${b.channel === 'diretto' ? 'soggiorno' : CHANNELS[b.channel].label} ${fmtEuro(b.total_cents)} + extra ${fmtEuro(sum)})`]
+        : ['Totale prenotazione', `manca il prezzo del soggiorno${b.channel !== 'diretto' ? ` su ${CHANNELS[b.channel].label}` : ''} (extra ${fmtEuro(sum)})`],
     ]) : null);
 }
 
-/** Aggiungi o modifica un extra. Per la tassa di soggiorno c'è un aiuto al calcolo: persone × notti × tariffa. */
+/** Aggiungi o modifica un extra "a parte" (garage, transfer…). La tassa di soggiorno si gestisce nel modulo della prenotazione. */
 function extraDialog(ctx, b, existing) {
-  const v = existing ? { kind: existing.kind, label: existing.label || '', amount: existing.amount_cents, paid: existing.paid }
-    : { kind: 'tassa_soggiorno', label: '', amount: 0, paid: 0 };
+  const v = existing ? { label: existing.label || '', amount: existing.amount_cents, paid: existing.paid } : { label: '', amount: 0, paid: 0 };
   let dirty = false;
-  const n = nights(b.check_in, b.check_out);
   const amount = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: centsToInput(v.amount),
     attrs: { 'aria-label': 'Importo in euro' },
     onInput: (e) => { const c = parseEuro(e.target.value); setFieldError(amount, c === null ? 'Importo non valido' : ''); if (c !== null) v.amount = c; dirty = true; } });
-  const label = h('input', { class: 'input', maxlength: '80', value: v.label, autocomplete: 'off',
+  const label = h('input', { class: 'input', maxlength: '80', value: v.label, autocomplete: 'off', placeholder: 'es. garage, transfer, animale',
     onInput: (e) => { v.label = e.target.value; setFieldError(label, ''); dirty = true; } });
-  const rate = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: 'es. 2',
-    attrs: { 'aria-label': 'Tariffa a persona a notte in euro' },
-    onInput: (e) => {
-      const c = parseEuro(e.target.value);
-      if (c && !b.needs_details) {
-        v.amount = c * b.guests * n;
-        amount.value = centsToInput(v.amount);
-        setFieldError(amount, '');
-        calcHint.textContent = `${b.guests} ${b.guests === 1 ? 'persona' : 'persone'} × ${n} ${n === 1 ? 'notte' : 'notti'} × ${fmtEuro(c)} = ${fmtEuro(v.amount)}. Correggi l’importo se qualcuno è esente.`;
-      }
-      dirty = true;
-    } });
-  const calcHint = h('p', { class: 'hint', text: b.needs_details
-    ? 'Completa prima il numero di persone della prenotazione per usare il calcolo.'
-    : `Calcolo: ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'} × ${n} ${n === 1 ? 'notte' : 'notti'} × tariffa. Controlla esenzioni e limiti di notti del Comune.` });
-  const calcBox = h('div', { class: 'stack' }, field('Tariffa a persona a notte (€), facoltativa', rate), calcHint);
-  const labelBox = field('Descrizione', label);
-  const sync = () => {
-    calcBox.hidden = v.kind !== 'tassa_soggiorno';
-    label.placeholder = v.kind === 'altro' ? 'es. garage, transfer, animale' : 'facoltativa';
-  };
-  // Il selettore si ridisegna da solo quando cambia la scelta.
-  let kindSeg = null;
-  const drawKind = () => segmented(Object.entries(EXTRA_KINDS).map(([value, text]) => ({ value, label: text })), v.kind,
-    (k) => { v.kind = k; dirty = true; sync(); const next = drawKind(); kindSeg.replaceWith(next); kindSeg = next; }, 'Tipo di extra');
-  kindSeg = drawKind();
-  sync();
   const dlg = openDialog({
     title: existing ? 'Modifica extra' : 'Aggiungi extra',
     canClose: () => !dirty || confirmDialog({ title: 'Uscire senza salvare?', text: 'L’extra non verrà salvato.', okLabel: 'Esci senza salvare' }),
     content: h('div', { class: 'stack' },
-      kindSeg, labelBox, calcBox, field('Importo (€)', amount),
-      switchRow('Già incassato', { checked: Boolean(v.paid), onChange: (c) => { v.paid = c ? 1 : 0; dirty = true; } })),
+      field('Descrizione', label), field('Importo (€)', amount),
+      switchRow('Già incassato', { checked: Boolean(v.paid), onChange: (c) => { v.paid = c ? 1 : 0; dirty = true; } }),
+      h('p', { class: 'hint', text: 'La tassa di soggiorno si inserisce in "Modifica" della prenotazione, dove si calcola da sola.' })),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.requestClose() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
     ],
   });
+  setTimeout(() => label.focus(), 50);
   async function save() {
+    if (!v.label.trim()) { setFieldError(label, 'Scrivi a cosa si riferisce'); label.focus(); return; }
     if (!v.amount) { setFieldError(amount, 'Scrivi l’importo'); amount.focus(); return; }
-    if (v.kind === 'altro' && !v.label.trim()) { setFieldError(label, 'Scrivi a cosa si riferisce'); label.focus(); return; }
-    const extra = { kind: v.kind, label: v.label.trim(), amount_cents: v.amount, paid: v.paid };
+    const extra = { label: v.label.trim(), amount_cents: v.amount, paid: v.paid };
     try {
       if (existing) {
         const cur = ctx.store.data.extras.find((e) => e.id === existing.id) || existing;
         await ctx.act('extra.update', { id: existing.id, version: cur.version, changes: extra }, { message: 'Extra aggiornato' });
       } else {
         const id = newId();
-        await ctx.act('extra.add', { id, bookingId: b.id, extra }, {
-          optimistic: (d) => ({ ...d, extras: [...d.extras, { id, booking_id: b.id, ...extra, label: extra.label || null, deleted: 0, rev: -1, version: 1 }] }),
+        await ctx.act('extra.add', { id, bookingId: b.id, extra: { kind: 'altro', ...extra } }, {
+          optimistic: (d) => ({ ...d, extras: [...d.extras, { id, booking_id: b.id, kind: 'altro', ...extra, persons: null, deleted: 0, rev: -1, version: 1 }] }),
           message: 'Extra aggiunto',
         });
       }

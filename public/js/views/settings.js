@@ -5,6 +5,8 @@ import { houseVars, field, openDialog, confirmDialog, switchRow, setFieldError }
 import { APP_VERSION } from '../../shared/version.js';
 import { timeField } from '../pickers.js';
 import { checkCalendarUrl } from '../../shared/calendar.js';
+import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
+import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -325,12 +327,41 @@ function housesSection(ctx) {
         h('dl', { class: 'kv' },
           h('dt', { text: 'Ospiti massimi' }), h('dd', { text: String(x.max_guests) }),
           h('dt', { text: 'Check-in' }), h('dd', { text: `dalle ${x.checkin_time}` }),
-          h('dt', { text: 'Check-out' }), h('dd', { text: `entro le ${x.checkout_time}` })),
+          h('dt', { text: 'Check-out' }), h('dd', { text: `entro le ${x.checkout_time}` }),
+          h('dt', { text: 'Tassa di soggiorno' }), h('dd', { text: taxSummary(x) })),
         h('div', null, h('button', { class: 'btn small', type: 'button', text: 'Modifica', onClick: () => houseDialog(ctx, x) })))))));
 }
 
+/** "mag, ott 0,50 € · giu–set 1 € a persona a notte" */
+function taxSummary(house) {
+  const t = taxSettings(house);
+  const groups = new Map();
+  t.rates.forEach((r, i) => { if (r > 0) groups.set(r, [...(groups.get(r) || []), MONTHS_SHORT[i]]); });
+  if (!groups.size) return 'nessuna';
+  const text = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([r, m]) => `${m.join(', ')} ${fmtEuro(r)}`).join(' · ');
+  return `${text} a persona a notte${t.max_nights ? ` · massimo ${t.max_nights} notti` : ''}`;
+}
+
 function houseDialog(ctx, house) {
-  const v = { max_guests: house.max_guests, checkin_time: house.checkin_time, checkout_time: house.checkout_time };
+  const t = taxSettings(house);
+  const v = { max_guests: house.max_guests, checkin_time: house.checkin_time, checkout_time: house.checkout_time,
+    tourist_tax: { rates: [...t.rates], max_nights: t.max_nights } };
+  let taxBad = false;
+  const rateInputs = t.rates.map((r, i) => {
+    const el = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: centsToInput(r),
+      attrs: { 'aria-label': `Tassa di ${MONTHS_SHORT[i]} in euro a persona a notte` },
+      onInput: (e) => {
+        const c = parseEuro(e.target.value);
+        setFieldError(el, c === null || c > 10000 ? 'Non valido' : '');
+        if (c !== null && c <= 10000) v.tourist_tax.rates[i] = c;
+        taxBad = rateInputs.some((x) => x.getAttribute('aria-invalid') === 'true');
+      } });
+    return el;
+  });
+  const maxN = h('input', { class: 'input', inputmode: 'numeric', autocomplete: 'off', placeholder: 'nessun limite', value: t.max_nights ? String(t.max_nights) : '',
+    attrs: { 'aria-label': 'Numero massimo di notti tassate' },
+    onInput: (e) => { const n = e.target.value.trim() ? parseInt(e.target.value, 10) : null; v.tourist_tax.max_nights = Number.isFinite(n) && n > 0 ? n : null; } });
+  const taxGrid = h('div', { class: 'tax-grid' }, rateInputs.map((el, i) => h('label', { class: 'tax-month' }, h('span', { text: MONTHS_SHORT[i] }), el)));
   const max = h('input', { class: 'input', type: 'number', min: '1', max: '50', inputmode: 'numeric', value: String(v.max_guests), onInput: (e) => { v.max_guests = Number(e.target.value); } });
   const cin = timeField({ value: v.checkin_time, label: 'Check-in dalle', quick: ['13:00', '14:00', '15:00', '16:00'], onChange: (t) => { v.checkin_time = t; } });
   const cout = timeField({ value: v.checkout_time, label: 'Check-out entro le', quick: ['09:00', '10:00', '11:00', '12:00'], onChange: (t) => { v.checkout_time = t; } });
@@ -339,7 +370,12 @@ function houseDialog(ctx, house) {
     content: h('div', { class: 'form-grid' },
       field('Ospiti massimi', max, { full: true }),
       h('div', { class: 'field' }, h('div', { class: 'label', text: 'Check-in dalle' }), cin.el),
-      h('div', { class: 'field' }, h('div', { class: 'label', text: 'Check-out entro le' }), cout.el)),
+      h('div', { class: 'field' }, h('div', { class: 'label', text: 'Check-out entro le' }), cout.el),
+      h('div', { class: 'field full' },
+        h('div', { class: 'label', text: 'Tassa di soggiorno: € a persona a notte, per mese' }),
+        taxGrid,
+        h('div', { class: 'hint', text: 'Lascia vuoto o 0 nei mesi in cui non si paga. Il calcolo usa la tariffa del mese di ogni notte.' })),
+      field('Notti massime tassate', maxN, { hint: 'Se il Comune tassa solo le prime notti; vuoto = nessun limite' })),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
@@ -347,6 +383,7 @@ function houseDialog(ctx, house) {
   });
   async function save() {
     if (!v.checkin_time || !v.checkout_time) { dlg.setBanner('Scrivi gli orari di check-in e check-out (es. 14:00).'); return; }
+    if (taxBad) { dlg.setBanner('Controlla le tariffe della tassa di soggiorno.'); return; }
     try {
       await ctx.act('house.update', { id: house.id, version: house.version, changes: v }, { message: 'Salvato' });
       dlg.close();

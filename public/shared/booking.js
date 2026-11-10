@@ -2,6 +2,7 @@
 // Usato sia dall'app sia dal server, così le regole sono scritte una volta sola.
 
 import { addDays, daysBetween, fmtShort, isIsoDate, isTime, overlaps } from './dates.js';
+import { taxSettings, touristTax } from './tax.js';
 import { fmtEuro } from './money.js';
 
 export const CHANNELS = {
@@ -33,8 +34,16 @@ export const EXTRA_KINDS = { tassa_soggiorno: 'Tassa di soggiorno', altro: 'Altr
 
 /** Nome da mostrare per un extra. */
 export function extraLabel(x) {
-  return x.kind === 'altro' ? (x.label || 'Extra') : `${EXTRA_KINDS[x.kind] || 'Extra'}${x.label ? ` (${x.label})` : ''}`;
+  if (x.kind === 'altro') return x.label || 'Extra';
+  if (x.kind === 'tassa_soggiorno') {
+    if (x.amount_cents === 0) return 'Tassa di soggiorno (esenti)';
+    return `Tassa di soggiorno${Number.isInteger(x.persons) ? ` (${x.persons} ${x.persons === 1 ? 'persona' : 'persone'})` : ''}`;
+  }
+  return EXTRA_KINDS[x.kind] || 'Extra';
 }
+
+/** Etichetta salvata quando l'importo della tassa è stato scritto a mano (non si ricontrolla). */
+export const TAX_MANUAL = 'importo a mano';
 
 /** Extra (non eliminati) di una prenotazione. */
 export function extrasOf(b, extras = []) {
@@ -341,6 +350,18 @@ export function bookingAlerts(b, today, all = [], opt = {}) {
     if (d >= 0 && d <= 3 && !b.arrival_time) add('attenzione', 'Manca l’orario di arrivo', 'arrival');
     if (d <= 7 && !b.phone && !b.needs_details) add('attenzione', 'Manca il numero di telefono', 'phone');
     if (d <= 7 && b.minors_delegation === 'da_chiedere') add('attenzione', 'Delega per i minorenni da chiedere', 'minors');
+  }
+  // Tassa di soggiorno: non inserita, oppure da ricontrollare perché date o persone sono cambiate.
+  if (!b.needs_details && (b.stage === 'in_casa' || b.stage === 'partita' || (b.stage === 'confermata' && d <= 7))) {
+    const settings = taxSettings(opt.house);
+    const tax = (opt.extras || []).find((x) => x.kind === 'tassa_soggiorno');
+    if (!tax) {
+      const expected = touristTax(b.check_in, b.check_out, b.guests, settings).amount;
+      if (expected > 0) add('attenzione', `Tassa di soggiorno non inserita (con ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}: ${fmtEuro(expected)})`, 'tax');
+    } else if (!tax.paid && tax.label !== TAX_MANUAL && Number.isInteger(tax.persons)) {
+      const expected = touristTax(b.check_in, b.check_out, tax.persons, settings).amount;
+      if (expected !== tax.amount_cents) add('attenzione', `Tassa di soggiorno da ricontrollare: con le date attuali è ${fmtEuro(expected)}, salvata ${fmtEuro(tax.amount_cents)}`, 'tax');
+    }
   }
   // Extra non ancora incassati quando l'ospite è già arrivato o partito.
   const unpaidExtras = (opt.extras || []).filter((x) => !x.paid);

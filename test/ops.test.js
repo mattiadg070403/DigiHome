@@ -300,7 +300,8 @@ test('extra della prenotazione (es. tassa di soggiorno): aggiunta, incasso, modi
   assert.equal(add.record.amount_cents, 1200);
   assert.equal(add.record.paid, 0);
   await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'altro', amount_cents: 500 } } }), 'validation');
-  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'tassa_soggiorno', amount_cents: 0 } } }), 'validation');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'altro', label: 'Garage', amount_cents: 0 } } }), 'validation');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'tassa_soggiorno', amount_cents: 500 } } }), 'state', 'una sola tassa per prenotazione');
   await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'boh', amount_cents: 100 } } }), 'validation');
   const paid = await runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: add.record.id, version: add.record.version, changes: { paid: 1 } } });
   assert.equal(paid.record.paid, 1);
@@ -331,4 +332,24 @@ test('contratto solo per le prenotazioni dirette: Airbnb e Booking concludono il
   }
   const r = await runOp(db, admin, { opId: op(), type: 'booking.checkin', payload: { id: b.id, version: b.version } });
   assert.equal(r.record.stage, 'in_casa');
+});
+
+test('tassa di soggiorno: persone, importo 0 per gli esenti, tariffe della casa solo dall’amministratore', async () => {
+  const { db, admin, collab } = await setup();
+  const { record: b } = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ channel: 'booking' }) } });
+  const t = await runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: b.id, extra: { kind: 'tassa_soggiorno', persons: 0, amount_cents: 0, paid: 0 } } });
+  assert.equal(t.record.amount_cents, 0);
+  assert.equal(t.record.paid, 1, 'niente da incassare');
+  const up = await runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: t.record.id, version: t.record.version, changes: { persons: 3, amount_cents: 2100, paid: 0 } } });
+  assert.equal(up.record.persons, 3);
+  assert.equal(up.record.paid, 0);
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: t.record.id, version: up.record.version, changes: { kind: 'altro' } } }), 'validation');
+  const house = await db.prepare("SELECT version, tourist_tax FROM houses WHERE id = 'isola-bella'").first();
+  assert.deepEqual(JSON.parse(house.tourist_tax).rates, [0, 0, 0, 0, 50, 100, 100, 100, 100, 50, 0, 0]);
+  const rates = [0, 0, 0, 0, 60, 120, 120, 120, 120, 60, 0, 0];
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'house.update', payload: { id: 'isola-bella', version: house.version, changes: { tourist_tax: { rates, max_nights: 7 } } } }), 'forbidden');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'house.update', payload: { id: 'isola-bella', version: house.version, changes: { tourist_tax: { rates: [1, 2], max_nights: null } } } }), 'validation');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'house.update', payload: { id: 'isola-bella', version: house.version, changes: { tourist_tax: { rates: rates.map(() => -1), max_nights: null } } } }), 'validation');
+  const r = await runOp(db, admin, { opId: op(), type: 'house.update', payload: { id: 'isola-bella', version: house.version, changes: { tourist_tax: { rates, max_nights: 7 } } } });
+  assert.deepEqual(JSON.parse(r.record.tourist_tax), { rates, max_nights: 7 });
 });

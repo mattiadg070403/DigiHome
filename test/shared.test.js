@@ -192,3 +192,24 @@ test('senza acconto non si segnala l’acconto mancante', () => {
   const x = b({ deposit_cents: 0, deposit_paid: 0, check_in: addDays(T, 3) });
   assert.ok(!bookingAlerts(x, T).some((a) => a.key === 'deposit'));
 });
+
+import { touristTax, explainTax, taxSettings, DEFAULT_TAX } from '../public/shared/tax.js';
+
+test('tassa di soggiorno: tariffa del mese di ogni notte, persone, limite di notti', () => {
+  const s = { rates: [...DEFAULT_TAX.rates], max_nights: null };
+  // 28 settembre → 2 ottobre: 3 notti a settembre (1 €) + 1 notte a ottobre (0,50 €), 2 persone = 7 €
+  const c = touristTax('2027-09-28', '2027-10-02', 2, s);
+  assert.equal(c.amount, 700);
+  assert.equal(explainTax(c, 2), '2 persone × (3 notti × 1 € + 1 notte × 0,50 €) = 7 €');
+  // Novembre: niente tassa
+  const n = touristTax('2027-11-10', '2027-11-14', 4, s);
+  assert.equal(n.amount, 0);
+  assert.match(explainTax(n, 4), /non si paga/);
+  // Limite di notti
+  const capped = touristTax('2027-07-01', '2027-07-11', 1, { ...s, max_nights: 7 });
+  assert.equal(capped.amount, 700);
+  assert.match(explainTax(capped, 1), /prime 7 notti/);
+  // Impostazioni rovinate: si torna alle tariffe di partenza
+  assert.deepEqual(taxSettings({ tourist_tax: 'non json' }).rates, DEFAULT_TAX.rates);
+  assert.deepEqual(taxSettings({ tourist_tax: '{"rates":[0,0,0,0,10,10,10,10,10,10,0,0],"max_nights":5}' }), { rates: [0, 0, 0, 0, 10, 10, 10, 10, 10, 10, 0, 0], max_nights: 5 });
+});

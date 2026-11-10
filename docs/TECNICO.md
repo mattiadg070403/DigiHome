@@ -137,3 +137,10 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
   - Codice di prenotazione duplicato → 409 invece di errore del server.
   - Massimo 90 notti controllato anche sulle modifiche parziali.
 - Sottotitolo del menu preso dai nomi delle case (niente nomi scritti nel codice).
+- **Tassa di soggiorno nel modulo della prenotazione** (`public/shared/tax.js`, `migrations/0006_tassa_soggiorno.sql`).
+  - Tariffe per casa e per mese, in centesimi a persona a notte (`houses.tourist_tax`), con eventuale limite di notti tassate. Si modificano in Impostazioni → Case → Modifica.
+  - Valori di partenza: maggio e ottobre 0,50 €, da giugno a settembre 1 €.
+  - Nel modulo: persone che pagano (segue il numero di ospiti finché non lo si cambia; si tolgono gli esenti), importo calcolato notte per notte con la tariffa del mese (modificabile a mano, con "Usa il calcolo"), "già incassata".
+  - Salvata come extra `tassa_soggiorno` con `persons`: una sola per prenotazione. Importo 0 consentito (tutti esenti).
+  - Avvisi: "Tassa di soggiorno non inserita" (da 7 giorni prima dell'arrivo) e "da ricontrollare" se date o persone non tornano più con l'importo salvato (non per gli importi scritti a mano).
+  - Gli altri extra (garage, transfer…) restano nella scheda.

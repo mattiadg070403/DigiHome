@@ -1,7 +1,7 @@
 # DigiHome
 
 Il gestionale di **Isola Bella** e **Faro Blu**: schermata Oggi, prenotazioni, check-in e check-out guidati, avvisi, cose da fare.
-Beta 0.1, **solo dati inventati**.
+Due versioni: **prova** (dati inventati, ramo `main`) e **definitiva** (dati veri, ramo `produzione`).
 
 - Documento tecnico: [`docs/TECNICO.md`](docs/TECNICO.md)
 - Nessuna dipendenza esterna: HTML, CSS e JavaScript semplici, Cloudflare Worker + D1.
@@ -51,3 +51,32 @@ Serve che l'email sia in **entrambi** gli elenchi.
 
 - Codice: pannello del Worker → Deployments → *Rollback* alla versione precedente.
 - Database: D1 → Time Travel, per ripristinare un momento precedente.
+
+## Versione definitiva (dati veri)
+
+È un secondo Worker con un secondo database, completamente separato dalla prova. Configurazione: [`produzione/wrangler.jsonc`](produzione/wrangler.jsonc).
+
+- Ogni modifica va prima su `main` (versione di prova). Quando è provata, si porta su `produzione` e la versione definitiva si aggiorna da sola.
+- Nella versione definitiva il pulsante "Carica dati di prova" non esiste (`ALLOW_DEMO = false`).
+
+Da fare una volta sola nel pannello Cloudflare:
+
+1. **Database.** D1 → *Create* → nome `digihome`. Il *Database ID* va scritto in `produzione/wrangler.jsonc`.
+2. **Worker.** Workers e Pages → *Create* → *Import a repository* → questo archivio.
+   - Nome del progetto: `digihome`. Ramo di produzione: `produzione`. *Root directory*: `produzione`.
+   - Comando di build: nessuno.
+   - Comando di deploy: `npx wrangler d1 migrations apply digihome --remote && npx wrangler deploy`
+   - *Builds for non-production branches*: disattivato (anche nel Worker di prova).
+3. **Accesso.** Nel Worker: Access → *Protect this Worker* → *All traffic* → policy con solo le email autorizzate. Copiare l'AUD Tag.
+4. **Segreti** (come *Secret*): `ACCESS_TEAM_DOMAIN` (lo stesso della prova), `ACCESS_AUD` (quello nuovo), `BOOTSTRAP_ADMIN_EMAIL`.
+5. Aprire l'indirizzo, entrare, poi Impostazioni → collegare i calendari di Airbnb e Booking.
+
+## Calendari di Airbnb e Booking
+
+In Impostazioni → *Calendari di Airbnb e Booking* si incolla, per ogni casa, il link "Esporta calendario" della piattaforma.
+Il server lo legge ogni 30 minuti (o subito con *Aggiorna ora*): le prenotazioni nuove entrano da sole, le date cambiate si aggiornano, quelle cancellate si segnano come cancellate. Il link è riservato: resta solo nel database e non viene mai mandato all'app.
+
+## Copie di sicurezza
+
+- Automatiche: D1 Time Travel (ripristino a un momento degli ultimi giorni, da pannello o `wrangler d1 time-travel`).
+- A mano: Impostazioni → *Scarica una copia dei dati* (file con tutti i dati, da conservare in un posto sicuro).

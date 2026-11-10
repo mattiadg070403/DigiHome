@@ -149,7 +149,7 @@ test('dati di prova: solo se abilitati e solo per l’amministratore', async () 
   assert.equal((await call(on, '/api/demo', { token: tc, method: 'POST', body: {} })).status, 403);
   assert.equal((await call(on, '/api/demo', { token: t, method: 'POST', body: {} })).status, 200);
   const st = await (await call(on, '/api/state', { token: t })).json();
-  assert.equal(st.bookings.length, 8);
+  assert.equal(st.bookings.length, 9);
   assert.ok(st.bookings.every((b) => b.guest_name.endsWith('(prova)')));
 });
 
@@ -178,4 +178,55 @@ test('primo avvio: l’email indicata diventa amministratore una volta sola', as
   const env2 = { ...env, BOOTSTRAP_ADMIN_EMAIL: 'altro@example.invalid' };
   const r2 = await call(env2, '/api/state', { token: await sign(claims({ email: 'altro@example.invalid' })) });
   assert.equal(r2.status, 403);
+});
+
+test('calendari: "Aggiorna ora" solo con accesso e dallo stesso sito; aggiornamento programmato', async () => {
+  const env = await makeEnv();
+  const t = await sign(claims());
+  const url = 'https://www.airbnb.it/calendar/ical/1.ics?s=riservato';
+  const ics = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20991010\r\nDTEND;VALUE=DATE:20991012\r\nUID:w1\r\nSUMMARY:Reserved\r\nEND:VEVENT\r\nEND:VCALENDAR';
+  const before = globalThis.fetch;
+  globalThis.fetch = async (u, o) => (String(u) === url ? new Response(ics) : before(u, o));
+  try {
+    const cal = await env.DB.prepare("SELECT version FROM calendars WHERE id = 'faro-blu:airbnb'").first();
+    const up = await call(env, '/api/ops', { token: t, method: 'POST', body: { opId: crypto.randomUUID(), type: 'calendar.update',
+      payload: { id: 'faro-blu:airbnb', version: cal.version, import_url: url } } });
+    assert.equal(up.status, 200);
+    assert.ok(!(await up.text()).includes('riservato'));
+    assert.equal((await call(env, '/api/calendars/sync', { method: 'POST', body: {} })).status, 401);
+    assert.equal((await call(env, '/api/calendars/sync', { token: t, method: 'POST', body: {}, origin: 'https://cattivo.example' })).status, 403);
+    const r = await call(env, '/api/calendars/sync', { token: t, method: 'POST', body: {} });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).results[0].created, 1);
+    // Aggiornamento programmato (cron)
+    env.DB.sqlite.prepare('DELETE FROM bookings').run();
+    env.DB.sqlite.prepare("UPDATE calendars SET last_sync_at = NULL").run();
+    const waits = [];
+    await worker.scheduled({ cron: '*/30 * * * *' }, env, { waitUntil: (p) => waits.push(p) });
+    await Promise.all(waits);
+    const n = env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM bookings').get().n;
+    assert.equal(n, 1);
+    const st = await (await call(env, '/api/state', { token: t })).json();
+    assert.ok(!JSON.stringify(st).includes('riservato'));
+  } finally {
+    globalThis.fetch = before;
+  }
+});
+
+test('copia dei dati: solo l’amministratore, file scaricabile, senza link riservati', async () => {
+  const env = await makeEnv();
+  env.DB.sqlite.prepare("UPDATE calendars SET import_url = 'https://www.airbnb.it/calendar/ical/9.ics?s=riservato' WHERE id = 'faro-blu:airbnb'").run();
+  const tc = await sign(claims({ email: 'collab@example.invalid' }));
+  assert.equal((await call(env, '/api/export', { token: tc })).status, 403);
+  assert.equal((await call(env, '/api/export', {})).status, 401);
+  const r = await call(env, '/api/export', { token: await sign(claims()) });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('Content-Disposition'), /attachment; filename="digihome-prova-\d{4}-\d{2}-\d{2}\.json"/);
+  assert.equal(r.headers.get('Cache-Control'), 'no-store');
+  const text = await r.text();
+  assert.ok(!text.includes('riservato'));
+  const data = JSON.parse(text);
+  assert.equal(data.app, 'DigiHome');
+  assert.equal(data.houses.length, 2);
+  assert.ok(Array.isArray(data.audit_log));
 });

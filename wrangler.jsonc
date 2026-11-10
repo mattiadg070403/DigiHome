@@ -36,5 +36,8 @@
   // anche dopo ogni pubblicazione da GitHub, anche se salvate come "Text" invece che "Secret".
   "keep_vars": true,
 
+  // Aggiornamento automatico dei calendari di Airbnb e Booking: ogni 30 minuti.
+  "triggers": { "crons": ["*/30 * * * *"] },
+
   "observability": { "enabled": true }
 }

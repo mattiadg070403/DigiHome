@@ -19,6 +19,10 @@ export function demoBookings(today = todayRome()) {
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Giulia Ferri (prova)', phone: '+39 000 000 0002', guests: 3,
       check_in: d(12), check_out: d(19), total_cents: 126000, deposit_cents: 30000, deposit_paid: 0,
       security_cents: 20000, security_status: 'da_incassare', stage: 'confermata', minors_delegation: 'da_chiedere' },
+    // Arrivata dal calendario di Airbnb: nome, persone e telefono da completare.
+    { house_id: 'isola-bella', channel: 'airbnb', guest_name: 'Ospite Airbnb (prova)', guests: 1,
+      check_in: d(24), check_out: d(28), total_cents: 0, security_cents: 0, security_status: 'nessuna', stage: 'confermata',
+      ext_uid: 'prova-1@airbnb.com', needs_details: 1 },
     { house_id: 'isola-bella', channel: 'booking', guest_name: 'Pierre Laurent (prova)', guests: 2,
       check_in: d(-20), check_out: d(-13), total_cents: 84000, security_status: 'nessuna', stage: 'chiusa', review_ok: 1,
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi']) },

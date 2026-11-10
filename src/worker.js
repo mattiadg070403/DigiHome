@@ -3,8 +3,9 @@
 import { authenticate } from './auth.js';
 import { fail, json, secure, text } from './http.js';
 import { OpError, runOp } from './ops.js';
-import { readHistory, readState } from './state.js';
+import { readExport, readHistory, readState } from './state.js';
 import { loadDemo } from './demo.js';
+import { syncAll } from './calendars.js';
 import { APP_VERSION } from '../public/shared/version.js';
 
 export { APP_VERSION };
@@ -47,6 +48,13 @@ async function handleApi(request, env, url) {
       const state = await readState(env.DB, user);
       return json({ ok: true, ...state, ...info });
     }
+    if (path === '/api/export') {
+      if (user.role !== 'admin') return fail(403, 'forbidden', 'Solo l’amministratore può scaricare i dati.');
+      const data = await readExport(env.DB);
+      const day = new Date().toISOString().slice(0, 10);
+      return json({ ok: true, app: 'DigiHome', version: APP_VERSION, env: env.APP_ENV || 'prova', exported_at: new Date().toISOString(), ...data },
+        { headers: { 'Content-Disposition': `attachment; filename="digihome-${env.APP_ENV || 'prova'}-${day}.json"` } });
+    }
     const m = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/history$/);
     if (m) return json({ ok: true, history: await readHistory(env.DB, m[1]) });
     return fail(404, 'not_found', 'Indirizzo sconosciuto.');
@@ -58,6 +66,12 @@ async function handleApi(request, env, url) {
       if (path === '/api/ops') {
         const body = await readJson(request);
         return json(await runOp(env.DB, user, body));
+      }
+      if (path === '/api/calendars/sync') {
+        // "Aggiorna ora": i calendari aggiornati nell'ultimo minuto non si riscaricano.
+        await readJson(request);
+        const results = await syncAll(env.DB, { minAgeMs: 60 * 1000 });
+        return json({ ok: true, results });
       }
       if (path === '/api/demo') {
         if (env.ALLOW_DEMO !== 'true') return fail(403, 'forbidden', 'Non disponibile in questo ambiente.');
@@ -92,5 +106,13 @@ export default {
         ? fail(500, 'server', 'Errore del server. Riprova.')
         : text('Errore del server. Riprova tra poco.', 500);
     }
+  },
+
+  // Aggiornamento automatico dei calendari di Airbnb e Booking (orari in wrangler.jsonc → triggers).
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(syncAll(env.DB).then((r) => {
+      const bad = r.filter((x) => !x.ok);
+      if (bad.length) console.warn('Calendari non aggiornati', bad.map((x) => `${x.id}: ${x.error}`).join('; '));
+    }));
   },
 };

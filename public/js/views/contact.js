@@ -5,7 +5,7 @@ import { fmtShort } from '../../shared/dates.js';
 import { parseSteps } from '../../shared/booking.js';
 import { fmtEuro } from '../../shared/money.js';
 import { openBookingForm } from './form.js';
-import { arrivalDialog, runNextAction } from './actions.js';
+import { arrivalDialog, cancelBooking, restoreBooking, runNextAction } from './actions.js';
 
 function guestName(b) {
   return String(b.guest_name || '').replace(/\s*\(prova\)$/, '').trim();
@@ -66,6 +66,10 @@ export function alertActions(ctx, b, alert) {
   const edit = (label, focus) => h('button', { class: 'btn small', type: 'button', onClick: () => openBookingForm(ctx, { existing: latest(), focus }) }, icon('edit', { size: 16 }), label);
   const next = (label, action) => h('button', { class: 'btn small house', type: 'button', text: label, onClick: () => runNextAction(ctx, latest(), action) });
 
+  const ack = (label, done) => h('button', { class: 'btn small', type: 'button', onClick: () => {
+    ctx.act('booking.ext_ack', { id: b.id, version: latest().version }, { message: done }).catch(() => {});
+  } }, icon('check', { size: 16 }), label);
+
   let buttons = [];
   switch (alert.key) {
     case 'arrival': buttons = [ask('arrival'), h('button', { class: 'btn small', type: 'button', onClick: () => arrivalDialog(ctx, latest()) }, icon('edit', { size: 16 }), 'Inserisci l’orario')]; break;
@@ -77,6 +81,12 @@ export function alertActions(ctx, b, alert) {
     case 'checkin': buttons = [next(Object.values(parseSteps(latest().checkin_steps)).some(Boolean) || latest().stage === 'in_casa' ? 'Completa il check-in' : 'Inizia check-in', 'checkin')]; break;
     case 'checkout': buttons = [next('Inizia check-out', 'checkout')]; break;
     case 'close': buttons = [next('Chiudi il soggiorno', 'close')]; break;
+    case 'details': buttons = [edit('Completa i dati', 'guest_name')]; break;
+    case 'ext_gone': buttons = [
+      h('button', { class: 'btn small', type: 'button', text: 'Sì, è cancellata', onClick: () => cancelBooking(ctx, latest()) }),
+      ack('No, è ancora valida', 'Segnata come ancora valida')]; break;
+    case 'ext_cancelled': buttons = [ack('Ok, visto', 'Avviso tolto'),
+      h('button', { class: 'btn small', type: 'button', text: 'Ripristina', onClick: () => restoreBooking(ctx, latest()) })]; break;
     default: return null;
   }
   return h('div', { class: 'alert-actions' }, buttons);

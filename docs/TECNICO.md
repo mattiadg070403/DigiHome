@@ -81,3 +81,27 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
 - L'app ricalcola ogni minuto (ora italiana, `timeRome`) e ridisegna appena una prenotazione supera la scadenza.
 - Corretto il testo "null" che compariva accanto agli orari rapidi, sotto il calendario senza date e nei messaggi delle finestre (gli elementi condizionali passati a `append`/`replaceChildren` nativi).
 - Notifica push con l'app chiusa: non ancora presente (serve Web Push con service worker e un controllo programmato sul server).
+
+## Novità della 0.4 (10 novembre 2026)
+
+- **Calendari di Airbnb e Booking** (`src/ical.js`, `src/calendars.js`, `migrations/0002_calendari.sql`).
+  - Tabella `calendars`: una riga per casa e piattaforma, con il link iCal (`import_url`, solo sul server: l'app riceve `connected` e il sito, mai il link; non finisce nemmeno nel registro).
+  - Il link è accettato solo `https` e solo da domini airbnb.* / booking.com (`public/shared/calendar.js`).
+  - Lettura ogni 30 minuti (Cron Trigger in `wrangler.jsonc`) e con "Aggiorna ora" (`POST /api/calendars/sync`, al massimo una volta al minuto per calendario).
+  - Download con tempo massimo 20 secondi e dimensione massima 3 MB.
+- **Regole di importazione**
+  - Airbnb: "Reserved" è una prenotazione; "Not available" è un blocco e si ignora (comprende le date arrivate da altri calendari).
+  - Booking: ogni evento è una prenotazione, tranne quelli coperti per intero da prenotazioni di altri canali (copie). Si legge prima Airbnb, poi Booking.
+  - Le prenotazioni passate si ignorano.
+  - Prenotazione nuova: creata con `needs_details = 1` (nome provvisorio, 1 persona). Le ultime cifre del telefono di Airbnb non si salvano; il codice HM… e il link della prenotazione sì.
+  - Se esiste già una prenotazione inserita a mano con stesso canale e stesse date, si collega quella (`ext_uid`).
+  - Date cambiate: si aggiornano prima dell'arrivo; durante il soggiorno solo la partenza. Se Airbnb cambia il codice insieme alle date, si sposta la stessa prenotazione.
+  - Prenotazione futura sparita da un calendario non vuoto: cancellata in automatico (`ext_gone = 1`), con avviso "Cancellata in automatico" e pulsanti "Ok, visto" / "Ripristina". Se ricompare, torna confermata.
+  - Calendario arrivato vuoto: non si cancella niente, si segnala da verificare.
+  - Ripristinata a mano o segnata "ancora valida": si stacca dal calendario (`ext_uid = NULL`), così non viene ricancellata.
+  - Annullata a mano (es. "non è una prenotazione"): il calendario non la ricrea.
+  - Le modifiche automatiche sono nel registro come "Calendario automatico".
+- **Dati da completare.** Il modulo mostra l'avviso e nasconde il canale. Salvarlo azzera `needs_details`. Promemoria, avvisi ed elenchi mostrano "ospiti da completare".
+- **Copia dei dati** (`GET /api/export`, solo amministratore): tutte le tabelle e il registro in un file JSON, senza i link dei calendari.
+- **Versione definitiva**: `produzione/wrangler.jsonc` (Worker `digihome`, database `digihome`, `ALLOW_DEMO = false`, ramo `produzione`). Un test controlla che resti separata dalla prova.
+- Non incluso: link che DigiHome dà ad Airbnb/Booking con le prenotazioni dirette. Richiede un indirizzo pubblico fuori da Cloudflare Access (Access protegge tutto il Worker). Da valutare.

@@ -1,9 +1,10 @@
 // Impostazioni: account, utenti e case (solo amministratore), dati di prova.
 
 import { h, icon } from '../dom.js';
-import { houseVars, field, openDialog, confirmDialog, switchRow } from '../ui.js';
+import { houseVars, field, openDialog, confirmDialog, switchRow, setFieldError } from '../ui.js';
 import { APP_VERSION } from '../../shared/version.js';
 import { timeField } from '../pickers.js';
+import { checkCalendarUrl } from '../../shared/calendar.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -24,10 +25,163 @@ export function renderSettings(ctx) {
         h('h2', { text: 'Gestionale' }),
         h('dl', { class: 'kv' },
           h('dt', { text: 'Versione' }), h('dd', { text: APP_VERSION }),
-          h('dt', { text: 'Ambiente' }), h('dd', { text: store.info.demo ? 'Prova, con dati inventati' : store.info.env || '—' })),
-        admin && store.info.demo ? demoBlock(ctx) : null)),
+          h('dt', { text: 'Ambiente' }), h('dd', { text: store.info.demo ? 'Prova, con dati inventati' : store.info.env === 'produzione' ? 'Definitiva (dati veri)' : store.info.env || '—' })),
+        admin && store.info.demo ? demoBlock(ctx) : null,
+        admin ? exportBlock(ctx) : null)),
     admin ? usersSection(ctx) : h('p', { class: 'section muted', text: 'Utenti, case e regole si cambiano solo dall’amministratore.' }),
+    admin ? calendarsSection(ctx) : null,
     admin ? housesSection(ctx) : null);
+}
+
+/* ------------------------- Calendari Airbnb e Booking ------------------------- */
+
+const PLATFORM = { airbnb: 'Airbnb', booking: 'Booking.com' };
+const WHERE = {
+  airbnb: 'Su Airbnb, dal computer: Annunci → scegli la casa → Disponibilità → Sincronizza calendari (o "Collega a un altro sito") → Esporta calendario → copia il link.',
+  booking: 'Sull’extranet di Booking.com: Tariffe e disponibilità → Sincronizza calendari → Esporta calendario → copia il link.',
+};
+
+function when(iso) {
+  try {
+    return new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  } catch { return ''; }
+}
+
+function calendarStatus(c) {
+  if (!c.connected) return { text: 'Non collegato', tone: '' };
+  if (c.last_error) return { text: c.last_error, tone: 'warn' };
+  if (c.last_ok_at) return { text: `Aggiornato ${when(c.last_ok_at)} · ${c.last_count ?? 0} ${c.last_count === 1 ? 'prenotazione futura' : 'prenotazioni future'}`, tone: 'ok' };
+  return { text: 'Collegato: in attesa del primo aggiornamento', tone: '' };
+}
+
+function calendarsSection(ctx) {
+  const d = ctx.store.data;
+  const cals = d.calendars || [];
+  const houses = Object.fromEntries(d.houses.map((x) => [x.id, x]));
+  const rows = d.houses.flatMap((house) => ['airbnb', 'booking'].map((ch) => cals.find((c) => c.house_id === house.id && c.channel === ch)).filter(Boolean))
+    .map((c) => {
+      const st = calendarStatus(c);
+      return h('div', { class: 'row' },
+        h('span', { class: 'house-dot', vars: houseVars(houses[c.house_id]) }),
+        h('span', { class: 'row-main' },
+          h('span', { class: 'row-title', text: `${houses[c.house_id].name} · ${PLATFORM[c.channel]}` }),
+          h('span', { class: 'row-sub' }, st.tone ? h('span', { class: ['tag', st.tone], text: st.tone === 'ok' ? 'Collegato' : 'Da controllare' }) : null,
+            h('span', { text: st.text }))),
+        h('span', { class: 'row-end' }, h('button', { class: 'btn small', type: 'button', text: c.connected ? 'Cambia' : 'Collega', onClick: () => calendarDialog(ctx, c) })));
+    });
+  const anyConnected = cals.some((c) => c.connected);
+  return h('section', { class: 'section' },
+    h('div', { class: 'section-head' },
+      h('h2', { text: 'Calendari di Airbnb e Booking' }),
+      anyConnected ? h('button', { class: 'btn small', type: 'button', onClick: (e) => syncNow(ctx, e.currentTarget) }, icon('refresh', { size: 16 }), 'Aggiorna ora') : null),
+    h('div', { class: 'card' }, h('div', { class: 'rows' }, rows)),
+    h('p', { class: 'hint', text: 'Le prenotazioni di Airbnb e Booking entrano da sole nel gestionale, con le date sempre aggiornate (controllo ogni 30 minuti). Nome, persone e telefono non arrivano dalle piattaforme: li completi tu nella prenotazione. Il link del calendario è riservato: lo vede solo il server, qui compare solo il sito.' }));
+}
+
+export async function syncNow(ctx, btn) {
+  if (btn) { btn.disabled = true; btn.lastChild.textContent = 'Aggiornamento…'; }
+  try {
+    const r = await ctx.store.request('/api/calendars/sync', { method: 'POST', body: {} });
+    await ctx.store.load({ force: true });
+    const res = r.results || [];
+    const sum = (k) => res.reduce((n, x) => n + (x[k] || 0), 0);
+    const parts = [];
+    if (sum('created')) parts.push(`${sum('created')} ${sum('created') === 1 ? 'nuova' : 'nuove'}`);
+    if (sum('updated')) parts.push(`${sum('updated')} ${sum('updated') === 1 ? 'aggiornata' : 'aggiornate'}`);
+    if (sum('cancelled')) parts.push(`${sum('cancelled')} ${sum('cancelled') === 1 ? 'cancellata' : 'cancellate'}`);
+    const bad = res.filter((x) => !x.ok);
+    if (bad.length) ctx.toast(`${bad.length === 1 ? 'Un calendario non si è aggiornato' : `${bad.length} calendari non si sono aggiornati`}: ${bad[0].error}`, { bad: true });
+    else ctx.toast(parts.length ? `Calendari aggiornati: ${parts.join(', ')}` : 'Calendari aggiornati: nessuna novità');
+  } catch (e) {
+    ctx.toast(e.message, { bad: true });
+  } finally {
+    if (btn && btn.isConnected) { btn.disabled = false; btn.lastChild.textContent = 'Aggiorna ora'; }
+  }
+}
+
+function calendarDialog(ctx, cal) {
+  const d = ctx.store.data;
+  const house = d.houses.find((x) => x.id === cal.house_id);
+  const name = PLATFORM[cal.channel];
+  let value = '';
+  const input = h('input', { class: 'input', type: 'url', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
+    placeholder: cal.connected ? `Incolla il nuovo link (ora: ${cal.url_hint})` : 'https://…', maxlength: '1000',
+    attrs: { 'aria-label': `Link del calendario ${name}` },
+    onInput: (e) => { value = e.target.value; setFieldError(input, ''); } });
+  const dlg = openDialog({
+    title: `${house.name} · ${name}`,
+    canClose: () => !value.trim() || confirmDialog({ title: 'Uscire senza collegare?', text: 'Il link che hai incollato non verrà salvato.', okLabel: 'Esci senza salvare' }),
+    content: h('div', { class: 'stack' },
+      h('p', { class: 'small', text: WHERE[cal.channel] }),
+      h('p', { class: 'small muted', text: 'I nomi dei menu possono cambiare un po’. Il link giusto finisce di solito con .ics oppure contiene "ical".' }),
+      field(`Link "Esporta calendario" di ${name}`, input),
+      cal.connected ? h('div', { class: 'stack' },
+        h('div', null, h('button', { class: 'btn small danger', type: 'button', text: 'Scollega questo calendario', onClick: disconnect })),
+        h('p', { class: 'hint', text: 'Scollegando, le prenotazioni già arrivate restano nel gestionale; semplicemente non si aggiornano più.' })) : null),
+    actions: [
+      h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
+      h('button', { class: 'btn primary', type: 'button', text: 'Collega e aggiorna', onClick: save }),
+    ],
+  });
+  setTimeout(() => input.focus(), 50);
+
+  async function send(url, message) {
+    const cur = (ctx.store.data.calendars || []).find((c) => c.id === cal.id) || cal;
+    await ctx.act('calendar.update', { id: cal.id, version: cur.version, import_url: url }, { message });
+  }
+  async function save() {
+    const checked = checkCalendarUrl(cal.channel, value);
+    if (!checked.ok || !checked.url) {
+      setFieldError(input, checked.ok ? 'Incolla il link del calendario.' : checked.error);
+      input.focus();
+      return;
+    }
+    try {
+      await send(checked.url, 'Calendario collegato');
+      value = '';
+      dlg.close();
+      await syncNow(ctx, null);
+    } catch (e) {
+      dlg.setBanner(e.message);
+    }
+  }
+  async function disconnect() {
+    const ok = await confirmDialog({ title: `Scollegare il calendario ${name}?`, text: `Le prenotazioni di ${name} di ${house.name} non si aggiorneranno più da sole.`, okLabel: 'Scollega', danger: true });
+    if (!ok) return;
+    try {
+      await send(null, 'Calendario scollegato');
+      value = '';
+      dlg.close();
+    } catch (e) {
+      dlg.setBanner(e.message);
+    }
+  }
+}
+
+/** Copia di sicurezza scaricabile: tutti i dati in un file, da conservare sul computer. */
+function exportBlock(ctx) {
+  const run = async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const data = await ctx.store.request('/api/export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = h('a', { href: url, attrs: { download: `digihome-${data.env}-${data.exported_at.slice(0, 10)}.json` } });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      ctx.toast('Copia dei dati scaricata');
+    } catch (err) {
+      ctx.toast(err.message, { bad: true });
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  return h('div', { class: 'stack' },
+    h('p', { class: 'small muted', text: 'Copia di sicurezza: scarica tutti i dati in un file (prenotazioni, note, cose da fare, storico). Contiene dati degli ospiti: tienilo in un posto sicuro.' }),
+    h('div', null, h('button', { class: 'btn small', type: 'button', onClick: run }, icon('download', { size: 16 }), 'Scarica una copia dei dati')));
 }
 
 function demoBlock(ctx) {

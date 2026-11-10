@@ -3,8 +3,9 @@
 
 import { CHANNELS, checkinSteps, checkoutSteps, missingRequired, parseSteps, validateBooking } from '../public/shared/booking.js';
 import { fmtShort, isIsoDate, isTime } from '../public/shared/dates.js';
+import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
 
-const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
+export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
   AND o.id <> ? AND o.check_in < ? AND o.check_out > ?)`;
 
@@ -44,9 +45,9 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars' };
 
-async function commit(db, { main, user, opId, entity, entityId, action, changes }) {
+export async function commit(db, { main, user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
   const at = nowIso();
   const marked = `EXISTS (SELECT 1 FROM ${table} WHERE id = ?
@@ -161,6 +162,9 @@ async function bookingUpdate(db, user, opId, p) {
     if (!BOOKING_EDITABLE.includes(k)) throw bad(`Campo non modificabile: ${k}`);
     input[k] = p.changes[k];
   }
+  if (cur.ext_uid && 'channel' in input && input.channel !== cur.channel) {
+    throw bad('Questa prenotazione arriva dal calendario: il canale non si può cambiare.');
+  }
   const house = await getHouse(db, cur.house_id);
   const { ok, value, errors } = validateBooking(input, { house, partial: true });
   if (!ok) throw bad('Controlla i campi evidenziati', { errors });
@@ -170,10 +174,12 @@ async function bookingUpdate(db, user, opId, p) {
   if (value.security_cents !== undefined && cur.security_status === 'nessuna' && value.security_cents > 0) value.security_status = 'da_incassare';
   if (value.security_cents === 0 && cur.security_status === 'da_incassare') value.security_status = 'nessuna';
   const changes = diff(cur, value);
+  // Prenotazione arrivata dal calendario: salvarla dal modulo vuol dire che i dati sono stati completati.
+  if (cur.needs_details) changes.needs_details = [1, 0];
   if (Object.keys(changes).length === 0) return { record: cur, unchanged: true };
-  const cols = Object.keys(changes);
+  const cols = Object.keys(changes).filter((c) => c !== 'needs_details');
   const at = nowIso();
-  const main = db.prepare(`UPDATE bookings SET ${cols.map((c) => `${c} = ?`).join(', ')},
+  const main = db.prepare(`UPDATE bookings SET ${cols.map((c) => `${c} = ?, `).join('')}needs_details = 0,
       version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
     WHERE id = ? AND version = ? AND NOT ${OVERLAP}`)
     .bind(...cols.map((c) => value[c]), at, user.email, p.id, p.version,
@@ -278,9 +284,28 @@ function bookingCancel(db, user, opId, p) {
 }
 
 function bookingRestore(db, user, opId, p) {
+  // Se era stata cancellata in automatico dal calendario, ripristinarla a mano la stacca dal calendario:
+  // da qui in poi la gestisci tu e l'aggiornamento automatico non la ricancella.
   return setStage(db, user, opId, p, {
     from: ['cancellata'], to: (cur) => cur.prev_stage || 'confermata', action: 'restore',
+    extraSet: ', ext_uid = CASE WHEN ext_gone = 1 THEN NULL ELSE ext_uid END, ext_gone = 0',
   });
+}
+
+/** "Visto": toglie l'avviso di una prenotazione sparita dal calendario (ancora valida, o cancellata in automatico). */
+async function bookingExtAck(db, user, opId, p) {
+  if (!isId(p.id) || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await getBooking(db, p.id);
+  if (!cur) throw notFound();
+  if (cur.version !== p.version) throw conflictError(cur);
+  if (!cur.ext_gone) return { record: cur, unchanged: true };
+  // Ancora valida anche se non è più nel calendario: si stacca dal calendario, così non viene ricancellata.
+  const main = db.prepare(`UPDATE bookings SET ext_gone = 0, ext_uid = CASE WHEN stage = 'cancellata' THEN ext_uid ELSE NULL END,
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND version = ?`).bind(nowIso(), user.email, p.id, p.version);
+  const done = await commit(db, { main, user, opId, entity: 'booking', entityId: p.id, action: 'ext_ack', changes: { ext_gone: [1, 0] } });
+  if (!done) await explainBookingFailure(db, p.id, p.version);
+  return { record: await getBooking(db, p.id) };
 }
 
 /** Torna alla fase precedente (per "Annulla" dopo check-in, check-out o chiusura). */
@@ -503,6 +528,38 @@ async function houseUpdate(db, user, opId, p) {
   return { record: await getHouse(db, p.id) };
 }
 
+/* ------------------------------- Calendari ------------------------------- */
+
+/** Come l'app vede un calendario: il link riservato non esce mai dal server, si mostra solo il sito. */
+export function publicCalendar(c) {
+  return {
+    id: c.id, house_id: c.house_id, channel: c.channel,
+    connected: c.import_url ? 1 : 0, url_hint: c.import_url ? maskCalendarUrl(c.import_url) : null,
+    last_sync_at: c.last_sync_at, last_ok_at: c.last_ok_at, last_error: c.last_error, last_count: c.last_count,
+    version: c.version, rev: c.rev,
+  };
+}
+
+async function calendarUpdate(db, user, opId, p) {
+  requireAdmin(user);
+  if (typeof p.id !== 'string' || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first();
+  if (!cur) throw notFound();
+  if (cur.version !== p.version) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
+  const checked = checkCalendarUrl(cur.channel, p.import_url);
+  if (!checked.ok) throw bad(checked.error, { errors: { import_url: checked.error } });
+  if (checked.url === cur.import_url) return { record: publicCalendar(cur), unchanged: true };
+  const main = db.prepare(`UPDATE calendars SET import_url = ?, last_sync_at = NULL, last_ok_at = NULL, last_error = NULL,
+      last_count = NULL, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND version = ?`).bind(checked.url, nowIso(), user.email, p.id, p.version);
+  // Nel registro non si scrive il link (è riservato): solo se è collegato o no.
+  const state = (u) => (u ? 'collegato' : 'non collegato');
+  const done = await commit(db, { main, user, opId, entity: 'calendar', entityId: p.id, action: 'update',
+    changes: { calendario: [state(cur.import_url), checked.url ? (cur.import_url ? 'link cambiato' : 'collegato') : 'non collegato'] } });
+  if (!done) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
+  return { record: publicCalendar(await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first()) };
+}
+
 /* ------------------------------- Smistamento ------------------------------- */
 
 const HANDLERS = {
@@ -515,6 +572,8 @@ const HANDLERS = {
   'booking.cancel': bookingCancel,
   'booking.restore': bookingRestore,
   'booking.step_back': bookingStepBack,
+  'booking.ext_ack': bookingExtAck,
+  'calendar.update': calendarUpdate,
   'note.add': noteAdd,
   'note.delete': (db, u, o, p) => noteSetDeleted(db, u, o, p, 1),
   'note.restore': (db, u, o, p) => noteSetDeleted(db, u, o, p, 0),

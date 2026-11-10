@@ -3,7 +3,7 @@
 import { h, icon } from '../dom.js';
 import { houseVars, segmented, chan } from '../ui.js';
 import { addDays, fmtShort, fmtRange, monthName, nights, weekday } from '../../shared/dates.js';
-import { phase } from '../../shared/booking.js';
+import { phase, guestsLabel } from '../../shared/booking.js';
 import { openBookingForm, draftBanner } from './form.js';
 
 export function renderBookings(ctx) {
@@ -86,7 +86,7 @@ function bookingRow(ctx, b) {
   return h('a', { class: 'row', href: `#/p/${b.id}` },
     h('span', { class: 'row-main' },
       h('span', { class: 'row-title', text: b.guest_name }),
-      h('span', { class: 'row-sub' }, `${fmtRange(b.check_in, b.check_out)} · ${n} ${n === 1 ? 'notte' : 'notti'} · ${b.guests} persone`, chan(b.channel))),
+      h('span', { class: 'row-sub' }, `${fmtRange(b.check_in, b.check_out)} · ${n} ${n === 1 ? 'notte' : 'notti'} · ${guestsLabel(b)}`, chan(b.channel))),
     h('span', { class: 'row-end' }, h('span', { class: ['tag', tone], text: p.label }), icon('chevron')));
 }
 

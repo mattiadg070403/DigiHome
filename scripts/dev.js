@@ -41,6 +41,26 @@ const ASSETS = {
   },
 };
 
+// Calendari finti di Airbnb e Booking per provare l'aggiornamento automatico senza rete.
+// Basta collegare un link qualsiasi di airbnb.it / booking.com nelle impostazioni.
+const realFetch = globalThis.fetch;
+const day = (n) => { const x = new Date(); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10).replaceAll('-', ''); };
+globalThis.fetch = async (url, opts) => {
+  const host = new URL(String(url)).hostname;
+  if (/airbnb\./.test(host) || /booking\.com$/.test(host)) {
+    const isAirbnb = /airbnb\./.test(host);
+    const events = isAirbnb
+      ? [['dev-a1@airbnb.com', 30, 34, 'Reserved', 'Reservation URL: https://www.airbnb.com/hosting/reservations/details/HMDEV12345'],
+        ['dev-blk@airbnb.com', 60, 70, 'Airbnb (Not available)', '']]
+      : [['dev-b1@booking.com', 40, 43, 'CLOSED - Not available', '']];
+    const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...events.flatMap(([uid, a, b, sum, desc]) => ['BEGIN:VEVENT',
+      `DTSTART;VALUE=DATE:${day(a)}`, `DTEND;VALUE=DATE:${day(b)}`, `UID:${uid}`, `SUMMARY:${sum}`, ...(desc ? [`DESCRIPTION:${desc}`] : []), 'END:VEVENT']),
+    'END:VCALENDAR'].join('\r\n');
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/calendar' } });
+  }
+  return realFetch(url, opts);
+};
+
 const env = {
   DB: db, ASSETS, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
 };

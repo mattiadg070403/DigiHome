@@ -8,8 +8,8 @@
 // - Aggiornare i dati non tocca mai la schermata: chi disegna decide cosa ridisegnare.
 // - Gli errori restano visibili finché non si risolvono.
 
-const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [] };
-const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses' };
+const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [] };
+const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars' };
 const TIMEOUT_MS = 15000;
 const RETRIES = [1000, 3000, 8000];
 
@@ -124,7 +124,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       return false;
     }
     staleRetries = 0;
-    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks };
+    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [] };
     maxSeenRev = Math.max(maxSeenRev, res.rev);
     emit('data');
     return true;

@@ -137,10 +137,16 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     notes.value = v.notes || '';
 
     const direct = v.channel === 'diretto';
+    // Arrivata dal calendario di Airbnb/Booking: il canale resta quello, le date le aggiorna il calendario.
+    const linked = Boolean(existing && existing.ext_uid);
+    const linkedNote = linked ? h('div', { class: 'banner full', text: existing.needs_details
+      ? `Arrivata dal calendario ${CHANNELS[v.channel].label}: completa nome, persone e telefono. Le date si aggiornano da sole dal calendario.`
+      : `Collegata al calendario ${CHANNELS[v.channel].label}: se cambi le date qui, al prossimo aggiornamento tornano quelle di ${CHANNELS[v.channel].label}.` }) : null;
     box.replaceChildren(
       h('div', { class: 'form-grid' },
+        linkedNote,
         houseSeg,
-        channelSeg,
+        linked ? null : channelSeg,
         field('Nome dell’ospite o del gruppo', input('guest_name', { type: 'text', maxlength: '120', autocomplete: 'off' }), { full: true }),
         h('div', { class: 'field full', vars: houseVars(h0) }, h('div', { class: 'label', text: 'Date del soggiorno' }), range.el),
         guestsControl(),
@@ -280,7 +286,8 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
           if (before !== val && !(before == null && val === '')) changes[k] = val;
         }
         clearTimeout(draftTimer);
-        if (!Object.keys(changes).length) { clearDraft(); dirty = false; dlg.close(); return; }
+        // Prenotazione arrivata dal calendario: salvare conferma che i dati sono completi, anche senza cambiamenti.
+        if (!Object.keys(changes).length && !base.needs_details) { clearDraft(); dirty = false; dlg.close(); return; }
         const old = Object.fromEntries(Object.keys(changes).map((k) => [k, base[k]]));
         await ctx.act('booking.update', { id: existing.id, version: base.version, changes }, {
           message: 'Modifiche salvate',

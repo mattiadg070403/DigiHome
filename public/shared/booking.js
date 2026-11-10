@@ -225,10 +225,17 @@ export function nextStep(b, today, houseTimes = {}, time) {
   return { text: `Arrivo ${fmtShort(b.check_in)}${b.arrival_time ? ` alle ${b.arrival_time}` : ''}`, action: null };
 }
 
+/** "3 persone", "1 persona", oppure "ospiti da completare" per le prenotazioni arrivate dal calendario. */
+export function guestsLabel(b) {
+  if (b.needs_details) return 'ospiti da completare';
+  return `${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}`;
+}
+
 /** Etichette di stato brevi per le schede. tone: ok | warn | neutral */
 export function statusTags(b, today) {
   const tags = [];
-  if (b.stage === 'cancellata') return [{ text: 'Cancellata', tone: 'neutral' }];
+  if (b.stage === 'cancellata') return [{ text: b.ext_gone ? 'Cancellata in automatico' : 'Cancellata', tone: 'neutral' }];
+  if (b.needs_details) tags.push({ text: 'Dati da completare', tone: 'warn' });
   if (b.channel === 'diretto') {
     if (b.stage === 'confermata') {
       if (b.deposit_cents > 0) tags.push(b.deposit_paid ? { text: 'Acconto ricevuto', tone: 'ok' } : { text: 'Acconto non ricevuto', tone: 'warn' });
@@ -261,9 +268,19 @@ export function statusTags(b, today) {
  */
 export function bookingAlerts(b, today, all = [], opt = {}) {
   const out = [];
-  if (b.stage === 'cancellata' || b.stage === 'chiusa') return out;
   const add = (level, text, key) => out.push({ level, text, key, bookingId: b.id, houseId: b.house_id });
+  const from = CHANNELS[b.channel]?.label || '';
+  // Cancellata in automatico perché non è più nel calendario della piattaforma: avviso finché non si segna "visto".
+  if (b.stage === 'cancellata' && b.ext_gone && b.check_out >= today) {
+    add('attenzione', `Cancellata in automatico: non è più nel calendario ${from} (${fmtShort(b.check_in)} → ${fmtShort(b.check_out)})`, 'ext_cancelled');
+    return out;
+  }
+  if (b.stage === 'cancellata' || b.stage === 'chiusa') return out;
   const d = daysBetween(today, b.check_in);
+  if (b.stage === 'confermata' && b.ext_gone) add('urgente', `Non risulta più nel calendario ${from}: controlla se è stata cancellata`, 'ext_gone');
+  if (b.needs_details && b.stage !== 'partita') {
+    add(d <= 3 ? 'urgente' : 'attenzione', `Arrivata dal calendario ${from}: completa nome, numero di ospiti e telefono`, 'details');
+  }
 
   const clash = all.find((o) => o.id !== b.id && o.house_id === b.house_id && o.stage !== 'cancellata'
     && overlaps(b.check_in, b.check_out, o.check_in, o.check_out));
@@ -284,7 +301,7 @@ export function bookingAlerts(b, today, all = [], opt = {}) {
     if (b.channel === 'diretto' && b.deposit_cents > 0 && !b.deposit_paid && d <= 14) add('attenzione', 'Acconto non ancora ricevuto', 'deposit');
     if (b.channel === 'diretto' && b.total_cents === 0) add('attenzione', 'Manca il prezzo totale', 'total');
     if (d >= 0 && d <= 3 && !b.arrival_time) add('attenzione', 'Manca l’orario di arrivo', 'arrival');
-    if (d <= 7 && !b.phone) add('attenzione', 'Manca il numero di telefono', 'phone');
+    if (d <= 7 && !b.phone && !b.needs_details) add('attenzione', 'Manca il numero di telefono', 'phone');
     if (d <= 7 && b.minors_delegation === 'da_chiedere') add('attenzione', 'Delega per i minorenni da chiedere', 'minors');
   }
   if (b.stage === 'in_casa' && b.check_out < today) add('urgente', 'Check-out non registrato', 'checkout');
@@ -424,8 +441,11 @@ export function nextBlocked(nightsSet, from, limitDays = 400) {
 /** Cose da preparare e da incassare per un arrivo, in parole semplici. */
 export function arrivalReminders(b, house = {}) {
   const items = [];
-  items.push(b.linens ? `Lenzuola per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Lenzuola non incluse: non prepararle');
-  items.push(b.towels ? `Asciugamani per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Asciugamani non inclusi');
+  if (b.needs_details) items.push('Numero di ospiti ancora da completare: chiedilo prima di preparare la casa');
+  else {
+    items.push(b.linens ? `Lenzuola per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Lenzuola non incluse: non prepararle');
+    items.push(b.towels ? `Asciugamani per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Asciugamani non inclusi');
+  }
   const due = balanceDue(b);
   const money = [];
   if (due > 0) money.push(`${b.deposit_paid ? 'saldo' : 'totale'} ${fmtEuro(due)}`);

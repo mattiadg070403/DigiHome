@@ -3,7 +3,7 @@
 import { h, icon, newId } from '../dom.js';
 import { houseVars, tag, chan } from '../ui.js';
 import { fmtLong, fmtRange, fmtShort, daysBetween } from '../../shared/dates.js';
-import { CHANNELS, LEVEL_ORDER, bookingAlerts, currentAndNext, nextStep, phase, statusTags } from '../../shared/booking.js';
+import { CHANNELS, LEVEL_ORDER, bookingAlerts, currentAndNext, nextStep, phase, statusTags, guestsLabel } from '../../shared/booking.js';
 import { runNextAction } from './actions.js';
 import { draftBanner } from './form.js';
 
@@ -65,7 +65,7 @@ function houseCard(ctx, house) {
       h('a', { href: `#/p/${current.id}`, class: 'stack' },
         h('div', null,
           h('div', { class: 'guest', text: current.guest_name }),
-          h('div', { class: 'guest-meta' }, `${current.guests} ospiti · ${fmtRange(current.check_in, current.check_out)} · `, CHANNELS[current.channel].label))),
+          h('div', { class: 'guest-meta' }, `${guestsLabel(current)} · ${fmtRange(current.check_in, current.check_out)} · `, CHANNELS[current.channel].label))),
       h('div', { class: 'tags' }, statusTags(current, ui.today).map(tag)),
       h('div', { class: ['next-box', step.urgent && 'urgent'] },
         h('div', { class: 'next-label', text: 'Prossimo passo' }),
@@ -78,7 +78,7 @@ function houseCard(ctx, house) {
       next ? h('a', { class: 'row card', href: `#/p/${next.id}` },
         h('span', { class: 'row-main' },
           h('span', { class: 'row-title', text: next.guest_name }),
-          h('span', { class: 'row-sub' }, `Arrivo ${fmtShort(next.check_in)} · ${next.guests} persone`, chan(next.channel))),
+          h('span', { class: 'row-sub' }, `Arrivo ${fmtShort(next.check_in)} · ${guestsLabel(next)}`, chan(next.channel))),
         h('span', { class: 'row-end' }, icon('chevron'))) : null);
   }
 
@@ -86,7 +86,7 @@ function houseCard(ctx, house) {
   const after = current ? next : (next ? currentAndNext(d.bookings.filter((b) => b.id !== next.id), house.id, ui.today).next : null);
   if (current && next) {
     const free = daysBetween(current.check_out, next.check_in);
-    footText = `Prossimo arrivo: ${fmtShort(next.check_in)} · ${next.guests} persone · ${free === 0 ? 'cambio lo stesso giorno' : free === 1 ? '1 notte libera' : `${free} notti libere`}`;
+    footText = `Prossimo arrivo: ${fmtShort(next.check_in)} · ${guestsLabel(next)} · ${free === 0 ? 'cambio lo stesso giorno' : free === 1 ? '1 notte libera' : `${free} notti libere`}`;
   } else if (current) footText = 'Nessun altro arrivo in programma';
   else if (after) footText = `Poi: ${fmtShort(after.check_in)} · ${after.guest_name}`;
   else footText = next ? 'Nessun altro arrivo dopo questo' : 'Nessun arrivo in programma';
@@ -126,7 +126,13 @@ function alertsSection(ctx) {
   const d = store.data;
   const houses = Object.fromEntries(d.houses.map((x) => [x.id, x]));
   // Le cose da fare scadute si vedono già nel loro elenco, con l'etichetta "scaduta".
-  const all = d.bookings.flatMap((b) => bookingAlerts(b, ui.today, d.bookings, ctx.clock(b)).map((a) => ({ ...a, guest: b.guest_name }))).sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
+  // Calendari di Airbnb/Booking che non si aggiornano (li vede solo l'amministratore, che può sistemarli).
+  const calAlerts = (d.calendars || []).filter((c) => c.connected && c.last_error).map((c) => ({
+    level: 'attenzione', key: 'calendar', houseId: c.house_id, href: '#/impostazioni',
+    text: `Calendario ${c.channel === 'airbnb' ? 'Airbnb' : 'Booking'} non aggiornato: ${c.last_error}`,
+  }));
+  const all = [...calAlerts, ...d.bookings.flatMap((b) => bookingAlerts(b, ui.today, d.bookings, ctx.clock(b)).map((a) => ({ ...a, guest: b.guest_name })))]
+    .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
 
   const levelIcon = { urgente: 'alert', attenzione: 'alert', info: 'chevron' };
   return h('section', { class: 'section', attrs: { 'aria-label': 'Da sistemare' } },
@@ -142,8 +148,9 @@ function alertsSection(ctx) {
               house ? h('span', { class: 'house-dot', vars: houseVars(house) }) : null,
               [house ? house.name : 'Generale', a.guest].filter(Boolean).join(' · '))),
         ];
-        return a.bookingId
-          ? h('a', { class: 'row alert-row', href: `#/p/${a.bookingId}` }, inner, h('span', { class: 'row-end' }, icon('chevron')))
+        const href = a.href || (a.bookingId ? `#/p/${a.bookingId}` : null);
+        return href
+          ? h('a', { class: 'row alert-row', href }, inner, h('span', { class: 'row-end' }, icon('chevron')))
           : h('div', { class: 'row alert-row' }, inner);
       }))
       : h('div', { class: 'empty', text: 'Niente da sistemare. Tutto in ordine.' })));

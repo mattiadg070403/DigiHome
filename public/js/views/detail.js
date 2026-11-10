@@ -6,8 +6,7 @@ import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro } from '../../shared/money.js';
 import {
   CHANNELS, arrivalReminders, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
-  missingRequired, nextStep, parseSteps, phase, statusTags, stepLabel,
-} from '../../shared/booking.js';
+  missingRequired, nextStep, parseSteps, phase, statusTags, stepLabel, guestsLabel } from '../../shared/booking.js';
 import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
 import { alertActions, waNumber } from './contact.js';
@@ -41,7 +40,10 @@ export function renderDetail(ctx, id) {
       h('div', { class: 'stack' },
         h('div', { class: 'row-sub' }, h('span', { class: 'house-dot' }), house.name, chan(b.channel), h('span', { class: 'tag', text: p.label })),
         h('h1', { text: b.guest_name }),
-        h('div', { class: 'muted', text: `${fmtLong(b.check_in, year)} → ${fmtLong(b.check_out, year)} · ${n} ${n === 1 ? 'notte' : 'notti'} · ${b.guests} persone` }),
+        h('div', { class: 'muted', text: `${fmtLong(b.check_in, year)} → ${fmtLong(b.check_out, year)} · ${n} ${n === 1 ? 'notte' : 'notti'} · ${guestsLabel(b)}` }),
+        b.ext_uid || b.ext_url ? h('div', { class: 'row-sub' },
+          h('span', { text: `Collegata al calendario ${CHANNELS[b.channel].label}: le date si aggiornano da sole.` }),
+          b.ext_url ? h('a', { href: b.ext_url, target: '_blank', rel: 'noopener noreferrer', text: `Apri su ${CHANNELS[b.channel].label}` }) : null) : null,
         h('div', { class: 'tags' }, statusTags(b, ui.today).map(tag))),
       h('div', { class: 'btn-row' },
         editable ? h('button', { class: 'btn', type: 'button', onClick: () => openBookingForm(ctx, { existing: b }) }, icon('edit', { size: 16 }), 'Modifica') : null)));
@@ -167,12 +169,14 @@ const ACTIONS = {
   create: 'Prenotazione creata', update: 'Modificata', checkin: 'Check-in concluso', checkout: 'Check-out concluso',
   close: 'Soggiorno chiuso', cancel: 'Cancellata', restore: 'Ripristinata', step_back: 'Tornata alla fase precedente',
   checkin_step: 'Passaggio del check-in', checkout_step: 'Passaggio del check-out', delete: 'Nota eliminata',
+  sync: 'Aggiornata dal calendario', ext_ack: 'Avviso del calendario segnato come visto',
 };
 const FIELDS = {
   guest_name: 'nome', phone: 'telefono', email: 'email', guests: 'persone', check_in: 'arrivo', check_out: 'partenza',
   arrival_time: 'orario di arrivo', total_cents: 'totale', deposit_cents: 'acconto', deposit_paid: 'acconto ricevuto',
   security_cents: 'cauzione', linens: 'lenzuola', towels: 'asciugamani', minors_delegation: 'delega minorenni', notes: 'note',
   channel: 'canale', security_status: 'cauzione', security_withheld_cents: 'trattenuto', review_ok: 'recensione', stage: 'fase',
+  needs_details: 'dati completati', ext_gone: 'presenza nel calendario', ext_uid: 'collegamento al calendario',
 };
 
 function historyBlock(ctx, b) {
@@ -183,7 +187,8 @@ function historyBlock(ctx, b) {
   const show = (list) => {
     holder.replaceChildren(list.length ? h('div', null, list.map((x) => {
       let what = x.entity === 'note' ? (x.action === 'create' ? 'Nota aggiunta' : x.action === 'restore' ? 'Nota ripristinata' : 'Nota eliminata') : ACTIONS[x.action] || x.action;
-      if (x.action === 'update' && x.changes) what += `: ${Object.keys(x.changes).map((k) => FIELDS[k] || k).join(', ')}`;
+      if ((x.action === 'update' || x.action === 'sync') && x.changes) what += `: ${Object.keys(x.changes).map((k) => FIELDS[k] || k).join(', ')}`;
+      if (x.action === 'cancel' && x.changes?.motivo) what += ` (${x.changes.motivo[1]})`;
       if ((x.action === 'checkin_step' || x.action === 'checkout_step') && x.changes) {
         const [k, v] = Object.entries(x.changes)[0] || [];
         what = `${stepTitles[k] || k}: ${v ? 'fatto' : 'tolto'} (${x.action === 'checkin_step' ? 'check-in' : 'check-out'})`;
@@ -330,7 +335,7 @@ export function renderFlow(ctx, id, flow) {
     h('div', { class: 'page-head' },
       h('div', null,
         h('h1', { text: `${isIn ? 'Check-in' : 'Check-out'} · ${house.name}` }),
-        h('div', { class: 'sub', text: `${b.guest_name} · ${b.guests} persone · ${isIn ? `arrivo ${fmtShort(b.check_in)}${b.arrival_time ? ` alle ${b.arrival_time}` : ''}` : `partenza ${fmtShort(b.check_out)} entro le ${house.checkout_time}`}` })),
+        h('div', { class: 'sub', text: `${b.guest_name} · ${guestsLabel(b)} · ${isIn ? `arrivo ${fmtShort(b.check_in)}${b.arrival_time ? ` alle ${b.arrival_time}` : ''}` : `partenza ${fmtShort(b.check_out)} entro le ${house.checkout_time}`}` })),
       h('span', { class: 'progress', text: `${count} di ${steps.length} fatti` })),
     deadline ? h('div', { class: ['banner', deadline.level === 'urgente' ? 'bad' : 'warn'], text: deadline.text, attrs: { role: 'status' } }) : null,
     h('div', { class: 'card' }, rows),

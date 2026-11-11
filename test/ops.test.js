@@ -356,7 +356,10 @@ test('tassa di soggiorno: persone, importo 0 per gli esenti, tariffe della casa 
 
 test('spese della casa: aggiunta, modifica, pagata, eliminazione e ripristino; anche i collaboratori', async () => {
   const { db, admin, collab } = await setup();
-  await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'faro-blu', category: 'luce', amount_cents: 100, date: T } } }), 'validation');
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'faro-blu', category: 'gas', amount_cents: 100, date: T } } }), 'validation');
+  const luce = await runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'faro-blu', category: 'luce', amount_cents: 8450, date: T, period_from: '2026-07-01', period_to: '2026-08-31' } } });
+  assert.equal(luce.record.category, 'luce');
+  await runOp(db, collab, { opId: op(), type: 'expense.delete', payload: { id: luce.record.id } });
   await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'nessuna', category: 'acquisti', amount_cents: 100, date: T } } }), 'validation');
   await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'faro-blu', category: 'tari', amount_cents: 100, date: T, period_from: '2027-06-01', period_to: '2027-01-01' } } }), 'validation');
   const r = await runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: {

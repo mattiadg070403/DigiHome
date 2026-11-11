@@ -1,7 +1,7 @@
 -- Archivio della casa (versione 0.6): spese e scadenze, per casa e per anno.
 
 -- Spese: acqua e condominio (insieme), TARI, pulizie, lavanderia, manutenzione, acquisti, altro.
--- Niente luce e gas: nelle case non ci sono bollette separate (indicazione di Mattia, 11/11).
+-- (La luce è stata aggiunta subito dopo con 0008_spese_luce.sql: c'è la bolletta della luce, il gas no.)
 -- Solo i dati (importo, periodo, note): i documenti restano fuori dal gestionale; attach_ref è
 -- riservato per gli allegati, se si aggiungeranno più avanti senza rifare la tabella.
 CREATE TABLE expenses (

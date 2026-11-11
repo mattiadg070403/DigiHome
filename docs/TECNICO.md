@@ -149,7 +149,7 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
 
 - **Promemoria per l'arrivo con livelli** (`arrivalReminderItems`): i soldi da incassare sono sempre la prima voce, in verde e grassetto, con il totale. Gli obblighi (Alloggiati e DMS, delega minorenni, contratto per le dirette) sono in giallo; preparazione e informazioni in testo normale.
 - **Archivio della casa** (`migrations/0007_casa.sql`, `public/shared/house.js`, `public/js/views/archive.js`, menu "Archivio"). Lo vedono e lo usano tutti, anche i collaboratori.
-  - **Spese** (`expenses`): acqua e condominio (insieme), TARI, pulizie, lavanderia, manutenzione, acquisti, altro. Niente luce e gas: non ci sono bollette separate.
+  - **Spese** (`expenses`): luce, acqua e condominio (insieme), TARI, pulizie, lavanderia, manutenzione, acquisti, altro. Niente gas (non c'è). La luce è stata aggiunta con `0008_spese_luce.sql`.
     - Campi: importo, data, periodo (per acqua/condominio e TARI), "da pagare entro" se non pagata, note.
     - Pulizie e lavanderia si possono legare a un soggiorno.
     - Solo dati, niente allegati: la colonna `attach_ref` è pronta per aggiungerli in futuro senza rifare la tabella.

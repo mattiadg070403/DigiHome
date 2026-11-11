@@ -90,6 +90,7 @@ export async function loadDemo(db, user) {
   const expenses = [
     ['isola-bella', 'acqua_condominio', 'Rata condominio 4° trimestre', 18000, day(-20), day(-110), day(-20), null, 1],
     ['isola-bella', 'acquisti', 'Detersivi e carta', 3450, day(-6), null, null, null, 1],
+    ['isola-bella', 'luce', 'Bolletta luglio–agosto', 8450, day(-15), day(-130), day(-70), null, 1],
     ['faro-blu', 'tari', 'TARI 2a rata', 21600, day(-3), null, null, day(5), 0],
     ['faro-blu', 'pulizie', 'Pulizie dopo il soggiorno', 6000, day(-2), null, null, null, 1],
     ['faro-blu', 'manutenzione', 'Idraulico: sifone cucina', 9000, day(-12), null, null, null, 1],

@@ -6,6 +6,7 @@ import { fmtEuro } from './money.js';
 /* ------------------------------- Spese ------------------------------- */
 
 export const EXPENSE_CATEGORIES = {
+  luce: { label: 'Luce', period: true, hint: 'Bolletta della luce: importo e periodo' },
   acqua_condominio: { label: 'Acqua e condominio', period: true, hint: 'Spese condominiali, acqua compresa' },
   tari: { label: 'TARI', period: true, hint: 'Tassa sui rifiuti: rata o anno' },
   pulizie: { label: 'Pulizie', period: false, hint: 'Pulizie di un soggiorno o della casa' },

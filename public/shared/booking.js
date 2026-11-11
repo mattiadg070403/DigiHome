@@ -504,24 +504,39 @@ export function nextBlocked(nightsSet, from, limitDays = 400) {
 /* ---------- Promemoria per l'arrivo ---------- */
 
 /** Cose da preparare e da incassare per un arrivo, in parole semplici. */
+/**
+ * Promemoria per l'arrivo, in ordine di importanza. Ogni voce ha un livello:
+ * 'money' = soldi da incassare (in evidenza), 'must' = cosa va fatto per forza, 'info' = da sapere.
+ * Restituisce testi; arrivalReminderItems restituisce { level, text }.
+ */
 export function arrivalReminders(b, house = {}, extras = []) {
+  return arrivalReminderItems(b, house, extras).map((x) => x.text);
+}
+
+export function arrivalReminderItems(b, house = {}, extras = []) {
   const items = [];
-  if (b.needs_details) items.push('Numero di ospiti ancora da completare: chiedilo prima di preparare la casa');
-  else {
-    items.push(b.linens ? `Lenzuola per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Lenzuola non incluse: non prepararle');
-    items.push(b.towels ? `Asciugamani per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Asciugamani non inclusi');
-  }
+  const add = (level, text) => items.push({ level, text });
+  // 1. Soldi
   const due = balanceDue(b);
   const money = [];
   if (due > 0) money.push(`${b.deposit_paid ? 'saldo' : 'totale'} ${fmtEuro(due)}`);
   for (const x of extras.filter((e) => !e.paid)) money.push(`${extraLabel(x).toLowerCase()} ${fmtEuro(x.amount_cents)}`);
   if (b.security_cents > 0 && b.security_status === 'da_incassare') money.push(`cauzione ${fmtEuro(b.security_cents)}`);
-  if (money.length) items.push(`Da incassare: ${money.join(' + ')}${b.channel !== 'diretto' ? ` (il soggiorno è già pagato su ${CHANNELS[b.channel].label})` : ''}`);
-  else if (b.channel !== 'diretto') items.push(`Soggiorno già pagato su ${CHANNELS[b.channel].label}`);
-  if (b.minors_delegation === 'da_chiedere') items.push('Delega per i minorenni ancora da ricevere');
-  if (b.minors_delegation === 'ricevuta') items.push('Delega per i minorenni ricevuta: controllala');
-  items.push(b.arrival_time ? `Arrivo previsto alle ${b.arrival_time}` : `Orario di arrivo non ancora noto (check-in dalle ${house.checkin_time || '14:00'})`);
-  items.push(`Obbligatorio entro 24 ore dall’arrivo (${deadlineText(b, house)}): schedine Alloggiati e comunicazione DMS Puglia`);
-  if (b.notes) items.push(`Note: ${b.notes}`);
+  const sum = due + extrasTotal(extras, { unpaid: true }) + (b.security_cents > 0 && b.security_status === 'da_incassare' ? b.security_cents : 0);
+  if (money.length) add('money', `Da incassare all’arrivo: ${fmtEuro(sum)} (${money.join(' + ')})${b.channel !== 'diretto' ? ` · il soggiorno è già pagato su ${CHANNELS[b.channel].label}` : ''}`);
+  else add('info', b.channel !== 'diretto' ? `Niente da incassare: soggiorno già pagato su ${CHANNELS[b.channel].label}` : 'Niente da incassare: tutto già pagato');
+  // 2. Obblighi
+  if (b.needs_details) add('must', 'Numero di ospiti ancora da completare: chiedilo prima di preparare la casa');
+  if (b.minors_delegation === 'da_chiedere') add('must', 'Delega per i minorenni ancora da ricevere');
+  if (b.minors_delegation === 'ricevuta') add('must', 'Delega per i minorenni ricevuta: controllala all’arrivo');
+  add('must', `Entro 24 ore dall’arrivo (${deadlineText(b, house)}): schedine Alloggiati e comunicazione DMS Puglia`);
+  if (b.channel === 'diretto') add('must', 'Far firmare il contratto al capogruppo');
+  // 3. Preparazione e informazioni
+  if (!b.needs_details) {
+    add('info', b.linens ? `Lenzuola per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Lenzuola non incluse: non prepararle');
+    add('info', b.towels ? `Asciugamani per ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}` : 'Asciugamani non inclusi');
+  }
+  add('info', b.arrival_time ? `Arrivo previsto alle ${b.arrival_time}` : `Orario di arrivo non ancora noto (check-in dalle ${house.checkin_time || '14:00'})`);
+  if (b.notes) add('info', `Note: ${b.notes}`);
   return items;
 }

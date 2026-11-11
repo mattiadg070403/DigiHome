@@ -5,7 +5,7 @@ import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, conf
 import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
-  CHANNELS, arrivalReminders, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
+  CHANNELS, arrivalReminderItems, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
   missingRequired, nextStep, parseSteps, phase, statusTags, stepLabel, guestsLabel,
   extraLabel, extrasTotal } from '../../shared/booking.js';
 import { openBookingForm } from './form.js';
@@ -62,7 +62,7 @@ export function renderDetail(ctx, id) {
 
   // Promemoria per l'arrivo: cosa preparare e cosa incassare.
   const reminders = b.stage === 'confermata' ? panel('Promemoria per l’arrivo',
-    h('ul', { class: 'remind' }, arrivalReminders(b, house, ctx.clock(b).extras).map((t) => h('li', { text: t })))) : null;
+    remindList(arrivalReminderItems(b, house, ctx.clock(b).extras))) : null;
   if (reminders) reminders.style.marginBottom = '18px';
   if (alertBox) alertBox.style.marginBottom = '18px';
 
@@ -206,6 +206,14 @@ function extraDialog(ctx, b, existing) {
       dlg.setBanner(e.message);
     }
   }
+}
+
+/** Elenco dei promemoria: soldi in verde e grassetto, obblighi in evidenza, il resto normale. */
+function remindList(items) {
+  const label = { money: 'Da incassare', must: 'Da fare' };
+  return h('ul', { class: 'remind' }, items.map((x) => h('li', { class: ['remind-' + x.level] },
+    x.level !== 'info' ? h('span', { class: 'remind-tag', text: label[x.level] }) : null,
+    h('span', { text: x.text }))));
 }
 
 function panel(title, content) {
@@ -371,7 +379,7 @@ export function renderFlow(ctx, id, flow) {
         h('span', { class: 'flow-title' }, s.title, s.required ? null : h('span', { class: 'opt', text: 'facoltativo' })),
         h('span', { class: 'flow-help', text: s.help }),
         // Dentro un pulsante si usano solo elementi "in linea": niente elenchi veri.
-        s.reminders ? h('span', { class: 'remind' }, arrivalReminders(b, house, ctx.clock(b).extras).map((t) => h('span', { text: `• ${t}` }))) : null),
+        s.reminders ? remindList(arrivalReminderItems(b, house, ctx.clock(b).extras)) : null),
     ];
     if (!isIn && s.key === 'cauzione') {
       secNum = content[0];

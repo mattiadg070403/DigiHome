@@ -177,15 +177,20 @@ test('disponibilità per il calendario', () => {
   assert.equal(occupiedNights(list, 'h', 'a').size, 0, 'la prenotazione che si modifica non blocca sé stessa');
 });
 
-test('promemoria per l’arrivo', () => {
+test('promemoria per l’arrivo', async () => {
   const items = arrivalReminders(b({ guests: 4, linens: 1, towels: 0, deposit_paid: 1, security_cents: 30000, security_status: 'da_incassare', minors_delegation: 'da_chiedere' }), { checkin_time: '14:00' });
   assert.ok(items.includes('Lenzuola per 4 persone'));
   assert.ok(items.includes('Asciugamani non inclusi'));
-  assert.ok(items.some((t) => t.startsWith('Da incassare: saldo 700 € + cauzione 300 €')));
+  assert.equal(items[0], 'Da incassare all’arrivo: 1.000 € (saldo 700 € + cauzione 300 €)', 'i soldi sono sempre la prima voce');
   assert.ok(items.includes('Delega per i minorenni ancora da ricevere'));
   assert.ok(items.some((t) => t.includes('check-in dalle 14:00')));
   const airbnb = arrivalReminders(b({ channel: 'airbnb', security_cents: 0 }), {});
-  assert.ok(airbnb.includes('Soggiorno già pagato su Airbnb'));
+  assert.equal(airbnb[0], 'Niente da incassare: soggiorno già pagato su Airbnb');
+  assert.ok(!airbnb.some((t) => t.includes('contratto')), 'contratto solo per le dirette');
+  const { arrivalReminderItems } = await import('../public/shared/booking.js');
+  const levels = arrivalReminderItems(b({ security_cents: 30000, security_status: 'da_incassare' }), {}).map((x) => x.level);
+  assert.equal(levels[0], 'money');
+  assert.ok(levels.includes('must') && levels.includes('info'));
 });
 
 test('senza acconto non si segnala l’acconto mancante', () => {

@@ -144,3 +144,22 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
   - Salvata come extra `tassa_soggiorno` con `persons`: una sola per prenotazione. Importo 0 consentito (tutti esenti).
   - Avvisi: "Tassa di soggiorno non inserita" (da 7 giorni prima dell'arrivo) e "da ricontrollare" se date o persone non tornano più con l'importo salvato (non per gli importi scritti a mano).
   - Gli altri extra (garage, transfer…) restano nella scheda.
+
+## Novità della 0.6 (11 novembre 2026)
+
+- **Promemoria per l'arrivo con livelli** (`arrivalReminderItems`): i soldi da incassare sono sempre la prima voce, in verde e grassetto, con il totale. Gli obblighi (Alloggiati e DMS, delega minorenni, contratto per le dirette) sono in giallo; preparazione e informazioni in testo normale.
+- **Archivio della casa** (`migrations/0007_casa.sql`, `public/shared/house.js`, `public/js/views/archive.js`, menu "Archivio"). Lo vedono e lo usano tutti, anche i collaboratori.
+  - **Spese** (`expenses`): acqua e condominio (insieme), TARI, pulizie, lavanderia, manutenzione, acquisti, altro. Niente luce e gas: non ci sono bollette separate.
+    - Campi: importo, data, periodo (per acqua/condominio e TARI), "da pagare entro" se non pagata, note.
+    - Pulizie e lavanderia si possono legare a un soggiorno.
+    - Solo dati, niente allegati: la colonna `attach_ref` è pronta per aggiungerli in futuro senza rifare la tabella.
+    - Totali per anno e per tipo; elenco per mese; "Da pagare" in cima con il pulsante "Pagata".
+  - **Scadenze** (`deadlines`): una volta sola, ogni mese, ogni 3 mesi, ogni anno, con preavviso in giorni.
+    - "Fatta" chiude le uniche e sposta le ricorrenti alla data successiva (fine mese gestita), con "Annulla".
+  - **Avvisi in Oggi**: scadenze entro il preavviso o passate; spese da pagare entro 7 giorni o scadute. Toccando l'avviso si apre la sezione e la casa giuste (`#/archivio/scadenze/<casa>`).
+  - Operazioni: `expense.add/update/delete/restore`, `deadline.add/update/done/delete/restore`, tutte con versione, registro e annullamento. Comprese nella copia dei dati.
+- Controllo di sicurezza delle parti nuove:
+  - colonne SQL solo da elenchi chiusi; tabelle fisse nel codice;
+  - casa e soggiorno verificati sul server (il soggiorno deve essere della stessa casa);
+  - nessun innerHTML;
+  - prove su iPad e telefono senza errori né scorrimento orizzontale.

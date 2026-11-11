@@ -17,6 +17,8 @@ export async function readState(db, user) {
       ORDER BY COALESCE(due_date, '9999-12-31'), created_at`),
     db.prepare("SELECT * FROM calendars ORDER BY house_id, channel"),
     db.prepare('SELECT * FROM booking_extras WHERE deleted = 0 ORDER BY created_at'),
+    db.prepare('SELECT * FROM expenses WHERE deleted = 0 ORDER BY date DESC, created_at DESC'),
+    db.prepare('SELECT * FROM deadlines WHERE deleted = 0 ORDER BY due_date'),
   ]);
   const rows = (i) => results[i].results || [];
   return {
@@ -30,6 +32,8 @@ export async function readState(db, user) {
     // Stato dei calendari di Airbnb e Booking: solo per l'amministratore, e mai con il link riservato.
     calendars: isAdmin ? rows(6).map(publicCalendar) : [],
     extras: rows(7),
+    expenses: rows(8),
+    deadlines: rows(9),
   };
 }
 
@@ -60,12 +64,14 @@ export async function readExport(db) {
     q('SELECT * FROM calendars ORDER BY house_id, channel'),
     q('SELECT * FROM audit_log ORDER BY id'),
     q('SELECT * FROM booking_extras ORDER BY created_at'),
+    q('SELECT * FROM expenses ORDER BY date'),
+    q('SELECT * FROM deadlines ORDER BY due_date'),
   ]);
   const rows = (i) => r[i].results || [];
   return {
     rev: rows(0)[0]?.rev ?? 0,
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
     calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
-    extras: rows(8),
+    extras: rows(8), expenses: rows(9), deadlines: rows(10),
   };
 }

@@ -353,3 +353,63 @@ test('tassa di soggiorno: persone, importo 0 per gli esenti, tariffe della casa 
   const r = await runOp(db, admin, { opId: op(), type: 'house.update', payload: { id: 'isola-bella', version: house.version, changes: { tourist_tax: { rates, max_nights: 7 } } } });
   assert.deepEqual(JSON.parse(r.record.tourist_tax), { rates, max_nights: 7 });
 });
+
+test('spese della casa: aggiunta, modifica, pagata, eliminazione e ripristino; anche i collaboratori', async () => {
+  const { db, admin, collab } = await setup();
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'faro-blu', category: 'luce', amount_cents: 100, date: T } } }), 'validation');
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'nessuna', category: 'acquisti', amount_cents: 100, date: T } } }), 'validation');
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'faro-blu', category: 'tari', amount_cents: 100, date: T, period_from: '2027-06-01', period_to: '2027-01-01' } } }), 'validation');
+  const r = await runOp(db, collab, { opId: op(), type: 'expense.add', payload: { expense: {
+    house_id: 'faro-blu', category: 'tari', label: '2a rata', amount_cents: 21600, date: T, due_date: addDays(T, 5), paid: 0 } } });
+  assert.equal(r.record.paid, 0);
+  assert.equal(r.record.paid_at, null);
+  const up = await runOp(db, admin, { opId: op(), type: 'expense.update', payload: { id: r.record.id, version: r.record.version, changes: { paid: 1 } } });
+  assert.equal(up.record.paid, 1);
+  assert.ok(up.record.paid_at);
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'expense.update', payload: { id: r.record.id, version: r.record.version, changes: { amount_cents: 1 } } }), 'conflict');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'expense.update', payload: { id: r.record.id, version: up.record.version, changes: { deleted: 1 } } }), 'validation');
+  const moved = await runOp(db, admin, { opId: op(), type: 'expense.update', payload: { id: r.record.id, version: up.record.version, changes: { house_id: 'isola-bella', amount_cents: 22000 } } });
+  assert.equal(moved.record.house_id, 'isola-bella');
+  assert.equal(moved.record.amount_cents, 22000);
+  await runOp(db, collab, { opId: op(), type: 'expense.delete', payload: { id: r.record.id } });
+  assert.equal((await readState(db, admin)).expenses.length, 0);
+  await runOp(db, collab, { opId: op(), type: 'expense.restore', payload: { id: r.record.id } });
+  assert.equal((await readState(db, collab)).expenses.length, 1, 'i collaboratori vedono le spese');
+  // Spesa legata a un soggiorno: la prenotazione deve essere della stessa casa
+  const { record: b } = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking() } });
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'expense.add', payload: { expense: { house_id: 'isola-bella', category: 'pulizie', amount_cents: 5000, date: T, booking_id: b.id } } }), 'validation');
+  const ok = await runOp(db, admin, { opId: op(), type: 'expense.add', payload: { expense: { house_id: b.house_id, category: 'pulizie', amount_cents: 5000, date: T, booking_id: b.id } } });
+  assert.equal(ok.record.booking_id, b.id);
+});
+
+test('scadenze: le ricorrenti passano alla data successiva, le uniche si chiudono; visibili a tutti', async () => {
+  const { db, admin, collab } = await setup();
+  const { nextDue, deadlineStatus, deadlineAlerts } = await import('../public/shared/house.js');
+  assert.equal(nextDue('2027-01-31', 'monthly'), '2027-02-28');
+  assert.equal(nextDue('2027-11-30', 'quarterly'), '2028-02-29');
+  assert.equal(nextDue('2028-02-29', 'yearly'), '2029-02-28');
+  assert.equal(nextDue('2027-05-10', 'none'), null);
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'deadline.add', payload: { deadline: { title: '', due_date: T } } }), 'validation');
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'deadline.add', payload: { deadline: { title: 'X', due_date: T, repeat: 'weekly' } } }), 'validation');
+  const r = await runOp(db, collab, { opId: op(), type: 'deadline.add', payload: { deadline: { title: 'Versamento tassa di soggiorno', due_date: addDays(T, 3), repeat: 'quarterly', notice_days: 10 } } });
+  assert.equal(r.record.house_id, null);
+  assert.equal(deadlineStatus(r.record, T).key, 'vicina');
+  assert.equal(deadlineAlerts([r.record], T).length, 1);
+  const d1 = await runOp(db, admin, { opId: op(), type: 'deadline.done', payload: { id: r.record.id, version: r.record.version } });
+  assert.equal(d1.record.due_date, nextDue(addDays(T, 3), 'quarterly'));
+  assert.equal(d1.record.done, 0);
+  assert.ok(d1.record.last_done_at);
+  assert.equal(deadlineAlerts([d1.record], T).length, 0, 'passata alla prossima: niente avviso');
+  // Annulla: si torna alla data di prima
+  const undo = await runOp(db, admin, { opId: op(), type: 'deadline.update', payload: { id: r.record.id, version: d1.record.version, changes: { due_date: addDays(T, 3) } } });
+  assert.equal(undo.record.due_date, addDays(T, 3));
+  const once = await runOp(db, admin, { opId: op(), type: 'deadline.add', payload: { deadline: { title: 'Rinnovo dominio', house_id: 'faro-blu', due_date: addDays(T, -2) } } });
+  assert.equal(deadlineStatus(once.record, T).key, 'scaduta');
+  assert.equal(deadlineAlerts([once.record], T)[0].level, 'urgente');
+  const d2 = await runOp(db, admin, { opId: op(), type: 'deadline.done', payload: { id: once.record.id, version: once.record.version } });
+  assert.equal(d2.record.done, 1);
+  assert.equal(deadlineStatus(d2.record, T).key, 'fatta');
+  assert.equal((await readState(db, collab)).deadlines.length, 2);
+  const hist = (await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'deadline'").first()).n;
+  assert.ok(hist >= 5, 'ogni modifica è nel registro');
+});

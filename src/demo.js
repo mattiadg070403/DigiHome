@@ -57,10 +57,12 @@ export async function loadDemo(db, user) {
   const at = new Date().toISOString();
   const stmts = [
     db.prepare('DELETE FROM booking_extras'),
+    db.prepare('DELETE FROM expenses'),
+    db.prepare('DELETE FROM deadlines'),
     db.prepare('DELETE FROM booking_notes'),
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM bookings'),
-    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra')"),
+    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline')"),
   ];
   for (const b of demoBookings()) {
     const row = {
@@ -81,6 +83,30 @@ export async function loadDemo(db, user) {
   for (const t of demoTasks()) {
     stmts.push(db.prepare(`INSERT INTO tasks (id, title, house_id, due_date, created_at, created_by, rev)
       VALUES (?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), t.title, t.house_id, t.due_date, at, user.email));
+  }
+  // Archivio della casa: qualche spesa e scadenza di prova.
+  const today = todayRome();
+  const day = (n) => addDays(today, n);
+  const expenses = [
+    ['isola-bella', 'acqua_condominio', 'Rata condominio 4° trimestre', 18000, day(-20), day(-110), day(-20), null, 1],
+    ['isola-bella', 'acquisti', 'Detersivi e carta', 3450, day(-6), null, null, null, 1],
+    ['faro-blu', 'tari', 'TARI 2a rata', 21600, day(-3), null, null, day(5), 0],
+    ['faro-blu', 'pulizie', 'Pulizie dopo il soggiorno', 6000, day(-2), null, null, null, 1],
+    ['faro-blu', 'manutenzione', 'Idraulico: sifone cucina', 9000, day(-12), null, null, null, 1],
+  ];
+  for (const [house, cat, label, cents, date, from, to, due, paid] of expenses) {
+    stmts.push(db.prepare(`INSERT INTO expenses (id, house_id, category, label, amount_cents, date, period_from, period_to, due_date, paid, paid_at, created_at, created_by, rev)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
+      .bind(crypto.randomUUID(), house, cat, label, cents, date, from, to, due, paid, paid ? at : null, at, user.email));
+  }
+  const deadlines = [
+    [null, 'Versamento tassa di soggiorno al Comune', day(4), 'quarterly', 10],
+    ['isola-bella', 'Revisione estintore', day(40), 'yearly', 30],
+    ['faro-blu', 'Rinnovo assicurazione casa', day(-1), 'yearly', 30],
+  ];
+  for (const [house, title, due, repeat, notice] of deadlines) {
+    stmts.push(db.prepare(`INSERT INTO deadlines (id, house_id, title, due_date, "repeat", notice_days, created_at, created_by, rev)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), house, `${title} (prova)`, due, repeat, notice, at, user.email));
   }
   stmts.push(db.prepare("UPDATE meta SET value = value + 1 WHERE key = 'rev'"));
   stmts.push(db.prepare(`INSERT INTO audit_log (at, user_email, entity, entity_id, action) VALUES (?, ?, 'demo', 'all', 'load')`)

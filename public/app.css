@@ -382,3 +382,10 @@ details[open] > summary.group-title::before { content: "▾ "; }
 .tax-month { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 .tax-month .input { padding-left: 8px; padding-right: 8px; min-width: 0; }
 @media (max-width: 560px) { .tax-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* Archivio della casa */
+.row-button { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; min-height: 44px; justify-content: center; }
+.row-button:focus-visible { outline: 2px solid var(--house, #333); outline-offset: 4px; border-radius: 6px; }
+.row-button .row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.amount { color: var(--ink); font-variant-numeric: tabular-nums; }
+.expense-row, .deadline-row { gap: 12px; }

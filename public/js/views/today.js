@@ -6,6 +6,7 @@ import { fmtLong, fmtRange, fmtShort, daysBetween } from '../../shared/dates.js'
 import { CHANNELS, LEVEL_ORDER, bookingAlerts, currentAndNext, nextStep, phase, statusTags, guestsLabel } from '../../shared/booking.js';
 import { runNextAction } from './actions.js';
 import { draftBanner } from './form.js';
+import { deadlineAlerts, expenseAlerts } from '../../shared/house.js';
 
 export function renderToday(ctx) {
   const { store, ui } = ctx;
@@ -131,7 +132,10 @@ function alertsSection(ctx) {
     level: 'attenzione', key: 'calendar', houseId: c.house_id, href: '#/impostazioni',
     text: `Calendario ${c.channel === 'airbnb' ? 'Airbnb' : 'Booking'} non aggiornato: ${c.last_error}`,
   }));
-  const all = [...calAlerts, ...d.bookings.flatMap((b) => bookingAlerts(b, ui.today, d.bookings, ctx.clock(b)).map((a) => ({ ...a, guest: b.guest_name })))]
+  // Archivio della casa: scadenze vicine o passate e spese da pagare.
+  const houseAlerts = [...deadlineAlerts(d.deadlines || [], ui.today), ...expenseAlerts(d.expenses || [], ui.today)]
+    .map((a) => ({ ...a, href: `#/archivio/${a.key === 'deadline' ? 'scadenze' : 'spese'}${a.houseId ? `/${a.houseId}` : ''}` }));
+  const all = [...calAlerts, ...houseAlerts, ...d.bookings.flatMap((b) => bookingAlerts(b, ui.today, d.bookings, ctx.clock(b)).map((a) => ({ ...a, guest: b.guest_name })))]
     .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
 
   const levelIcon = { urgente: 'alert', attenzione: 'alert', info: 'chevron' };

@@ -5,6 +5,7 @@ import { CHANNELS, checkinSteps, checkoutSteps, missingRequired, parseSteps, val
 import { daysBetween, fmtShort, isIsoDate, isTime } from '../public/shared/dates.js';
 import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
 import { checkTaxSettings } from '../public/shared/tax.js';
+import { validateExpense, validateDeadline, nextDue } from '../public/shared/house.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
@@ -46,7 +47,7 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines' };
 
 export async function commit(db, { main, user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
@@ -444,6 +445,132 @@ async function extraSetDeleted(db, user, opId, p, deleted) {
   return { record, unchanged: !done };
 }
 
+/* ------------------------- Archivio della casa: spese ------------------------- */
+
+const conflict = (current) => new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.', current ? { current } : undefined);
+
+async function checkHouseAndBooking(db, v, houseId) {
+  if (houseId !== undefined && houseId !== null && !(await getHouse(db, houseId))) throw bad('Casa non valida');
+  if (v.booking_id) {
+    const b = await getBooking(db, v.booking_id);
+    if (!b) throw bad('Prenotazione non valida');
+    if (houseId && b.house_id !== houseId) throw bad('La prenotazione è di un’altra casa');
+  }
+}
+
+async function expenseAdd(db, user, opId, p) {
+  const r = validateExpense(p.expense || {});
+  if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
+  const v = r.value;
+  const houseId = p.expense?.house_id;
+  if (!houseId) throw bad('Scegli la casa');
+  await checkHouseAndBooking(db, v, houseId);
+  const id = isId(p.id) ? p.id : crypto.randomUUID();
+  if (await db.prepare('SELECT 1 FROM expenses WHERE id = ?').bind(id).first()) throw new OpError(409, 'state', 'Spesa già salvata.');
+  const at = nowIso();
+  const row = { id, house_id: houseId, ...v, booking_id: v.booking_id ?? null, paid_at: v.paid ? at : null };
+  const cols = Object.keys(row);
+  const main = db.prepare(`INSERT INTO expenses (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
+    VALUES (${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT})`).bind(...cols.map((c) => row[c]), at, user.email, at, user.email);
+  await commit(db, { main, user, opId, entity: 'expense', entityId: id, action: 'create', changes: row });
+  return { record: await db.prepare('SELECT * FROM expenses WHERE id = ?').bind(id).first() };
+}
+
+async function expenseUpdate(db, user, opId, p) {
+  if (!isId(p.id) || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT * FROM expenses WHERE id = ? AND deleted = 0').bind(p.id).first();
+  if (!cur) throw notFound();
+  if (cur.version !== p.version) throw conflict(cur);
+  const allowed = ['category', 'label', 'amount_cents', 'date', 'period_from', 'period_to', 'due_date', 'paid', 'notes', 'booking_id', 'house_id'];
+  const c = p.changes || {};
+  for (const k of Object.keys(c)) if (!allowed.includes(k)) throw bad('Campo non modificabile');
+  const r = validateExpense({ ...cur, ...c }, { partial: false });
+  if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
+  const v = Object.fromEntries(Object.entries({ ...r.value, house_id: c.house_id ?? cur.house_id, booking_id: c.booking_id !== undefined ? (c.booking_id || null) : cur.booking_id })
+    .filter(([k]) => k in c || k === 'house_id'));
+  await checkHouseAndBooking(db, { booking_id: v.booking_id ?? cur.booking_id }, v.house_id);
+  const changes = diff(cur, v);
+  if (!Object.keys(changes).length) return { record: cur, unchanged: true };
+  const cols = Object.keys(changes);
+  const at = nowIso();
+  const paidAt = 'paid' in changes ? (v.paid ? at : null) : cur.paid_at;
+  const main = db.prepare(`UPDATE expenses SET ${cols.map((k) => `${k} = ?, `).join('')}paid_at = ?,
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND version = ? AND deleted = 0`)
+    .bind(...cols.map((k) => v[k]), paidAt, at, user.email, p.id, p.version);
+  if (!(await commit(db, { main, user, opId, entity: 'expense', entityId: p.id, action: 'update', changes }))) throw conflict();
+  return { record: await db.prepare('SELECT * FROM expenses WHERE id = ?').bind(p.id).first() };
+}
+
+async function softDelete(db, user, opId, p, table, entity, deleted) {
+  if (!isId(p.id)) throw bad('Richiesta non valida');
+  const main = db.prepare(`UPDATE ${table} SET deleted = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND deleted = ?`).bind(deleted, nowIso(), user.email, p.id, deleted ? 0 : 1);
+  const done = await commit(db, { main, user, opId, entity, entityId: p.id, action: deleted ? 'delete' : 'restore' });
+  const record = await db.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(p.id).first();
+  if (!record) throw notFound();
+  return { record, unchanged: !done };
+}
+
+/* ------------------------ Archivio della casa: scadenze ------------------------ */
+
+async function deadlineAdd(db, user, opId, p) {
+  const r = validateDeadline(p.deadline || {});
+  if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
+  const v = { ...r.value, house_id: r.value.house_id ?? null };
+  await checkHouseAndBooking(db, {}, v.house_id);
+  const id = isId(p.id) ? p.id : crypto.randomUUID();
+  if (await db.prepare('SELECT 1 FROM deadlines WHERE id = ?').bind(id).first()) throw new OpError(409, 'state', 'Scadenza già salvata.');
+  const at = nowIso();
+  const row = { id, ...v };
+  const cols = Object.keys(row);
+  const main = db.prepare(`INSERT INTO deadlines (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
+    VALUES (${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT})`).bind(...cols.map((c) => row[c]), at, user.email, at, user.email);
+  await commit(db, { main, user, opId, entity: 'deadline', entityId: id, action: 'create', changes: row });
+  return { record: await db.prepare('SELECT * FROM deadlines WHERE id = ?').bind(id).first() };
+}
+
+async function deadlineUpdate(db, user, opId, p) {
+  if (!isId(p.id) || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT * FROM deadlines WHERE id = ? AND deleted = 0').bind(p.id).first();
+  if (!cur) throw notFound();
+  if (cur.version !== p.version) throw conflict(cur);
+  const c = p.changes || {};
+  const allowed = ['title', 'due_date', 'repeat', 'notice_days', 'notes', 'house_id', 'done'];
+  for (const k of Object.keys(c)) if (!allowed.includes(k)) throw bad('Campo non modificabile');
+  const r = validateDeadline(c, { partial: true });
+  if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
+  const v = { ...r.value };
+  if ('done' in c) v.done = c.done ? 1 : 0;
+  if ('house_id' in c) await checkHouseAndBooking(db, {}, v.house_id);
+  const changes = diff(cur, v);
+  if (!Object.keys(changes).length) return { record: cur, unchanged: true };
+  const cols = Object.keys(changes);
+  const main = db.prepare(`UPDATE deadlines SET ${cols.map((k) => `${k} = ?, `).join('')}
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND version = ? AND deleted = 0`)
+    .bind(...cols.map((k) => v[k]), nowIso(), user.email, p.id, p.version);
+  if (!(await commit(db, { main, user, opId, entity: 'deadline', entityId: p.id, action: 'update', changes }))) throw conflict();
+  return { record: await db.prepare('SELECT * FROM deadlines WHERE id = ?').bind(p.id).first() };
+}
+
+/** Segna fatta: una scadenza unica si chiude; una ricorrente passa alla data successiva. */
+async function deadlineDone(db, user, opId, p) {
+  if (!isId(p.id) || !Number.isInteger(p.version)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT * FROM deadlines WHERE id = ? AND deleted = 0').bind(p.id).first();
+  if (!cur) throw notFound();
+  if (cur.version !== p.version) throw conflict(cur);
+  if (cur.done) return { record: cur, unchanged: true };
+  const at = nowIso();
+  const next = nextDue(cur.due_date, cur.repeat);
+  const set = next ? { due_date: next, last_done_at: at } : { done: 1, last_done_at: at };
+  const cols = Object.keys(set);
+  const main = db.prepare(`UPDATE deadlines SET ${cols.map((k) => `${k} = ?, `).join('')}
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND version = ? AND deleted = 0`)
+    .bind(...cols.map((k) => set[k]), at, user.email, p.id, p.version);
+  const changes = Object.fromEntries(cols.filter((k) => k !== 'last_done_at').map((k) => [k, [cur[k], set[k]]]));
+  if (!(await commit(db, { main, user, opId, entity: 'deadline', entityId: p.id, action: 'done', changes }))) throw conflict();
+  return { record: await db.prepare('SELECT * FROM deadlines WHERE id = ?').bind(p.id).first(), previous: { due_date: cur.due_date, done: cur.done } };
+}
+
 /* ------------------------------ Cose da fare ------------------------------ */
 
 async function validateTaskFields(db, input, partial) {
@@ -708,6 +835,15 @@ const HANDLERS = {
   'note.add': noteAdd,
   'note.delete': (db, u, o, p) => noteSetDeleted(db, u, o, p, 1),
   'note.restore': (db, u, o, p) => noteSetDeleted(db, u, o, p, 0),
+  'expense.add': expenseAdd,
+  'expense.update': expenseUpdate,
+  'expense.delete': (db, u, o, p) => softDelete(db, u, o, p, 'expenses', 'expense', 1),
+  'expense.restore': (db, u, o, p) => softDelete(db, u, o, p, 'expenses', 'expense', 0),
+  'deadline.add': deadlineAdd,
+  'deadline.update': deadlineUpdate,
+  'deadline.done': deadlineDone,
+  'deadline.delete': (db, u, o, p) => softDelete(db, u, o, p, 'deadlines', 'deadline', 1),
+  'deadline.restore': (db, u, o, p) => softDelete(db, u, o, p, 'deadlines', 'deadline', 0),
   'task.add': taskAdd,
   'task.toggle': taskToggle,
   'task.update': taskUpdate,

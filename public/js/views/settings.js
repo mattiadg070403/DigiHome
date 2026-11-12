@@ -6,7 +6,7 @@ import { APP_VERSION } from '../../shared/version.js';
 import { timeField } from '../pickers.js';
 import { checkCalendarUrl } from '../../shared/calendar.js';
 import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
-import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
+import { parseEuro, centsToInput } from '../../shared/money.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -323,23 +323,10 @@ function housesSection(ctx) {
     h('div', { class: 'section-head' }, h('h2', { text: 'Case' })),
     h('div', { class: 'grid-2' }, d.houses.map((x) => h('div', { class: 'card house-card', vars: houseVars(x) },
       h('div', { class: 'house-top' }, h('span', { class: 'name', text: x.name })),
+      // Le impostazioni della casa si vedono solo aprendo "Modifica impostazioni" (richiesta di Mattia).
       h('div', { class: 'house-body' },
-        h('dl', { class: 'kv' },
-          h('dt', { text: 'Ospiti massimi' }), h('dd', { text: String(x.max_guests) }),
-          h('dt', { text: 'Check-in' }), h('dd', { text: `dalle ${x.checkin_time}` }),
-          h('dt', { text: 'Check-out' }), h('dd', { text: `entro le ${x.checkout_time}` }),
-          h('dt', { text: 'Tassa di soggiorno' }), h('dd', { text: taxSummary(x) })),
-        h('div', null, h('button', { class: 'btn small', type: 'button', text: 'Modifica', onClick: () => houseDialog(ctx, x) })))))));
-}
-
-/** "mag, ott 0,50 € · giu–set 1 € a persona a notte" */
-function taxSummary(house) {
-  const t = taxSettings(house);
-  const groups = new Map();
-  t.rates.forEach((r, i) => { if (r > 0) groups.set(r, [...(groups.get(r) || []), MONTHS_SHORT[i]]); });
-  if (!groups.size) return 'nessuna';
-  const text = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([r, m]) => `${m.join(', ')} ${fmtEuro(r)}`).join(' · ');
-  return `${text} a persona a notte${t.max_nights ? ` · massimo ${t.max_nights} notti` : ''}`;
+        h('div', null, h('button', { class: 'btn small', type: 'button', onClick: () => houseDialog(ctx, x) },
+          icon('edit', { size: 16 }), 'Modifica impostazioni')))))));
 }
 
 function houseDialog(ctx, house) {

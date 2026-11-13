@@ -7,7 +7,7 @@ import { h, icon, newId } from '../dom.js';
 import { houseVars, field, setFieldError, openDialog, confirmDialog, segmented } from '../ui.js';
 import { formatItDate, fmtShort } from '../../shared/dates.js';
 import { parseSteps } from '../../shared/booking.js';
-import { GUEST_FIELDS, checkGuest, guestParagraph, romeDateTime } from '../../shared/contract.js';
+import { GUEST_FIELDS, LANGS, checkGuest, guestParagraph, romeDateTime } from '../../shared/contract.js';
 import { buildPdf, pdfFileName } from '../pdf.js';
 import { waNumber } from './contact.js';
 
@@ -51,7 +51,7 @@ export function contractPanel(ctx, b) {
     const when = romeDateTime(c.signed_at);
     const changed = c.check_in !== b.check_in || c.check_out !== b.check_out || c.guests !== b.guests;
     content = [
-      h('div', { class: 'contract-state ok' }, icon('check', { size: 16 }), h('span', { text: `Firmato il ${when.date} alle ${when.time}` })),
+      h('div', { class: 'contract-state ok' }, icon('check', { size: 16 }), h('span', { text: `Firmato il ${when.date} alle ${when.time}${c.lang === 'en' ? ' · in inglese' : ''}` })),
       changed ? h('div', { class: 'banner warn small', text: 'Date o persone della prenotazione sono cambiate dopo la firma: se serve, rifai il contratto.' }) : null,
       h('div', { class: 'btn-row' }, h('button', { class: 'btn small', type: 'button', onClick: () => openSigned(ctx, c) }, icon('download', { size: 16 }), 'Invia o scarica il PDF')),
     ];
@@ -259,9 +259,11 @@ export function signDialog(ctx, b, house) {
   let accepted = false;
   let sending = false;
   let last = null; // ultimo invio: stesso codice se si riprova con gli stessi dati
+  let lang = 'it';
+  let loadSeq = 0;
 
   const guestEl = h('p', { class: 'ct-guest' });
-  const updateGuest = () => { guestEl.textContent = guestParagraph(g); };
+  const updateGuest = () => { guestEl.textContent = guestParagraph(g, lang); };
   updateGuest();
 
   const inputs = {};
@@ -285,6 +287,15 @@ export function signDialog(ctx, b, house) {
     field(GUEST_FIELDS.doc_number, mk('doc_number')));
 
   const textBox = h('div', { class: 'contract-wrap' }, h('p', { class: 'muted', text: 'Carico il testo del contratto…' }));
+  const langSeg = h('div');
+  const drawLang = () => langSeg.replaceChildren(segmented(Object.entries(LANGS).map(([value, label]) => ({ value, label })), lang,
+    (v) => { lang = v; drawLang(); updateGuest(); acceptText.textContent = ACCEPT[lang]; loadDraft(); }, 'Lingua del contratto'));
+  const ACCEPT = {
+    it: 'L’ospite ha letto il contratto e l’informativa sulla privacy e li accetta.',
+    en: 'The guest has read the agreement and the privacy notice and accepts them. (L’ospite ha letto contratto e informativa e li accetta.)',
+  };
+  const acceptText = h('span', { text: ACCEPT.it });
+  drawLang();
   const acceptBox = h('input', { type: 'checkbox', id: newId(), onChange: (e) => { accepted = e.target.checked; dirty = true; } });
   const padGuest = signaturePad('Firma dell’ospite', () => { dirty = true; });
   const padHost = signaturePad('Firma del locatore', () => { dirty = true; });
@@ -293,9 +304,10 @@ export function signDialog(ctx, b, house) {
   const content = h('div', { class: 'stack contract-dialog', vars: houseVars(house) },
     h('p', { class: 'muted', text: 'Fai leggere il contratto all’ospite, scrivi i suoi dati come sul documento e poi firmate tutti e due.' }),
     h('section', { class: 'stack' }, h('h3', { text: 'Dati dell’ospite (chi firma)' }), form),
-    h('section', { class: 'stack' }, h('h3', { text: 'Contratto' }), textBox),
-    h('label', { class: 'accept-row', for: acceptBox.id }, acceptBox,
-      h('span', { text: 'L’ospite ha letto il contratto e l’informativa sulla privacy e li accetta.' })),
+    h('section', { class: 'stack' },
+      h('div', { class: 'sig-head' }, h('h3', { text: 'Contratto' }), langSeg),
+      textBox),
+    h('label', { class: 'accept-row', for: acceptBox.id }, acceptBox, acceptText),
     h('div', { class: 'sig-grid' }, padGuest.el, padHost.el),
     h('p', { class: 'muted small', text: 'I dati e le firme si salvano solo premendo "Firma e salva", e solo con la connessione attiva.' }));
 
@@ -313,20 +325,26 @@ export function signDialog(ctx, b, house) {
   for (const [k, v] of Object.entries(houseVars(house))) dlg.el.style.setProperty(k, v);
   requestAnimationFrame(() => { padGuest.fit(); padHost.fit(); });
 
-  // Testo del contratto: lo prepara il server (con i dati della casa e della prenotazione).
-  store.request(`/api/bookings/${encodeURIComponent(b.id)}/contract-draft`).then((res) => {
-    if (dlg.closed) return;
-    if (!res.ready) {
-      textBox.replaceChildren(h('div', { class: 'banner warn', text: `Mancano dati della casa: ${res.missing.join(', ')}.` }));
-      return;
-    }
-    textBox.replaceChildren(contractView(res.blocks, guestEl));
-    saveBtn.disabled = false;
-  }).catch((e) => {
-    if (dlg.closed) return;
-    textBox.replaceChildren(h('div', { class: 'banner warn' }, h('span', { text: e.code === 'network' ? 'Serve la connessione per aprire il contratto.' : e.message }),
-      h('button', { class: 'btn small', type: 'button', text: 'Riprova', onClick: () => { dlg.close(); signDialog(ctx, b, house); } })));
-  });
+  // Testo del contratto: lo prepara il server (con i dati della casa e della prenotazione), nella lingua scelta.
+  function loadDraft() {
+    const seq = ++loadSeq;
+    saveBtn.disabled = true;
+    textBox.replaceChildren(h('p', { class: 'muted', text: 'Carico il testo del contratto…' }));
+    store.request(`/api/bookings/${encodeURIComponent(b.id)}/contract-draft?lang=${lang}`).then((res) => {
+      if (dlg.closed || seq !== loadSeq) return;
+      if (!res.ready) {
+        textBox.replaceChildren(h('div', { class: 'banner warn', text: `Mancano dati della casa: ${res.missing.join(', ')}.` }));
+        return;
+      }
+      textBox.replaceChildren(contractView(res.blocks, guestEl));
+      saveBtn.disabled = false;
+    }).catch((e) => {
+      if (dlg.closed || seq !== loadSeq) return;
+      textBox.replaceChildren(h('div', { class: 'banner warn' }, h('span', { text: e.code === 'network' ? 'Serve la connessione per aprire il contratto.' : e.message }),
+        h('button', { class: 'btn small', type: 'button', text: 'Riprova', onClick: loadDraft })));
+    });
+  }
+  loadDraft();
 
   async function save() {
     if (sending) return;
@@ -345,7 +363,7 @@ export function signDialog(ctx, b, house) {
       dlg.setBanner('Ci sono ancora modifiche da salvare: aspetta qualche secondo e riprova.');
       return;
     }
-    const payload = { booking_id: b.id, accepted: true, guest: r.value, guest_sign: padGuest.toJpeg(), host_sign: padHost.toJpeg() };
+    const payload = { booking_id: b.id, accepted: true, lang, guest: r.value, guest_sign: padGuest.toJpeg(), host_sign: padHost.toJpeg() };
     const key = JSON.stringify(payload);
     if (!last || last.key !== key) last = { key, opId: newId(), id: newId() };
     sending = true;
@@ -399,7 +417,7 @@ export function openSigned(ctx, meta) {
   const dlg = openDialog({
     title: 'Contratto firmato',
     content: h('div', { class: 'stack' },
-      h('div', { class: 'contract-state ok' }, icon('check', { size: 16 }), h('span', { text: `Firmato il ${when.date} alle ${when.time}${meta.signer_name ? ` · fatto firmare da ${meta.signer_name}` : ''}` })),
+      h('div', { class: 'contract-state ok' }, icon('check', { size: 16 }), h('span', { text: `Firmato il ${when.date} alle ${when.time}${meta.lang === 'en' ? ' · in inglese' : ''}${meta.signer_name ? ` · fatto firmare da ${meta.signer_name}` : ''}` })),
       status,
       h('p', { class: 'muted small', text: `Conservato in modo protetto fino al ${formatItDate(meta.purge_after)}, poi cancellato automaticamente.` })),
     actions: [delBtn, dlBtn, shareBtn],

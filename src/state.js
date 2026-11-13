@@ -19,7 +19,7 @@ export async function readState(db, user) {
     db.prepare('SELECT * FROM booking_extras WHERE deleted = 0 ORDER BY created_at'),
     db.prepare('SELECT * FROM expenses WHERE deleted = 0 ORDER BY date DESC, created_at DESC'),
     db.prepare('SELECT * FROM deadlines WHERE deleted = 0 ORDER BY due_date'),
-    db.prepare(`SELECT id, booking_id, house_id, template, check_in, check_out, guests, signed_at, signer_name, hash, purge_after,
+    db.prepare(`SELECT id, booking_id, house_id, template, lang, check_in, check_out, guests, signed_at, signer_name, hash, purge_after,
       deleted, version, rev FROM contracts WHERE deleted = 0 ORDER BY signed_at`),
   ]);
   const rows = (i) => results[i].results || [];

@@ -272,3 +272,53 @@ test('PDF: struttura valida, testo, firme e impronta', async () => {
   const offsets = [...xref.matchAll(/^(\d{10}) 00000 n/gm)].map((m) => Number(m[1]));
   offsets.forEach((off, i) => assert.equal(s.slice(off, off + `${i + 1} 0 obj`.length), `${i + 1} 0 obj`));
 });
+
+/* ------------------------------ Inglese ------------------------------ */
+
+test('contratto in inglese: stesse clausole, testi inglesi della casa, importi in inglese', () => {
+  const house = { checkin_time: '14:00', checkout_time: '10:00' };
+  const info = { ...LANDLORD, city: 'Gallipoli', address: 'Via X 1', description: 'piano terra', description_en: 'ground floor', cin: 'IT075031C200088528',
+    quiet_hours: 'dalle 23 alle 8', quiet_hours_en: 'from 11 pm to 8 am', kwh_day: 30, kwh_price_cents: 40, advance_pct: 30 };
+  const b = { check_in: '2027-07-10', check_out: '2027-07-17', guests: 4, total_cents: 123456, security_cents: 30000, linens: 1, towels: 0 };
+  const it = buildContract({ house, info, booking: b, guest: GUEST, signedAt: '2027-07-10T13:05:00Z' });
+  const en = buildContract({ house, info, booking: b, guest: GUEST, signedAt: '2027-07-10T13:05:00Z', lang: 'en' });
+  // Stessa struttura: stessi tipi di blocco, articolo per articolo.
+  assert.deepEqual(en.map((x) => x.t), it.map((x) => x.t));
+  const text = contractText(en);
+  assert.match(text, /TOURIST RENTAL AGREEMENT/);
+  assert.match(text, /Ms\. Anna Verdi, born in Milano on 03\/02\/1990/);
+  assert.match(text, /acting as usufructuary of the property/);
+  assert.match(text, /ground floor/);
+  assert.doesNotMatch(text, /piano terra/);
+  assert.match(text, /from 11 pm to 8 am/);
+  assert.match(text, /approximately 30% of the rent/);
+  assert.match(text, /non-refundable/);
+  assert.match(text, /late arrival or early departure/);
+  assert.match(text, /Towels are not included/);
+  assert.match(text, /tourist tax is not included/);
+  assert.match(text, /security deposit of €300 /);
+  assert.match(text, /charged at €0\.40 per additional kWh/);
+  assert.match(text, /for 2 years after the end of the stay/);
+  assert.match(text, /governed by Italian law/);
+  assert.doesNotMatch(text, /1,234|123,456|Airbnb|gas/i);
+  assert.match(guestParagraph({}, 'en'), /^Mr\. ____/);
+});
+
+test('firma in inglese: lingua salvata, nell’impronta e nel PDF; lingua sconosciuta rifiutata', async () => {
+  const { db, admin, b } = await setup();
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'contract.sign', payload: signPayload(b, { lang: '__proto__' }) }), 'validation', /Lingua/);
+  await expectOpError(contractDraft(db, b.id, 'de'), 'validation');
+  const d = await contractDraft(db, b.id, 'en');
+  assert.equal(d.blocks[0].text, 'TOURIST RENTAL AGREEMENT – SHORT-TERM LEASE');
+  const r = await runOp(db, admin, { opId: op(), type: 'contract.sign', payload: signPayload(b, { lang: 'en' }) });
+  assert.equal(r.record.lang, 'en');
+  const row = await db.prepare('SELECT * FROM contracts WHERE id = ?').bind(r.record.id).first();
+  assert.equal(await sha256Hex(hashInput(row)), row.hash);
+  assert.notEqual(await sha256Hex(hashInput({ ...row, lang: 'it' })), row.hash);
+  assert.match(contractText(JSON.parse(row.body)), /Tenant/);
+  const c = await readContract(db, admin, r.record.id);
+  const s = Buffer.from(buildPdf(c)).toString('latin1');
+  assert.match(s, /THE LANDLORD/);
+  assert.match(s, /Page 1 of/);
+  assert.equal((await readState(db, admin)).contracts[0].lang, 'en');
+});

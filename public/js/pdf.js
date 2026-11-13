@@ -10,7 +10,16 @@ const MR = 56;
 const TOP = 64;
 const BOTTOM = 70;
 const TEXT_W = W - ML - MR;
-const SIGN_H = 150; // spazio per le due firme con i nomi
+const SIGN_H = 150;
+
+// Scritte fisse del PDF nelle due lingue del contratto.
+const LABELS = {
+  it: { host: 'IL LOCATORE', guest: 'IL CONDUTTORE', doc: 'Contratto di locazione turistica', hash: 'Impronta SHA-256', file: 'Contratto',
+    page: (i, n) => `Pagina ${i} di ${n}`, signed: (d, t) => `Firmato elettronicamente su dispositivo il ${d} alle ore ${t} (ora italiana).` },
+  en: { host: 'THE LANDLORD', guest: 'THE TENANT', doc: 'Tourist rental agreement', hash: 'SHA-256 fingerprint', file: 'Rental agreement',
+    page: (i, n) => `Page ${i} of ${n}`, signed: (d, t) => `Signed electronically on a device on ${d} at ${t} (Italian time).` },
+};
+const labels = (c) => LABELS[c.lang] || LABELS.it; // spazio per le due firme con i nomi
 
 // Larghezze dei caratteri Helvetica (codifica WinAnsi, dal codice 32 al 255), in millesimi del corpo.
 const WIDTHS = {
@@ -160,7 +169,8 @@ export function buildPdf(c) {
   const boxH = 74;
   ensure(SIGN_H);
   y -= 6;
-  const cols = [{ label: 'IL LOCATORE', x: ML }, { label: 'IL CONDUTTORE', x: W - MR - boxW }];
+  const L = labels(c);
+  const cols = [{ label: L.host, x: ML }, { label: L.guest, x: W - MR - boxW }];
   cols.forEach((col, i) => {
     textLine(col.label, col.x, y - 10, 'F2', 10);
     const img = imgs[i];
@@ -177,7 +187,7 @@ export function buildPdf(c) {
   });
   y -= 18 + boxH + 20;
   if (when) {
-    const note = `Firmato elettronicamente su dispositivo il ${when.date} alle ore ${when.time} (ora italiana).`;
+    const note = L.signed(when.date, when.time);
     textLine(note, ML, y - 9, 'F1', 8.6);
     y -= 14;
   }
@@ -192,13 +202,13 @@ export function buildPdf(c) {
 
   // Piè di pagina: casa, impronta e numero di pagina.
   const total = pages.length;
-  const footLeft = `Contratto di locazione turistica${c.house_name ? ` · ${c.house_name}` : ''}`;
-  const hashLine = c.hash ? `Impronta SHA-256: ${c.hash}` : '';
+  const footLeft = `${L.doc}${c.house_name ? ` · ${c.house_name}` : ''}`;
+  const hashLine = c.hash ? `${L.hash}: ${c.hash}` : '';
   pages.forEach((p, i) => {
     ops = p;
     ops.push('0.45 g');
     textLine(footLeft, ML, 40, 'F1', 7.5);
-    const pg = `Pagina ${i + 1} di ${total}`;
+    const pg = L.page(i + 1, total);
     textLine(pg, W - MR - width(encode(pg), 'F1', 7.5), 40, 'F1', 7.5);
     if (hashLine) textLine(hashLine, ML, 29, 'F1', 6.5);
     ops.push('0 g');
@@ -248,7 +258,7 @@ function assemble(pages, imgs, c) {
   obj(2, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`);
   obj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   obj(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-  obj(5, `<< /Title ${pdfString(encode('Contratto di locazione turistica'))} /Producer (DigiHome) /CreationDate (${pdfDate(c.signed_at)}) >>`);
+  obj(5, `<< /Title ${pdfString(encode(labels(c).doc))} /Producer (DigiHome) /CreationDate (${pdfDate(c.signed_at)}) >>`);
   imgs.forEach((im, i) => {
     const cs = im.info.components === 1 ? '/DeviceGray' : '/DeviceRGB';
     obj(imgStart + i, [`<< /Type /XObject /Subtype /Image /Width ${im.info.width} /Height ${im.info.height} /ColorSpace ${cs} /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`, im.bytes, '\nendstream']);
@@ -276,5 +286,5 @@ export function pdfFileName(c) {
   const simple = (s) => String(s || '').normalize('NFD').replace(/[^A-Za-z0-9 -]+/g, '').replace(/\s+/g, ' ').trim();
   const surname = simple((c.guest && c.guest.name) || '').split(' ').slice(-1)[0] || 'ospite';
   const d = (c.check_in || '').split('-').reverse().join('-');
-  return `Contratto ${simple(c.house_name) || 'casa'} - ${surname} - ${d}.pdf`;
+  return `${labels(c).file} ${simple(c.house_name) || 'casa'} - ${surname} - ${d}.pdf`;
 }

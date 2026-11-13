@@ -6,7 +6,7 @@ import { daysBetween, fmtShort, isIsoDate, isTime } from '../public/shared/dates
 import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
 import { checkTaxSettings } from '../public/shared/tax.js';
 import { validateExpense, validateDeadline, nextDue } from '../public/shared/house.js';
-import { CONTRACT_TEMPLATE, buildContract, checkGuest, checkSignature, contractMissing, hashInput, parseContractInfo,
+import { CONTRACT_TEMPLATE, LANGS, buildContract, checkGuest, checkSignature, contractMissing, hashInput, parseContractInfo,
   purgeDate, sha256Hex, checkContractInfo } from '../public/shared/contract.js';
 import { todayRome } from '../public/shared/dates.js';
 
@@ -846,7 +846,7 @@ const CONTRACT_STAGES = ['confermata', 'in_casa'];
 /** Come l'app vede un contratto nell'elenco generale: solo i dati per sapere se c'è, mai testo, dati o firme. */
 export function contractMeta(c) {
   return {
-    id: c.id, booking_id: c.booking_id, house_id: c.house_id, template: c.template,
+    id: c.id, booking_id: c.booking_id, house_id: c.house_id, template: c.template, lang: c.lang || 'it',
     check_in: c.check_in, check_out: c.check_out, guests: c.guests,
     signed_at: c.signed_at, signer_name: c.signer_name, hash: c.hash, purge_after: c.purge_after,
     deleted: c.deleted, version: c.version, rev: c.rev,
@@ -854,7 +854,8 @@ export function contractMeta(c) {
 }
 
 /** Testo del contratto da mostrare prima della firma (dati dell'ospite ancora da scrivere). */
-export async function contractDraft(db, bookingId) {
+export async function contractDraft(db, bookingId, lang = 'it') {
+  if (typeof lang !== 'string' || !Object.hasOwn(LANGS, lang)) throw bad('Lingua non valida');
   const b = await getBooking(db, bookingId);
   if (!b) throw notFound();
   if (b.channel !== 'diretto') throw bad('Il contratto si fa solo per le prenotazioni dirette.');
@@ -862,12 +863,14 @@ export async function contractDraft(db, bookingId) {
   const info = parseContractInfo(house);
   const missing = contractMissing(info);
   if (missing.length) return { ready: false, missing };
-  return { ready: true, blocks: buildContract({ house, info, booking: b }) };
+  return { ready: true, lang, blocks: buildContract({ house, info, booking: b, lang }) };
 }
 
 async function contractSign(db, user, opId, p) {
   if (!isId(p.id) || !isId(p.booking_id)) throw bad('Richiesta non valida');
   if (p.accepted !== true) throw bad('L’ospite deve confermare di aver letto il contratto e l’informativa.');
+  const lang = p.lang === undefined ? 'it' : p.lang;
+  if (typeof lang !== 'string' || !Object.hasOwn(LANGS, lang)) throw bad('Lingua non valida');
   const b = await getBooking(db, p.booking_id);
   if (!b) throw notFound();
   if (b.channel !== 'diretto') throw bad('Il contratto si fa solo per le prenotazioni dirette.');
@@ -889,8 +892,8 @@ async function contractSign(db, user, opId, p) {
   // Il testo lo ricrea il server con i dati di adesso: quello firmato è esattamente questo.
   const signedAt = nowIso();
   const row = {
-    id: p.id, template: CONTRACT_TEMPLATE, booking_id: b.id, house_id: house.id,
-    body: JSON.stringify(buildContract({ house, info, booking: b, guest: g.value, signedAt })),
+    id: p.id, template: CONTRACT_TEMPLATE, lang, booking_id: b.id, house_id: house.id,
+    body: JSON.stringify(buildContract({ house, info, booking: b, guest: g.value, signedAt, lang })),
     guest: JSON.stringify(g.value), guest_sign: p.guest_sign, host_sign: p.host_sign, signed_at: signedAt,
   };
   row.hash = await sha256Hex(hashInput(row));

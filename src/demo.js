@@ -68,7 +68,7 @@ export async function loadDemo(db, user) {
   // Dati del contratto inventati, solo dove mancano (quelli scritti in Impostazioni non si toccano).
   const fake = { landlord_sal: 'M', landlord_name: 'Mario Rossi (prova)', landlord_birth_place: 'Lecce', landlord_birth_date: '1970-01-01',
     landlord_residence: 'Gallipoli, Via di Prova 1', landlord_role: 'proprietario', city: 'Gallipoli', address: 'Via di Prova n. 1',
-    description: 'piano primo, composta da tre vani, cucina e servizi', cin: 'IT075031C2PROVA0001', advance_pct: 30 };
+    description: 'piano primo, composta da tre vani, cucina e servizi', description_en: 'first floor, consisting of three rooms, kitchen and bathroom', cin: 'IT075031C2PROVA0001', advance_pct: 30 };
   stmts.push(db.prepare(`UPDATE houses SET contract_info = json_patch(?, COALESCE(contract_info, '{}')), version = version + 1, rev = ${REV_NEXT}
     WHERE json_extract(COALESCE(contract_info, '{}'), '$.landlord_name') IS NULL`).bind(JSON.stringify(fake)));
   for (const b of demoBookings()) {

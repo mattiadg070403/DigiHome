@@ -4,6 +4,10 @@
 
 import { addDays, formatItDate, isIsoDate, todayRome, timeRome } from './dates.js';
 import { fmtEuro } from './money.js';
+import { buildContractEn, guestParagraphEn } from './contract-en.js';
+
+/** Lingue del contratto. */
+export const LANGS = { it: 'Italiano', en: 'English' };
 
 /** Versione del modello: si aumenta quando cambia il testo, così ogni contratto sa con quale è stato fatto. */
 export const CONTRACT_TEMPLATE = 1;
@@ -92,6 +96,9 @@ const INFO_TEXT = [
   ['cin', 'Codice CIN', 30, true],
   ['quiet_hours', 'Orari di silenzio', 160, false],
   ['privacy_contact', 'Contatto per la privacy', 120, false],
+  // Testi per il contratto in inglese (facoltativi: se mancano si usa quello italiano).
+  ['description_en', 'Descrizione in inglese', 300, false],
+  ['quiet_hours_en', 'Orari di silenzio in inglese', 160, false],
 ];
 
 export function parseContractInfo(house) {
@@ -139,10 +146,12 @@ export function checkContractInfo(input) {
   const e = int('kwh_day', 'Numero di kWh', 1, 1000) || int('kwh_price_cents', 'Prezzo del kWh', 1, 1000) || int('advance_pct', 'Acconto', 1, 100);
   if (e) return e;
   if (v.kwh_day && !v.kwh_price_cents) return bad('Scrivi il prezzo dei kWh in più', 'kwh_price_cents');
-  const rules = cleanText(input.extra_rules, { multiline: true });
-  if (rules === null) return bad('Regole della casa: usa solo caratteri latini', 'extra_rules');
-  if (rules.length > 1500) return bad('Regole della casa: testo troppo lungo', 'extra_rules');
-  if (rules) v.extra_rules = rules;
+  for (const k of ['extra_rules', 'extra_rules_en']) {
+    const rules = cleanText(input[k], { multiline: true });
+    if (rules === null) return bad('Regole della casa: usa solo caratteri latini', k);
+    if (rules.length > 1500) return bad('Regole della casa: testo troppo lungo', k);
+    if (rules) v[k] = rules;
+  }
   return { ok: true, value: v };
 }
 
@@ -206,7 +215,8 @@ const BLANK = '____________';
 function gender(sal, m, f) { return sal === 'F' ? f : m; }
 
 /** Riga del conduttore (si mostra anche mentre l'ospite scrive i suoi dati). */
-export function guestParagraph(g = {}) {
+export function guestParagraph(g = {}, lang = 'it') {
+  if (lang === 'en') return guestParagraphEn(g);
   const val = (s) => (s ? s : BLANK);
   const sal = g.sal === 'F' ? 'La Sig.ra' : 'Il Sig.';
   const cf = g.tax_code ? `, C.F. ${String(g.tax_code).toUpperCase()}` : '';
@@ -256,7 +266,8 @@ export function privacyNotice(info) {
  * Con guest = null il blocco del conduttore resta { t: 'guest' } (l'app lo riempie mentre si scrive).
  * Con signedAt = null data della firma in bianco.
  */
-export function buildContract({ house, info, booking: b, guest = null, signedAt = null }) {
+export function buildContract({ house, info, booking: b, guest = null, signedAt = null, lang = 'it' }) {
+  if (lang === 'en') return buildContractEn({ house, info, booking: b, guest, signedAt, keepYears: KEEP_YEARS });
   const out = [];
   const add = (t, text) => out.push(text === undefined ? { t } : { t, text });
   let n = 0;
@@ -408,7 +419,9 @@ export function contractText(blocks) {
  * Testo su cui si calcola l'impronta SHA-256: sempre uguale per gli stessi dati, in quest'ordine.
  */
 export function hashInput(c) {
-  return JSON.stringify([c.template, c.id, c.booking_id, c.house_id, c.body, c.guest, c.guest_sign, c.host_sign, c.signed_at]);
+  const base = [c.template, c.id, c.booking_id, c.house_id, c.body, c.guest, c.guest_sign, c.host_sign, c.signed_at];
+  // La lingua entra nell'impronta solo se non è l'italiano (così le impronte dei primi contratti restano valide).
+  return JSON.stringify(c.lang && c.lang !== 'it' ? [...base, c.lang] : base);
 }
 
 /** Impronta SHA-256 in esadecimale (funziona nel browser, in Node e nei Worker). */

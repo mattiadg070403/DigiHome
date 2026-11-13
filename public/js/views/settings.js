@@ -406,6 +406,8 @@ const INFO_FIELDS = [
   ['kwh_price', 'Prezzo di ogni kWh in più (€)', { decimal: true }],
   ['advance_pct', 'Acconto (% circa)', { numeric: true, hint: 'Es. 30' }],
   ['privacy_contact', 'Contatto per la privacy', { hint: 'Email o telefono per le richieste degli ospiti (facoltativo)' }],
+  ['description_en', 'Descrizione in inglese', { full: true, hint: 'Es. fifth floor, consisting of four rooms, kitchen and bathroom' }],
+  ['quiet_hours_en', 'Orari di silenzio in inglese', { full: true, hint: 'Es. from 2:30 pm to 5:30 pm and from 11:00 pm to 8:00 am' }],
 ];
 
 /**
@@ -433,6 +435,8 @@ function contractInfoDialog(ctx, house) {
   controls.landlord_role = role;
   const rules = h('textarea', { class: 'input', rows: '4', value: v.extra_rules || '', onInput: (e) => { v.extra_rules = e.target.value; } });
   controls.extra_rules = rules;
+  const rulesEn = h('textarea', { class: 'input', rows: '3', value: v.extra_rules_en || '', onInput: (e) => { v.extra_rules_en = e.target.value; } });
+  controls.extra_rules_en = rulesEn;
   const missing = contractMissing(info);
   const byKey = Object.fromEntries(INFO_FIELDS.map((f) => [f[0], f]));
   const dlg = openDialog({
@@ -450,7 +454,12 @@ function contractInfoDialog(ctx, house) {
       h('h3', { text: 'Regole e condizioni' }),
       h('div', { class: 'form-grid' },
         ['quiet_hours', 'kwh_day', 'kwh_price', 'advance_pct', 'privacy_contact'].map((k) => mk(byKey[k])),
-        field('Regole particolari della casa', rules, { full: true, hint: 'Facoltativo: una regola per riga, finiscono nell’articolo sugli obblighi' }))),
+        field('Regole particolari della casa', rules, { full: true, hint: 'Facoltativo: una regola per riga, finiscono nell’articolo sugli obblighi' })),
+      h('h3', { text: 'Contratto in inglese' }),
+      h('p', { class: 'muted small', text: 'Facoltativi: servono per il contratto in inglese. Se restano vuoti, lì si usa il testo italiano.' }),
+      h('div', { class: 'form-grid' },
+        ['description_en', 'quiet_hours_en'].map((k) => mk(byKey[k])),
+        field('Regole particolari in inglese', rulesEn, { full: true, hint: 'Una regola per riga' }))),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),

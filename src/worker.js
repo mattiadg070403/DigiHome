@@ -62,7 +62,7 @@ async function handleApi(request, env, url) {
     if (m) return json({ ok: true, history: await readHistory(env.DB, m[1]) });
     try {
       const draft = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/contract-draft$/);
-      if (draft) return json({ ok: true, ...(await contractDraft(env.DB, draft[1])) });
+      if (draft) return json({ ok: true, ...(await contractDraft(env.DB, draft[1], url.searchParams.get('lang') || 'it')) });
       const c = path.match(/^\/api\/contracts\/([A-Za-z0-9-]{8,64})$/);
       if (c) return json({ ok: true, contract: await readContract(env.DB, user, c[1]) });
     } catch (e) {

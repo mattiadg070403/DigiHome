@@ -7,6 +7,7 @@ import { timeField } from '../pickers.js';
 import { checkCalendarUrl } from '../../shared/calendar.js';
 import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
 import { parseEuro, centsToInput } from '../../shared/money.js';
+import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '../../shared/contract.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -325,14 +326,19 @@ function housesSection(ctx) {
       h('div', { class: 'house-top' }, h('span', { class: 'name', text: x.name })),
       // Le impostazioni della casa si vedono solo aprendo "Modifica impostazioni" (richiesta di Mattia).
       h('div', { class: 'house-body' },
-        h('div', null, h('button', { class: 'btn small', type: 'button', onClick: () => houseDialog(ctx, x) },
-          icon('edit', { size: 16 }), 'Modifica impostazioni')))))));
+        h('div', { class: 'btn-row' },
+          h('button', { class: 'btn small', type: 'button', onClick: () => houseDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'Modifica impostazioni'),
+          h('button', { class: 'btn small', type: 'button', onClick: () => contractInfoDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'Dati del contratto')),
+        x.contract_ready ? null : h('div', { class: 'muted small', text: 'Contratto: mancano alcuni dati, completali per farlo firmare.' }))))));
 }
 
 function houseDialog(ctx, house) {
   const t = taxSettings(house);
   const v = { max_guests: house.max_guests, checkin_time: house.checkin_time, checkout_time: house.checkout_time,
-    tourist_tax: { rates: [...t.rates], max_nights: t.max_nights } };
+    tourist_tax: { rates: [...t.rates], max_nights: t.max_nights },
+    default_linens: house.default_linens ?? 1, default_towels: house.default_towels ?? 0 };
   let taxBad = false;
   const rateInputs = t.rates.map((r, i) => {
     const el = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: centsToInput(r),
@@ -362,7 +368,11 @@ function houseDialog(ctx, house) {
         h('div', { class: 'label', text: 'Tassa di soggiorno: € a persona a notte, per mese' }),
         taxGrid,
         h('div', { class: 'hint', text: 'Lascia vuoto o 0 nei mesi in cui non si paga. Il calcolo usa la tariffa del mese di ogni notte.' })),
-      field('Notti massime tassate', maxN, { hint: 'Se il Comune tassa solo le prime notti; vuoto = nessun limite' })),
+      field('Notti massime tassate', maxN, { hint: 'Se il Comune tassa solo le prime notti; vuoto = nessun limite' }),
+      h('div', { class: 'field full' },
+        h('div', { class: 'label', text: 'Biancheria compresa (proposta nelle nuove prenotazioni)' }),
+        switchRow('Lenzuola', { checked: Boolean(v.default_linens), onChange: (c) => { v.default_linens = c ? 1 : 0; } }),
+        switchRow('Asciugamani', { checked: Boolean(v.default_towels), onChange: (c) => { v.default_towels = c ? 1 : 0; } }))),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
@@ -375,6 +385,100 @@ function houseDialog(ctx, house) {
       await ctx.act('house.update', { id: house.id, version: house.version, changes: v }, { message: 'Salvato' });
       dlg.close();
     } catch (e) {
+      dlg.setBanner(e.message);
+    }
+  }
+}
+
+/* --------------------------- Dati del contratto --------------------------- */
+
+const INFO_FIELDS = [
+  ['landlord_name', 'Nome e cognome', { full: true }],
+  ['landlord_birth_place', 'Luogo di nascita', {}],
+  ['landlord_birth_date', 'Data di nascita', { type: 'date' }],
+  ['landlord_residence', 'Residenza', { full: true, hint: 'Comune e indirizzo, come vanno scritti nel contratto' }],
+  ['city', 'Comune dell’immobile', {}],
+  ['cin', 'Codice CIN', { hint: 'Es. IT075031C2…' }],
+  ['address', 'Indirizzo dell’immobile', { full: true, hint: 'Es. Via Antonio Rosmini n. 5' }],
+  ['description', 'Descrizione', { full: true, hint: 'Es. piano quinto, composta da quattro vani, cucina e servizi' }],
+  ['quiet_hours', 'Orari di silenzio', { full: true, hint: 'Es. dalle ore 14:30 alle ore 17:30 e dalle ore 23:00 alle ore 08:00 (vuoto = non indicati)' }],
+  ['kwh_day', 'kWh compresi al giorno', { numeric: true, hint: 'Vuoto = luce tutta compresa' }],
+  ['kwh_price', 'Prezzo di ogni kWh in più (€)', { decimal: true }],
+  ['advance_pct', 'Acconto (% circa)', { numeric: true, hint: 'Es. 30' }],
+  ['privacy_contact', 'Contatto per la privacy', { hint: 'Email o telefono per le richieste degli ospiti (facoltativo)' }],
+];
+
+/**
+ * Dati che finiscono nel contratto di questa casa. Contengono dati personali del locatore:
+ * li vede e li modifica solo l'amministratore, e non stanno nel codice dell'app.
+ */
+function contractInfoDialog(ctx, house) {
+  const info = parseContractInfo(house);
+  const v = { ...info, kwh_price: info.kwh_price_cents ? centsToInput(info.kwh_price_cents) : '' };
+  v.landlord_sal = info.landlord_sal || 'M';
+  const controls = {};
+  const mk = ([k, label, opt]) => {
+    const el = h('input', { class: 'input', autocomplete: 'off', value: v[k] === undefined || v[k] === null ? '' : String(v[k]),
+      type: opt.type || 'text', inputmode: opt.numeric ? 'numeric' : opt.decimal ? 'decimal' : null,
+      onInput: (e) => { v[k] = e.target.value; setFieldError(el, ''); } });
+    controls[k] = el;
+    return field(label, el, { full: opt.full, hint: opt.hint });
+  };
+  const sal = h('select', { class: 'input', onChange: (e) => { v.landlord_sal = e.target.value; } },
+    h('option', { value: 'M', text: 'Il Sig.', selected: v.landlord_sal === 'M' }),
+    h('option', { value: 'F', text: 'La Sig.ra', selected: v.landlord_sal === 'F' }));
+  const role = h('select', { class: 'input', onChange: (e) => { v.landlord_role = e.target.value; setFieldError(role, ''); } },
+    h('option', { value: '', text: 'Scegli…', selected: !v.landlord_role }),
+    Object.keys(ROLES).map((k) => h('option', { value: k, text: ROLES[k][0], selected: v.landlord_role === k })));
+  controls.landlord_role = role;
+  const rules = h('textarea', { class: 'input', rows: '4', value: v.extra_rules || '', onInput: (e) => { v.extra_rules = e.target.value; } });
+  controls.extra_rules = rules;
+  const missing = contractMissing(info);
+  const byKey = Object.fromEntries(INFO_FIELDS.map((f) => [f[0], f]));
+  const dlg = openDialog({
+    title: `Dati del contratto · ${house.name}`,
+    content: h('div', { class: 'stack' },
+      missing.length ? h('div', { class: 'banner warn', text: `Per far firmare il contratto mancano: ${missing.join(', ')}.` }) : null,
+      h('p', { class: 'muted small', text: 'Questi dati compaiono nel contratto. Li vede solo l’amministratore; non escono dal gestionale se non nei contratti.' }),
+      h('h3', { text: 'Locatore (chi affitta)' }),
+      h('div', { class: 'form-grid' },
+        field('Titolo', sal),
+        field('In qualità di', role, { hint: 'Del diritto sull’immobile' }),
+        ['landlord_name', 'landlord_birth_place', 'landlord_birth_date', 'landlord_residence'].map((k) => mk(byKey[k]))),
+      h('h3', { text: 'Immobile' }),
+      h('div', { class: 'form-grid' }, ['city', 'cin', 'address', 'description'].map((k) => mk(byKey[k]))),
+      h('h3', { text: 'Regole e condizioni' }),
+      h('div', { class: 'form-grid' },
+        ['quiet_hours', 'kwh_day', 'kwh_price', 'advance_pct', 'privacy_contact'].map((k) => mk(byKey[k])),
+        field('Regole particolari della casa', rules, { full: true, hint: 'Facoltativo: una regola per riga, finiscono nell’articolo sugli obblighi' }))),
+    actions: [
+      h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
+      h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
+    ],
+  });
+
+  async function save() {
+    dlg.setBanner('');
+    let priceCents = null;
+    if (String(v.kwh_price || '').trim()) {
+      priceCents = parseEuro(v.kwh_price);
+      if (priceCents === null || priceCents <= 0) { setFieldError(controls.kwh_price, 'Prezzo non valido'); dlg.setBanner('Controlla il prezzo dei kWh.'); return; }
+    }
+    const input = { ...v, kwh_price_cents: priceCents };
+    delete input.kwh_price;
+    for (const k of ['kwh_day', 'advance_pct']) input[k] = String(input[k] ?? '').trim() ? Number(String(input[k]).trim()) : null;
+    const r = checkContractInfo(input);
+    if (!r.ok) {
+      const ctl = controls[r.field === 'kwh_price_cents' ? 'kwh_price' : r.field];
+      if (ctl) setFieldError(ctl, r.error);
+      dlg.setBanner(r.error);
+      return;
+    }
+    try {
+      await ctx.act('house.update', { id: house.id, version: house.version, changes: { contract_info: r.value } }, { message: 'Dati del contratto salvati' });
+      dlg.close();
+    } catch (e) {
+      if (e.body?.errors) for (const [k, msg] of Object.entries(e.body.errors)) if (controls[k]) setFieldError(controls[k], msg);
       dlg.setBanner(e.message);
     }
   }

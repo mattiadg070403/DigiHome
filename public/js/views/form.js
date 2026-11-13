@@ -14,10 +14,16 @@ import { taxSettings, touristTax, explainTax } from '../../shared/tax.js';
 
 const MONEY = ['total_cents', 'deposit_cents', 'security_cents'];
 
-const EMPTY = (houseId) => ({
+// Lenzuola e asciugamani: si propone quello che di solito è compreso in quella casa (Impostazioni → Case).
+const linenDefaults = (houses, houseId) => {
+  const x = houses.find((hh) => hh.id === houseId);
+  return { linens: x?.default_linens ?? 1, towels: x?.default_towels ?? 0 };
+};
+
+const EMPTY = (houseId, houses = []) => ({
   house_id: houseId, channel: 'diretto', guest_name: '', phone: '', email: '', guests: 2,
   check_in: '', check_out: '', arrival_time: '', total_cents: 0, deposit_cents: 0, deposit_paid: 0, security_cents: 0,
-  linens: 1, towels: 0, minors_delegation: 'non_serve', notes: '',
+  ...linenDefaults(houses, houseId), minors_delegation: 'non_serve', notes: '',
 });
 
 /**
@@ -31,7 +37,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
   const d = store.data;
   const isNew = !existing;
   let base = existing ? { ...existing } : null;
-  let v = existing ? { ...existing } : { ...EMPTY(preset.house_id || ui.houseId), ...('check_in' in preset ? { check_in: preset.check_in } : {}) };
+  let v = existing ? { ...existing } : { ...EMPTY(preset.house_id || ui.houseId, d.houses), ...('check_in' in preset ? { check_in: preset.check_in } : {}) };
 
   // Bozza rimasta da prima (ricarica, scheda chiusa, uscita per sbaglio)?
   const draft = readDraft();
@@ -205,7 +211,12 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
 
     const houseSeg = isNew ? h('div', { class: 'field full' }, h('div', { class: 'label', text: 'Casa' }),
       segmented(d.houses.map((x) => ({ value: x.id, label: x.name, swatch: true, vars: houseVars(x) })), v.house_id,
-        (id) => { v.house_id = id; changed(); build(); }, 'Casa')) : null;
+        (id) => {
+          v.house_id = id;
+          // Nuova prenotazione: se lenzuola e asciugamani non sono stati toccati, si propongono quelli della casa scelta.
+          if (isNew && !v.linens_touched) Object.assign(v, linenDefaults(d.houses, id));
+          changed(); build();
+        }, 'Casa')) : null;
     const channelSeg = h('div', { class: 'field full' }, h('div', { class: 'label', text: 'Canale' }),
       segmented(Object.entries(CHANNELS).map(([k, c]) => ({ value: k, label: c.label })), v.channel, (c) => { v.channel = c; changed(); build(); }, 'Canale'));
 
@@ -245,8 +256,8 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
       taxBlock(),
       h('h3', { text: 'Dettagli' }),
       h('div', { class: 'form-grid' },
-        h('div', null, switchRow('Lenzuola', { checked: Boolean(v.linens), onChange: (c) => { v.linens = c ? 1 : 0; changed(); } })),
-        h('div', null, switchRow('Asciugamani', { checked: Boolean(v.towels), onChange: (c) => { v.towels = c ? 1 : 0; changed(); } })),
+        h('div', null, switchRow('Lenzuola', { checked: Boolean(v.linens), onChange: (c) => { v.linens = c ? 1 : 0; v.linens_touched = true; changed(); } })),
+        h('div', null, switchRow('Asciugamani', { checked: Boolean(v.towels), onChange: (c) => { v.towels = c ? 1 : 0; v.linens_touched = true; changed(); } })),
         field('Delega per minorenni', minors, { hint: 'Serve se ci sono minorenni senza un genitore' }),
         field('Note', notes, { full: true }),
       ),
@@ -308,7 +319,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     dlg.setBanner(isNew ? 'Ho ripreso la prenotazione che stavi scrivendo.' : 'Ho ripreso le modifiche che non avevi salvato.',
       h('button', { class: 'btn small', type: 'button', text: isNew ? 'Ricomincia da zero' : 'Annulla le modifiche', onClick: () => {
         clearDraft();
-        v = existing ? { ...existing } : EMPTY(ui.houseId);
+        v = existing ? { ...existing } : EMPTY(ui.houseId, d.houses);
         initTax();
         dirty = false;
         dlg.setBanner('');

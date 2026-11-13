@@ -10,8 +10,8 @@
 // - Le modifiche non ancora confermate sono copiate sul dispositivo (fino a 72 ore): se l'app si chiude,
 //   si ricarica o la sessione scade, al riavvio ripartono con lo stesso codice (il server non le ripete).
 
-const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [], extras: [], expenses: [], deadlines: [] };
-const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'extras', expense: 'expenses', deadline: 'deadlines' };
+const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [], extras: [], expenses: [], deadlines: [], contracts: [] };
+const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts' };
 const TIMEOUT_MS = 15000;
 const RETRIES = [1000, 3000, 8000];
 const OUTBOX_KEY = 'dh.outbox';
@@ -156,7 +156,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       return false;
     }
     staleRetries = 0;
-    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [], extras: res.extras || [], expenses: res.expenses || [], deadlines: res.deadlines || [] };
+    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [], extras: res.extras || [], expenses: res.expenses || [], deadlines: res.deadlines || [], contracts: res.contracts || [] };
     maxSeenRev = Math.max(maxSeenRev, res.rev);
     emit('data');
     return true;
@@ -226,6 +226,8 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
           continue;
         }
         if (result.record) upsert(entityOf(op.type), result.record);
+        // Operazioni che cambiano anche la prenotazione (es. contratto eliminato: passaggio del check-in tolto).
+        if (result.booking) upsert('booking', result.booking);
         if (op.optimistic) op.before = null;
         emit('data');
         op.resolve(result);
@@ -285,6 +287,12 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     } else load({ force: true });
   }
 
+  /** Aggiunge i record arrivati fuori dalla coda (es. firma del contratto, che si fa solo in linea). */
+  function accept(list) {
+    for (const [entity, record] of list) upsert(entity, record);
+    emit('data');
+  }
+
   return {
     get data() { return data; },
     get status() { return status; },
@@ -296,6 +304,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     retry,
     resume,
     request,
+    accept,
     newId,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };

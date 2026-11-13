@@ -230,3 +230,23 @@ test('copia dei dati: solo l’amministratore, file scaricabile, senza link rise
   assert.equal(data.houses.length, 2);
   assert.ok(Array.isArray(data.audit_log));
 });
+
+test('contratto: la firma passa solo dal suo indirizzo, che accetta richieste più grandi; altrove resta il limite', async () => {
+  const env = await makeEnv();
+  const token = await sign(claims());
+  const viaOps = await call(env, '/api/ops', { token, method: 'POST', body: { opId: crypto.randomUUID(), type: 'contract.sign', payload: {} } });
+  assert.equal(viaOps.status, 400);
+  const big = 'x'.repeat(100 * 1024);
+  const opsBig = await call(env, '/api/ops', { token, method: 'POST', body: { opId: crypto.randomUUID(), type: 'note.add', payload: { text: big } } });
+  assert.equal(opsBig.status, 413);
+  // Sul suo indirizzo 100 KB passano il controllo di dimensione (poi la richiesta è rifiutata perché incompleta).
+  const c = await call(env, '/api/contracts', { token, method: 'POST', body: { opId: crypto.randomUUID(), payload: { id: crypto.randomUUID(), booking_id: crypto.randomUUID(), accepted: true, pad: big } } });
+  assert.equal(c.status, 404);
+  const tooBig = await call(env, '/api/contracts', { token, method: 'POST', body: { opId: crypto.randomUUID(), payload: { pad: 'x'.repeat(500 * 1024) } } });
+  assert.equal(tooBig.status, 413);
+  // Da un altro sito: rifiutata.
+  const cross = await call(env, '/api/contracts', { token, method: 'POST', origin: 'https://altro.example.invalid', body: { opId: crypto.randomUUID(), payload: {} } });
+  assert.equal(cross.status, 403);
+  // Contratto inesistente: 404, non un errore del server.
+  assert.equal((await call(env, `/api/contracts/${crypto.randomUUID()}`, { token })).status, 404);
+});

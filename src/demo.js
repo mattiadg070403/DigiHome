@@ -56,14 +56,21 @@ export function demoTasks(today = todayRome()) {
 export async function loadDemo(db, user) {
   const at = new Date().toISOString();
   const stmts = [
+    db.prepare('DELETE FROM contracts'),
     db.prepare('DELETE FROM booking_extras'),
     db.prepare('DELETE FROM expenses'),
     db.prepare('DELETE FROM deadlines'),
     db.prepare('DELETE FROM booking_notes'),
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM bookings'),
-    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline')"),
+    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline', 'contract')"),
   ];
+  // Dati del contratto inventati, solo dove mancano (quelli scritti in Impostazioni non si toccano).
+  const fake = { landlord_sal: 'M', landlord_name: 'Mario Rossi (prova)', landlord_birth_place: 'Lecce', landlord_birth_date: '1970-01-01',
+    landlord_residence: 'Gallipoli, Via di Prova 1', landlord_role: 'proprietario', city: 'Gallipoli', address: 'Via di Prova n. 1',
+    description: 'piano primo, composta da tre vani, cucina e servizi', cin: 'IT075031C2PROVA0001', advance_pct: 30 };
+  stmts.push(db.prepare(`UPDATE houses SET contract_info = json_patch(?, COALESCE(contract_info, '{}')), version = version + 1, rev = ${REV_NEXT}
+    WHERE json_extract(COALESCE(contract_info, '{}'), '$.landlord_name') IS NULL`).bind(JSON.stringify(fake)));
   for (const b of demoBookings()) {
     const row = {
       id: crypto.randomUUID(), phone: null, arrival_time: null, deposit_cents: 0, deposit_paid: 0, security_cents: 0,

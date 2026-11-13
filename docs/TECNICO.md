@@ -163,3 +163,20 @@ Rimandati alle versioni successive: collegamento iCal con Airbnb/Booking, import
   - casa e soggiorno verificati sul server (il soggiorno deve essere della stessa casa);
   - nessun innerHTML;
   - prove su iPad e telefono senza errori né scorrimento orizzontale.
+
+## Novità della 0.7 (13 novembre 2026): contratto digitale
+
+Solo per le prenotazioni dirette. L'ospite legge e firma sull'iPad; firma anche il locatore; il PDF si crea sul dispositivo e si invia dal menu Condividi (WhatsApp).
+
+- **Dati** (`migrations/0009_contratto.sql`):
+  - `houses.contract_info` (JSON): locatore, immobile, CIN, orari di silenzio, kWh compresi e prezzo, acconto %, contatto privacy, regole della casa. I dati personali del locatore NON sono nel codice: si scrivono in Impostazioni → Case → Dati del contratto. Ai collaboratori arriva solo `contract_ready` (sì/no), mai `contract_info`.
+  - `houses.default_linens/default_towels`: biancheria proposta nelle nuove prenotazioni (Faro Blu lenzuola sì, asciugamani no; Isola Bella tutti e due).
+  - `contracts`: testo firmato (blocchi JSON), dati dell'ospite, due firme JPEG (massimo 120 KB l'una), data e ora, impronta SHA-256, `purge_after`. Un solo contratto valido per prenotazione (indice unico parziale).
+- **Modello del testo** (`public/shared/contract.js`, versione `CONTRACT_TEMPLATE = 1`): dal contratto di Mattia, con le sue modifiche: niente importo totale (rimando alla conferma scritta), solo dirette, nuovo articolo acconto (~30%) non rimborsabile e cancellazione, niente gas, biancheria secondo la prenotazione, tassa di soggiorno sempre a parte, cauzione dalla prenotazione o "non prevista", persone della prenotazione, articolo sulla firma elettronica, informativa privacy in calce. **Da far rivedere una volta a un legale o al commercialista.**
+- **Firma** (`POST /api/contracts`, operazione `contract.sign`): solo in linea, non passa dalla coda delle modifiche (il testo firmato deve essere quello del server in quel momento). Il server ricontrolla tutto (dati dell'ospite maggiorenne, codice fiscale con carattere di controllo, documento, firme JPEG valide, conferma di lettura), ricrea il testo, calcola l'impronta e spunta il passaggio "Contratto firmato" del check-in nella stessa transazione. Limite di 400 KB solo per questo indirizzo; `/api/ops` resta a 64 KB e rifiuta `contract.sign`.
+- **Lettura** (`GET /api/contracts/:id`): l'amministratore sempre; chi l'ha fatto firmare solo nelle 24 ore successive. Nello stato generale ci sono solo i metadati (mai testo, dati o firme). Testo da firmare: `GET /api/bookings/:id/contract-draft`.
+- **Eliminazione** (`contract.delete`, solo amministratore): contenuto svuotato subito, passaggio del check-in tolto, riga cancellata dopo 30 giorni.
+- **Conservazione**: 2 anni dopo la partenza (`KEEP_YEARS`), poi cancellazione automatica nel controllo programmato (`purgeContracts`), con riga nel registro "DigiHome (automatico)".
+- **PDF** (`public/js/pdf.js`): scritto a mano, nessuna libreria; Helvetica WinAnsi (i testi si accettano solo in caratteri latini, le lettere con segni non stampabili diventano semplici), firme come immagini JPEG, nomi sotto le firme, impronta e numero di pagina in ogni pagina. Controllato con qpdf.
+- **Interfaccia** (`public/js/views/contract.js`): passaggio "Contratto firmato" del check-in → finestra con dati dell'ospite, testo con la riga dell'ospite che si aggiorna, conferma di lettura, due riquadri di firma (dito o penna), "Firma e salva". Riquadro "Contratto" nella scheda. "Firmato su carta" come alternativa. Dati e firme non si salvano come bozza sul dispositivo; uscendo con dati scritti chiede conferma.
+- Registro: "Contratto firmato sull'iPad", "Contratto eliminato", "Contratto cancellato (fine del periodo di conservazione)", senza dati personali.

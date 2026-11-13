@@ -11,6 +11,7 @@ import {
 import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
 import { alertActions, waNumber } from './contact.js';
+import { contractPanel, contractOf, openContract } from './contract.js';
 
 function notFound(ctx) {
   return h('div', { class: 'card' }, h('div', { class: 'empty' },
@@ -106,7 +107,8 @@ export function renderDetail(ctx, id) {
       panel('Soldi', h('div', { class: 'stack' }, kv(money), extrasBlock(ctx, b))),
       panel('Contatti', contacts),
       panel('Dettagli', details),
-      panel('Note', notesBlock(ctx, b))),
+      panel('Note', notesBlock(ctx, b)),
+      b.channel === 'diretto' ? contractPanel(ctx, b) : null),
     h('div', { class: 'section' },
       h('div', { class: 'btn-row' }, flows,
         b.stage === 'cancellata'
@@ -273,6 +275,7 @@ const ACTIONS = {
   checkin_step: 'Passaggio del check-in', checkout_step: 'Passaggio del check-out', delete: 'Nota eliminata',
   sync: 'Aggiornata dal calendario', ext_ack: 'Avviso del calendario segnato come visto',
 };
+const CONTRACT_ACTIONS = { sign: 'Contratto firmato sull’iPad', delete: 'Contratto eliminato', purge: 'Contratto cancellato (fine del periodo di conservazione)' };
 const FIELDS = {
   guest_name: 'nome', phone: 'telefono', email: 'email', guests: 'persone', check_in: 'arrivo', check_out: 'partenza',
   arrival_time: 'orario di arrivo', total_cents: 'totale', deposit_cents: 'acconto', deposit_paid: 'acconto ricevuto',
@@ -288,7 +291,9 @@ function historyBlock(ctx, b) {
   const stepTitles = Object.fromEntries([...checkinSteps({ ...b, channel: 'diretto', minors_delegation: 'da_chiedere' }), ...checkoutSteps(b)].map((s) => [s.key, s.title]));
   const show = (list) => {
     holder.replaceChildren(list.length ? h('div', null, list.map((x) => {
-      let what = x.entity === 'note' ? (x.action === 'create' ? 'Nota aggiunta' : x.action === 'restore' ? 'Nota ripristinata' : 'Nota eliminata') : ACTIONS[x.action] || x.action;
+      let what = x.entity === 'note' ? (x.action === 'create' ? 'Nota aggiunta' : x.action === 'restore' ? 'Nota ripristinata' : 'Nota eliminata')
+        : x.entity === 'contract' ? CONTRACT_ACTIONS[x.action] || 'Contratto'
+          : ACTIONS[x.action] || x.action;
       if ((x.action === 'update' || x.action === 'sync') && x.changes) what += `: ${Object.keys(x.changes).map((k) => FIELDS[k] || k).join(', ')}`;
       if (x.action === 'cancel' && x.changes?.motivo) what += ` (${x.changes.motivo[1]})`;
       if ((x.action === 'checkin_step' || x.action === 'checkout_step') && x.changes) {
@@ -339,6 +344,8 @@ export function renderFlow(ctx, id, flow) {
   const deadline = isIn ? bookingAlerts(b, ui.today, [], ctx.clock(b)).find((a) => a.key === 'checkin') : null;
 
   const toggle = (s) => {
+    // Contratto: si apre per leggerlo e firmarlo sull'iPad (o per segnarlo firmato su carta).
+    if (isIn && s.key === 'contratto') { openContract(ctx, store.data.bookings.find((x) => x.id === b.id) || b); return; }
     if (!canEdit) return;
     if (!isIn && s.key === 'cauzione') return;
     const target = !done[s.key];
@@ -386,6 +393,13 @@ export function renderFlow(ctx, id, flow) {
       secNum.dataset.n = String(i + 1);
       return h('div', { class: ['flow-step', isDone && 'done'] }, content[0],
         h('div', { class: 'row-main stack' }, content[1], secNeeded ? securityChoice(ctx, b, sec, updateFinish) : h('span', { class: 'muted small', text: b.security_cents ? `${SECURITY_STATUS[b.security_status]}${b.security_status === 'trattenuta' ? `: ${fmtEuro(b.security_withheld_cents)} (${b.security_note})` : ''}` : 'Nessuna cauzione per questa prenotazione.' })));
+    }
+    if (isIn && s.key === 'contratto') {
+      // Il contratto firmato si può sempre riaprire (per inviarlo), anche a check-in concluso.
+      const signed = contractOf(d, b.id);
+      content[1].append(h('span', { class: 'flow-link', text: signed ? 'Firmato sull’iPad · tocca per inviare il PDF' : isDone ? 'Firmato su carta' : 'Tocca per aprire il contratto da firmare' }));
+      return h('button', { class: ['flow-step', isDone && 'done'], type: 'button', disabled: !canEdit && !signed,
+        onClick: () => toggle(s) }, content);
     }
     return h('button', { class: ['flow-step', isDone && 'done'], type: 'button', disabled: !canEdit,
       attrs: { 'aria-pressed': String(isDone) }, onClick: () => toggle(s) }, content);

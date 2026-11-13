@@ -6,6 +6,9 @@ import { daysBetween, fmtShort, isIsoDate, isTime } from '../public/shared/dates
 import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
 import { checkTaxSettings } from '../public/shared/tax.js';
 import { validateExpense, validateDeadline, nextDue } from '../public/shared/house.js';
+import { CONTRACT_TEMPLATE, buildContract, checkGuest, checkSignature, contractMissing, hashInput, parseContractInfo,
+  purgeDate, sha256Hex, checkContractInfo } from '../public/shared/contract.js';
+import { todayRome } from '../public/shared/dates.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
@@ -47,15 +50,17 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts' };
 
-export async function commit(db, { main, user, opId, entity, entityId, action, changes }) {
+export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
   const at = nowIso();
   const marked = `EXISTS (SELECT 1 FROM ${table} WHERE id = ?
     AND rev = (SELECT value FROM meta WHERE key = 'rev') + 1)`;
   const stmts = [
     main,
+    // Istruzioni collegate (es. spunta del passaggio del check-in): devono controllare da sole il segno.
+    ...also,
     db.prepare(`INSERT INTO audit_log (at, user_email, entity, entity_id, action, changes)
       SELECT ?, ?, ?, ?, ?, ? WHERE ${marked}`)
       .bind(at, user.email, entity, entityId, action, changes ? JSON.stringify(changes) : null, entityId),
@@ -65,7 +70,7 @@ export async function commit(db, { main, user, opId, entity, entityId, action, c
     db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'rev' AND ${marked}`).bind(entityId),
   ];
   const results = await db.batch(stmts);
-  return results[3].meta.changes === 1;
+  return results[results.length - 1].meta.changes === 1;
 }
 
 async function getBooking(db, id) {
@@ -750,7 +755,17 @@ async function houseUpdate(db, user, opId, p) {
     if (!t.ok) throw bad(t.error);
     v.tourist_tax = JSON.stringify(t.value);
   }
+  for (const k of ['default_linens', 'default_towels']) {
+    if (k in c) v[k] = c[k] ? 1 : 0;
+  }
+  if ('contract_info' in c) {
+    const r = checkContractInfo(c.contract_info);
+    if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
+    v.contract_info = JSON.stringify(r.value);
+  }
   const changes = diff(cur, v);
+  // Nel registro non si copiano i dati personali del locatore: solo che i dati del contratto sono cambiati.
+  if (changes.contract_info) changes.contract_info = ['…', 'aggiornati'];
   if (!Object.keys(changes).length) return { record: cur, unchanged: true };
   const cols = Object.keys(changes);
   const main = db.prepare(`UPDATE houses SET ${cols.map((k) => `${k} = ?`).join(', ')}, version = version + 1, rev = ${REV_NEXT},
@@ -758,7 +773,18 @@ async function houseUpdate(db, user, opId, p) {
     .bind(...cols.map((k) => v[k]), nowIso(), user.email, p.id, p.version);
   const done = await commit(db, { main, user, opId, entity: 'house', entityId: p.id, action: 'update', changes });
   if (!done) throw new OpError(409, 'conflict', 'Nel frattempo è stata modificata da un altro dispositivo.');
-  return { record: await getHouse(db, p.id) };
+  return { record: publicHouse(await getHouse(db, p.id), true) };
+}
+
+/**
+ * Casa come la vede l'app: i dati del contratto (con i dati personali del locatore) solo all'amministratore;
+ * a tutti solo se il contratto si può già far firmare.
+ */
+export function publicHouse(house, isAdmin) {
+  const ready = contractMissing(parseContractInfo(house)).length === 0 ? 1 : 0;
+  if (isAdmin) return { ...house, contract_ready: ready };
+  const { contract_info: _c, ...rest } = house;
+  return { ...rest, contract_ready: ready };
 }
 
 /* ------------------------------- Calendari ------------------------------- */
@@ -813,6 +839,146 @@ async function calendarUpdate(db, user, opId, p) {
   return { record: publicCalendar(await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first()) };
 }
 
+/* ------------------------------- Contratti ------------------------------- */
+
+const CONTRACT_STAGES = ['confermata', 'in_casa'];
+
+/** Come l'app vede un contratto nell'elenco generale: solo i dati per sapere se c'è, mai testo, dati o firme. */
+export function contractMeta(c) {
+  return {
+    id: c.id, booking_id: c.booking_id, house_id: c.house_id, template: c.template,
+    check_in: c.check_in, check_out: c.check_out, guests: c.guests,
+    signed_at: c.signed_at, signer_name: c.signer_name, hash: c.hash, purge_after: c.purge_after,
+    deleted: c.deleted, version: c.version, rev: c.rev,
+  };
+}
+
+/** Testo del contratto da mostrare prima della firma (dati dell'ospite ancora da scrivere). */
+export async function contractDraft(db, bookingId) {
+  const b = await getBooking(db, bookingId);
+  if (!b) throw notFound();
+  if (b.channel !== 'diretto') throw bad('Il contratto si fa solo per le prenotazioni dirette.');
+  const house = await getHouse(db, b.house_id);
+  const info = parseContractInfo(house);
+  const missing = contractMissing(info);
+  if (missing.length) return { ready: false, missing };
+  return { ready: true, blocks: buildContract({ house, info, booking: b }) };
+}
+
+async function contractSign(db, user, opId, p) {
+  if (!isId(p.id) || !isId(p.booking_id)) throw bad('Richiesta non valida');
+  if (p.accepted !== true) throw bad('L’ospite deve confermare di aver letto il contratto e l’informativa.');
+  const b = await getBooking(db, p.booking_id);
+  if (!b) throw notFound();
+  if (b.channel !== 'diretto') throw bad('Il contratto si fa solo per le prenotazioni dirette.');
+  if (!CONTRACT_STAGES.includes(b.stage)) throw new OpError(409, 'state', 'Il contratto si firma prima o durante il soggiorno.');
+  const house = await getHouse(db, b.house_id);
+  const info = parseContractInfo(house);
+  const missing = contractMissing(info);
+  if (missing.length) throw new OpError(409, 'contract_info', `Completa i dati del contratto in Impostazioni: ${missing.join(', ')}.`);
+  const g = checkGuest(p.guest, todayRome());
+  if (!g.ok) throw bad(g.error, { errors: { [g.field]: g.error } });
+  const gs = checkSignature(p.guest_sign);
+  if (!gs.ok) throw bad(`Firma dell’ospite: ${gs.error.toLowerCase()}`, { errors: { guest_sign: gs.error } });
+  const hs = checkSignature(p.host_sign);
+  if (!hs.ok) throw bad(`Firma del locatore: ${hs.error.toLowerCase()}`, { errors: { host_sign: hs.error } });
+  if (await db.prepare('SELECT 1 FROM contracts WHERE id = ?').bind(p.id).first()) throw new OpError(409, 'state', 'Contratto già salvato.');
+  const dup = () => new OpError(409, 'state', 'Per questa prenotazione c’è già un contratto firmato.');
+  if (await db.prepare('SELECT 1 FROM contracts WHERE booking_id = ? AND deleted = 0').bind(b.id).first()) throw dup();
+
+  // Il testo lo ricrea il server con i dati di adesso: quello firmato è esattamente questo.
+  const signedAt = nowIso();
+  const row = {
+    id: p.id, template: CONTRACT_TEMPLATE, booking_id: b.id, house_id: house.id,
+    body: JSON.stringify(buildContract({ house, info, booking: b, guest: g.value, signedAt })),
+    guest: JSON.stringify(g.value), guest_sign: p.guest_sign, host_sign: p.host_sign, signed_at: signedAt,
+  };
+  row.hash = await sha256Hex(hashInput(row));
+  Object.assign(row, {
+    check_in: b.check_in, check_out: b.check_out, guests: b.guests,
+    signed_by: user.email, signer_name: user.name || null, purge_after: purgeDate(b.check_out),
+  });
+  const cols = Object.keys(row);
+  const marked = `EXISTS (SELECT 1 FROM contracts WHERE id = ? AND rev = ${REV_NEXT})`;
+  const main = db.prepare(`INSERT INTO contracts (${cols.join(', ')}, created_at, updated_at, updated_by, rev)
+    SELECT ${cols.map(() => '?').join(', ')}, ?, ?, ?, ${REV_NEXT}
+    WHERE NOT EXISTS (SELECT 1 FROM contracts WHERE booking_id = ? AND deleted = 0)
+      AND EXISTS (SELECT 1 FROM bookings WHERE id = ? AND stage IN ('confermata', 'in_casa'))`)
+    .bind(...cols.map((k) => row[k]), signedAt, signedAt, user.email, b.id, b.id);
+  // Firmato il contratto, il passaggio "Contratto firmato" del check-in si spunta da solo.
+  const also = [db.prepare(`UPDATE bookings SET checkin_steps = json_set(checkin_steps, '$.contratto', json('1')),
+      rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND ${marked}`).bind(signedAt, user.email, b.id, p.id)];
+  let done;
+  try {
+    done = await commit(db, { main, also, user, opId, entity: 'contract', entityId: p.id, action: 'sign',
+      changes: { prenotazione: [null, b.id], impronta: [null, row.hash] } });
+  } catch (e) {
+    if (/UNIQUE constraint failed: contracts/.test(String(e && e.message))) throw dup();
+    throw e;
+  }
+  if (!done) {
+    const cur = await getBooking(db, b.id);
+    if (!cur || !CONTRACT_STAGES.includes(cur.stage)) throw new OpError(409, 'state', 'Il contratto si firma prima o durante il soggiorno.');
+    throw dup();
+  }
+  const saved = await db.prepare('SELECT * FROM contracts WHERE id = ?').bind(p.id).first();
+  return { record: contractMeta(saved), booking: await getBooking(db, b.id) };
+}
+
+/** Elimina un contratto (per rifarlo): il contenuto si cancella subito, la riga sparisce dopo 30 giorni. */
+async function contractDelete(db, user, opId, p) {
+  requireAdmin(user);
+  if (!isId(p.id)) throw bad('Richiesta non valida');
+  const cur = await db.prepare('SELECT id, booking_id FROM contracts WHERE id = ? AND deleted = 0').bind(p.id).first();
+  if (!cur) throw notFound();
+  const at = nowIso();
+  const main = db.prepare(`UPDATE contracts SET deleted = 1, body = '[]', guest = '{}', guest_sign = '', host_sign = '', hash = '',
+      purge_after = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND deleted = 0`)
+    .bind(todayPlus(30), at, user.email, p.id);
+  const also = [db.prepare(`UPDATE bookings SET checkin_steps = json_set(checkin_steps, '$.contratto', json('0')),
+      rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND stage IN ('confermata', 'in_casa') AND EXISTS (SELECT 1 FROM contracts WHERE id = ? AND rev = ${REV_NEXT})`)
+    .bind(at, user.email, cur.booking_id, p.id)];
+  const done = await commit(db, { main, also, user, opId, entity: 'contract', entityId: p.id, action: 'delete', changes: { prenotazione: [cur.booking_id, null] } });
+  if (!done) throw notFound();
+  const saved = await db.prepare('SELECT * FROM contracts WHERE id = ?').bind(p.id).first();
+  return { record: contractMeta(saved), booking: await getBooking(db, cur.booking_id) };
+}
+
+function todayPlus(days) {
+  const d = new Date(Date.now() + days * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Contratto completo (per il PDF): l'amministratore sempre, chi l'ha fatto firmare nelle 24 ore successive. */
+export async function readContract(db, user, id) {
+  const c = await db.prepare(`SELECT c.*, h.name AS house_name FROM contracts c JOIN houses h ON h.id = c.house_id
+    WHERE c.id = ? AND c.deleted = 0`).bind(id).first();
+  if (!c) throw notFound();
+  const recent = Date.now() - Date.parse(c.signed_at) < 24 * 60 * 60 * 1000;
+  if (user.role !== 'admin' && !(c.signed_by === user.email && recent)) {
+    throw new OpError(403, 'forbidden', 'Il contratto firmato lo può riaprire solo l’amministratore.');
+  }
+  return { ...contractMeta(c), house_name: c.house_name, body: JSON.parse(c.body), guest: JSON.parse(c.guest),
+    guest_sign: c.guest_sign, host_sign: c.host_sign };
+}
+
+/**
+ * Cancellazione automatica (dal controllo programmato): contratti oltre il periodo di conservazione
+ * ed eliminati da più di 30 giorni. Restituisce quanti contratti validi sono stati cancellati.
+ */
+export async function purgeContracts(db, today = todayRome(), systemEmail = 'sistema') {
+  const expired = "purge_after < ?";
+  const r = await db.batch([
+    db.prepare(`INSERT INTO audit_log (at, user_email, entity, entity_id, action, changes)
+      SELECT ?, ?, 'contract', id, 'purge', json_object('prenotazione', json_array(booking_id, NULL)) FROM contracts WHERE ${expired} AND deleted = 0`)
+      .bind(nowIso(), systemEmail, today),
+    db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'rev' AND EXISTS (SELECT 1 FROM contracts WHERE ${expired} AND deleted = 0)`).bind(today),
+    db.prepare(`DELETE FROM contracts WHERE ${expired}`).bind(today),
+  ]);
+  return r[0].meta.changes;
+}
+
 /* ------------------------------- Smistamento ------------------------------- */
 
 const HANDLERS = {
@@ -852,6 +1018,8 @@ const HANDLERS = {
   'user.add': userAdd,
   'user.update': userUpdate,
   'house.update': houseUpdate,
+  'contract.sign': contractSign,
+  'contract.delete': contractDelete,
 };
 
 export const OP_TYPES = Object.keys(HANDLERS);

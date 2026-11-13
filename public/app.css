@@ -389,3 +389,34 @@ details[open] > summary.group-title::before { content: "▾ "; }
 .row-button .row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .amount { color: var(--ink); font-variant-numeric: tabular-nums; }
 .expense-row, .deadline-row { gap: 12px; }
+
+/* ---------- Contratto ---------- */
+dialog.wide { width: min(920px, calc(100vw - 32px)); }
+.contract-state { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.contract-state.ok { color: var(--ok); }
+.banner.small { font-size: 14px; padding: 8px 12px; }
+.contract-wrap { border: 1px solid var(--line); border-radius: 12px; background: #FCFBF8; }
+.contract-text { max-height: min(52vh, 560px); overflow: auto; padding: 18px 20px; font-size: 15px; line-height: 1.55; color: var(--ink-2); -webkit-overflow-scrolling: touch; }
+.contract-text > * + * { margin-top: 8px; }
+.contract-text .ct-title { text-align: center; font-size: 17px; color: var(--ink); }
+.contract-text .ct-center { text-align: center; font-weight: 700; color: var(--ink); }
+.contract-text .ct-h { margin-top: 16px; font-size: 15px; color: var(--ink); }
+.contract-text .ct-privacy-h { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line); }
+.contract-text .ct-list { margin: 6px 0 0; padding-left: 22px; }
+.contract-text .ct-list li + li { margin-top: 3px; }
+.contract-text .ct-small { font-size: 13.5px; }
+.contract-text .ct-place { margin-top: 14px; }
+.contract-text .ct-guest { background: var(--warn-bg); color: var(--ink); border-radius: 8px; padding: 6px 10px; }
+.accept-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--line-soft); font-weight: 600; cursor: pointer; }
+.accept-row input { width: 22px; height: 22px; margin: 1px 0 0; flex: 0 0 auto; accent-color: var(--house); }
+.sig-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 700px) { .sig-grid { grid-template-columns: minmax(0, 1fr); } }
+.sig { display: flex; flex-direction: column; gap: 6px; }
+.sig-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sig-head .label { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.sig-box { position: relative; }
+.sig-canvas { display: block; width: 100%; height: 190px; background: #fff; border: 2px dashed var(--line); border-radius: 12px;
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: crosshair; }
+.sig-hint { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; color: #B5B1A8; font-size: 18px; pointer-events: none; }
+.sig-hint[hidden] { display: none; }
+.flow-link { display: block; margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--house); }

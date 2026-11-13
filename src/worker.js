@@ -2,7 +2,7 @@
 
 import { authenticate } from './auth.js';
 import { fail, json, secure, text } from './http.js';
-import { OpError, runOp } from './ops.js';
+import { OpError, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
 import { readExport, readHistory, readState } from './state.js';
 import { loadDemo } from './demo.js';
 import { syncAll } from './calendars.js';
@@ -10,19 +10,21 @@ import { APP_VERSION } from '../public/shared/version.js';
 
 export { APP_VERSION };
 const MAX_BODY = 64 * 1024;
+// La firma del contratto porta due immagini: limite più alto solo per quell'indirizzo.
+const MAX_BODY_CONTRACT = 400 * 1024;
 
 function sameOrigin(request, url) {
   const origin = request.headers.get('Origin');
   return origin === url.origin;
 }
 
-async function readJson(request) {
+async function readJson(request, max = MAX_BODY) {
   const type = request.headers.get('Content-Type') || '';
   if (!type.startsWith('application/json')) throw new OpError(415, 'type', 'Formato non valido.');
   const len = Number(request.headers.get('Content-Length') || 0);
-  if (len > MAX_BODY) throw new OpError(413, 'size', 'Richiesta troppo grande.');
+  if (len > max) throw new OpError(413, 'size', 'Richiesta troppo grande.');
   const raw = await request.text();
-  if (raw.length > MAX_BODY) throw new OpError(413, 'size', 'Richiesta troppo grande.');
+  if (raw.length > max) throw new OpError(413, 'size', 'Richiesta troppo grande.');
   try {
     return JSON.parse(raw);
   } catch {
@@ -58,6 +60,15 @@ async function handleApi(request, env, url) {
     }
     const m = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/history$/);
     if (m) return json({ ok: true, history: await readHistory(env.DB, m[1]) });
+    try {
+      const draft = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/contract-draft$/);
+      if (draft) return json({ ok: true, ...(await contractDraft(env.DB, draft[1])) });
+      const c = path.match(/^\/api\/contracts\/([A-Za-z0-9-]{8,64})$/);
+      if (c) return json({ ok: true, contract: await readContract(env.DB, user, c[1]) });
+    } catch (e) {
+      if (e instanceof OpError) return fail(e.status, e.code, e.message, e.extra);
+      throw e;
+    }
     return fail(404, 'not_found', 'Indirizzo sconosciuto.');
   }
 
@@ -66,7 +77,13 @@ async function handleApi(request, env, url) {
     try {
       if (path === '/api/ops') {
         const body = await readJson(request);
+        // La firma del contratto non passa dalla coda delle modifiche: si fa solo in linea, dal suo indirizzo.
+        if (body && body.type === 'contract.sign') return fail(400, 'validation', 'Richiesta non valida.');
         return json(await runOp(env.DB, user, body));
+      }
+      if (path === '/api/contracts') {
+        const body = await readJson(request, MAX_BODY_CONTRACT);
+        return json(await runOp(env.DB, user, { opId: body && body.opId, type: 'contract.sign', payload: body && body.payload }));
       }
       if (path === '/api/log') {
         // Errori imprevisti dell'app: finiscono nei log di Cloudflare (senza email né dati degli ospiti).
@@ -123,5 +140,9 @@ export default {
       const bad = r.filter((x) => !x.ok);
       if (bad.length) console.warn('Calendari non aggiornati', bad.map((x) => `${x.id}: ${x.error}`).join('; '));
     }));
+    // Contratti oltre il periodo di conservazione: si cancellano da soli.
+    ctx.waitUntil(purgeContracts(env.DB, undefined, 'sistema@digihome.invalid').then((n) => {
+      if (n) console.log('Contratti cancellati per fine conservazione', n);
+    }).catch((e) => console.error('Cancellazione contratti non riuscita', e && e.stack ? e.stack : e)));
   },
 };

@@ -405,7 +405,8 @@ dialog.wide { width: min(920px, calc(100vw - 32px)); }
 .contract-text .ct-list { margin: 6px 0 0; padding-left: 22px; }
 .contract-text .ct-list li + li { margin-top: 3px; }
 .contract-text .ct-small { font-size: 13.5px; }
-.contract-text .ct-place { margin-top: 14px; }
+.contract-text .ct-place { margin-top: 14px; font-weight: 700; color: var(--ink); }
+.contract-text strong { color: var(--ink); }
 .contract-text .ct-guest { background: var(--warn-bg); color: var(--ink); border-radius: 8px; padding: 6px 10px; }
 .accept-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--line-soft); font-weight: 600; cursor: pointer; }
 .accept-row input { width: 22px; height: 22px; margin: 1px 0 0; flex: 0 0 auto; accent-color: var(--house); }

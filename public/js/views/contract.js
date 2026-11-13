@@ -228,21 +228,26 @@ function signaturePad(label, onChange) {
   };
 }
 
+/** "testo **grassetto** testo" → nodi di testo e <strong> (mai interpretato come HTML). */
+function rich(text) {
+  return String(text ?? '').split('**').map((part, i) => (i % 2 ? h('strong', { text: part }) : part)).filter((x) => x !== '');
+}
+
 /** Testo del contratto (dal server) con la riga dell'ospite che si aggiorna mentre si scrive. */
 function contractView(blocks, guestEl) {
   let list = null;
   const nodes = [];
   for (const b of blocks) {
     if (b.t !== 'li') list = null;
-    if (b.t === 'title') nodes.push(h('h3', { class: 'ct-title', text: b.text }));
-    else if (b.t === 'center') nodes.push(h('p', { class: 'ct-center', text: b.text }));
-    else if (b.t === 'h' || b.t === 'privacy-h') nodes.push(h('h4', { class: ['ct-h', b.t === 'privacy-h' && 'ct-privacy-h'], text: b.text }));
+    if (b.t === 'title') nodes.push(h('h3', { class: 'ct-title' }, rich(b.text)));
+    else if (b.t === 'center') nodes.push(h('p', { class: 'ct-center' }, rich(b.text)));
+    else if (b.t === 'h' || b.t === 'privacy-h') nodes.push(h('h4', { class: ['ct-h', b.t === 'privacy-h' && 'ct-privacy-h'] }, rich(b.text)));
     else if (b.t === 'guest') nodes.push(guestEl);
     else if (b.t === 'li') {
       if (!list) { list = h('ul', { class: 'ct-list' }); nodes.push(list); }
-      list.append(h('li', { text: b.text }));
+      list.append(h('li', null, rich(b.text)));
     } else if (b.t === 'sign') continue;
-    else nodes.push(h('p', { class: [b.t === 'privacy' && 'ct-small', b.t === 'place' && 'ct-place'], text: b.text }));
+    else nodes.push(h('p', { class: [b.t === 'privacy' && 'ct-small', b.t === 'place' && 'ct-place'] }, rich(b.text)));
   }
   return h('div', { class: 'contract-text', tabindex: '0', attrs: { 'aria-label': 'Testo del contratto' } }, nodes);
 }
@@ -263,7 +268,7 @@ export function signDialog(ctx, b, house) {
   let loadSeq = 0;
 
   const guestEl = h('p', { class: 'ct-guest' });
-  const updateGuest = () => { guestEl.textContent = guestParagraph(g, lang); };
+  const updateGuest = () => { guestEl.replaceChildren(...rich(guestParagraph(g, lang))); };
   updateGuest();
 
   const inputs = {};

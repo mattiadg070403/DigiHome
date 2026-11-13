@@ -322,3 +322,20 @@ test('firma in inglese: lingua salvata, nell’impronta e nel PDF; lingua sconos
   assert.match(s, /Page 1 of/);
   assert.equal((await readState(db, admin)).contracts[0].lang, 'en');
 });
+
+test('grassetto come nel Word: dati del locatore, CIN, orari, cauzione; gli asterischi scritti a mano non rompono il testo', () => {
+  const house = { checkin_time: '14:00', checkout_time: '10:00' };
+  const info = { ...LANDLORD, city: 'Gallipoli', address: 'Via X 1', description: 'piano terra', cin: 'IT075031C200088528', quiet_hours: 'dalle 23 alle 8', kwh_day: 30, kwh_price_cents: 40 };
+  const b = { check_in: '2027-07-10', check_out: '2027-07-17', guests: 4, security_cents: 30000, linens: 1, towels: 0 };
+  for (const lang of ['it', 'en']) {
+    const blocks = buildContract({ house, info, booking: b, guest: { ...GUEST, name: 'Anna **Verdi**' }, signedAt: '2027-07-10T13:05:00Z', lang });
+    const raw = blocks.map((x) => x.text || '').join('\n');
+    assert.match(raw, /\*\*Mario Rossi\*\*/);
+    assert.match(raw, /\*\*(Codice Identificativo Nazionale|National Identification Code) \(CIN\): IT075031C200088528\*\*/);
+    assert.match(raw, /\*\*[^*]*(silenzio|quiet hours)[^*]*\*\*/);
+    assert.match(raw, /\*\*(300 €|€300)\*\*/);
+    // Ogni grassetto si apre e si chiude nello stesso blocco.
+    for (const x of blocks) if (x.text) assert.equal((x.text.match(/\*\*/g) || []).length % 2, 0, x.text);
+  }
+  assert.equal(checkGuest({ ...GUEST, name: 'Anna **Verdi**' }, T).value.name, 'Anna Verdi');
+});

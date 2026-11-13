@@ -95,13 +95,71 @@ function wrap(text, font, size, maxW) {
   return lines.length ? lines : [''];
 }
 
+/** "testo **grassetto** testo" → parole, ognuna fatta di pezzi { t, f } (f = carattere normale o grassetto). */
+function richWords(text, baseFont) {
+  const words = [];
+  let cur = [];
+  String(text).split('**').forEach((part, i) => {
+    const f = i % 2 ? 'F2' : baseFont;
+    for (const ch of part.split(/( +)/)) {
+      if (!ch) continue;
+      if (/^ +$/.test(ch)) { if (cur.length) { words.push(cur); cur = []; } continue; }
+      cur.push({ t: ch, f });
+    }
+  });
+  if (cur.length) words.push(cur);
+  return words;
+}
+
+const piecesWidth = (pieces, size) => pieces.reduce((sum, x) => sum + width(encode(x.t), x.f, size), 0);
+
+/** Come wrap, ma con il grassetto dentro la riga: restituisce righe fatte di parole. */
+function wrapRich(text, font, size, maxW) {
+  const lines = [];
+  let cur = [];
+  let curW = 0;
+  const spaceW = width([32], font, size);
+  const push = () => { if (cur.length) lines.push(cur); cur = []; curW = 0; };
+  for (let word of richWords(text, font)) {
+    // Parola più lunga della riga (es. l'impronta): si spezza.
+    while (word.length === 1 && piecesWidth(word, size) > maxW) {
+      push();
+      const { t, f } = word[0];
+      let cut = t.length;
+      while (cut > 1 && width(encode(t.slice(0, cut)), f, size) > maxW) cut -= 1;
+      lines.push([[{ t: t.slice(0, cut), f }]]);
+      word = [{ t: t.slice(cut), f }];
+    }
+    if (!word[0].t) continue;
+    const ww = piecesWidth(word, size);
+    if (cur.length && curW + spaceW + ww > maxW) push();
+    curW += cur.length ? spaceW + ww : ww;
+    cur.push(word);
+  }
+  push();
+  return lines.length ? lines : [[[{ t: '', f: font }]]];
+}
+
+/** Parole di una riga → pezzi consecutivi con lo stesso carattere (gli spazi restano col carattere precedente). */
+function lineRuns(words) {
+  const runs = [];
+  words.forEach((w, j) => {
+    const pieces = j ? [{ t: ' ', f: runs[runs.length - 1].f }, ...w] : w;
+    for (const x of pieces) {
+      const last = runs[runs.length - 1];
+      if (last && last.f === x.f) last.t += x.t; else runs.push({ ...x });
+    }
+  });
+  return runs;
+}
+
 const STYLE = {
   title: { font: 'F2', size: 13, lead: 17, before: 0, after: 10, align: 'center' },
   center: { font: 'F2', size: 10.5, lead: 14, before: 6, after: 6, align: 'center' },
   h: { font: 'F2', size: 10.5, lead: 14, before: 10, after: 3, align: 'left' },
   p: { font: 'F1', size: 10, lead: 13.4, before: 0, after: 5, align: 'justify' },
   li: { font: 'F1', size: 10, lead: 13.4, before: 0, after: 2.5, align: 'justify', indent: 16 },
-  place: { font: 'F1', size: 10, lead: 13.4, before: 14, after: 6, align: 'left' },
+  place: { font: 'F2', size: 10, lead: 13.4, before: 14, after: 6, align: 'left' },
   'privacy-h': { font: 'F2', size: 9.5, lead: 12.5, before: 0, after: 4, align: 'left' },
   privacy: { font: 'F1', size: 8.6, lead: 11.2, before: 0, after: 3.5, align: 'justify' },
 };
@@ -127,25 +185,23 @@ export function buildPdf(c) {
     const st = STYLE[b.t] || STYLE.p;
     const indent = st.indent || 0;
     const maxW = TEXT_W - indent;
-    const lines = wrap(b.text || '', st.font, st.size, maxW);
+    const lines = wrapRich(b.text || '', st.font, st.size, maxW);
     y -= st.before;
     // Titoli e frasi che introducono un elenco non restano da soli in fondo alla pagina;
     // luogo e data restano sulla stessa pagina delle firme.
-    const keep = b.t === 'h' ? 30 : /:$/.test(b.text || '') ? st.lead * 2 : b.t === 'place' ? SIGN_H : 0;
+    const keep = b.t === 'h' ? 56 : /:(\*\*)?$/.test(b.text || '') ? st.lead * 2 : b.t === 'place' ? SIGN_H : 0;
     ensure(st.lead * Math.min(lines.length, 2) + keep);
-    lines.forEach((line, i) => {
+    lines.forEach((words, i) => {
       ensure(st.lead);
       const base = y - st.size;
-      const lw = width(encode(line), st.font, st.size);
+      const runs = lineRuns(words);
+      const lw = piecesWidth(runs, st.size);
       let x = ML + indent;
       let tw = 0;
       if (st.align === 'center') x = ML + (TEXT_W - lw) / 2;
-      else if (st.align === 'justify' && i < lines.length - 1) {
-        const spaces = (line.match(/ /g) || []).length;
-        if (spaces) tw = Math.min((maxW - lw) / spaces, 6);
-      }
+      else if (st.align === 'justify' && i < lines.length - 1 && words.length > 1) tw = Math.min((maxW - lw) / (words.length - 1), 6);
       if (b.t === 'li' && i === 0) textLine('–', ML + 4, base, st.font, st.size);
-      textLine(line, x, base, st.font, st.size, tw);
+      ops.push(`BT ${tw ? `${num(tw)} Tw ` : ''}${num(x)} ${num(base)} Td ${runs.map((r) => `/${r.f} ${num(st.size)} Tf ${pdfString(encode(r.t))} Tj`).join(' ')}${tw ? ' 0 Tw' : ''} ET`);
       y -= st.lead;
     });
     y -= st.after;

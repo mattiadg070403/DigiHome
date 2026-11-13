@@ -4,6 +4,7 @@
 import { formatItDate, todayRome } from './dates.js';
 
 const BLANK = '____________';
+const bold = (s) => `**${s}**`;
 
 const ROLES_EN = {
   proprietario: 'owner',
@@ -27,13 +28,13 @@ export function guestParagraphEn(g = {}) {
   const sal = g.sal === 'F' ? 'Ms.' : 'Mr.';
   const cf = g.tax_code ? `, Italian tax code ${String(g.tax_code).toUpperCase()}` : '';
   return `${sal} ${val(g.name)}, born in ${val(g.birth_place)} on ${date(g.birth_date)}, residing in ${val(g.residence)}${cf}, `
-    + `identity document no. ${val(String(g.doc_number || '').toUpperCase())}, hereinafter the “Tenant”;`;
+    + `identity document no. ${val(String(g.doc_number || '').toUpperCase())}, hereinafter the ${bold('“Tenant”')};`;
 }
 
 function landlordParagraph(info) {
   const role = ROLES_EN[info.landlord_role] || BLANK;
-  return `${info.landlord_sal === 'F' ? 'Ms.' : 'Mr.'} ${info.landlord_name || BLANK}, born in ${info.landlord_birth_place || BLANK} `
-    + `on ${date(info.landlord_birth_date)}, residing in ${info.landlord_residence || BLANK}, acting as ${role} of the property, hereinafter the “Landlord”;`;
+  return `${info.landlord_sal === 'F' ? 'Ms.' : 'Mr.'} ${bold(info.landlord_name || BLANK)}, born in ${bold(info.landlord_birth_place || BLANK)} `
+    + `on ${bold(date(info.landlord_birth_date))}, residing in ${bold(info.landlord_residence || BLANK)}, acting as ${bold(role)} of the property, hereinafter the ${bold('“Landlord”')};`;
 }
 
 export function privacyNoticeEn(info, keepYears) {
@@ -68,21 +69,21 @@ export function buildContractEn({ house, info, booking: b, guest = null, signedA
   add('center', 'IT IS AGREED AS FOLLOWS.');
 
   art('Subject of the lease');
-  add('p', `The Landlord leases to the Tenant, who accepts, the property located in ${city}, ${info.address || BLANK}, ${description}, fully furnished and equipped.`);
+  add('p', `The Landlord leases to the Tenant, who accepts, the property located in ${bold(`${city}, ${info.address || BLANK}`)}, ${description}, fully furnished and equipped.`);
   add('p', 'The property is let exclusively for tourist purposes, in accordance with current legislation.');
-  add('p', `National Identification Code (CIN): ${info.cin || BLANK}`);
+  add('p', bold(`National Identification Code (CIN): ${info.cin || BLANK}`));
   add('p', 'The Tenant declares that they have received information about the characteristics of the property and accept its state of repair, furnishings and equipment, except for anything reported upon arrival.');
 
   art('Duration');
   add('p', 'The lease has a fixed term:');
-  add('li', `from ${formatItDate(b.check_in)} (check-in from ${house.checkin_time});`);
-  add('li', `to ${formatItDate(b.check_out)} (check-out by ${house.checkout_time}).`);
+  add('li', `${bold(`from ${formatItDate(b.check_in)}`)} (check-in from ${house.checkin_time});`);
+  add('li', `${bold(`to ${formatItDate(b.check_out)}`)} (check-out by ${house.checkout_time}).`);
   add('p', 'On expiry the agreement terminates automatically, without the need for notice. The Tenant undertakes to return the property free of people and belongings by the agreed time.');
   add('p', 'In the event of an unauthorised delay, the Landlord reserves the right to claim compensation for any damage and for documented additional costs arising from the delay, without prejudice to any further right provided by law.');
 
   art('Number of guests');
   add('p', 'The property may be occupied only by the persons indicated in the booking and identified in accordance with the law.');
-  add('p', `Number of occupants indicated in the booking: ${b.guests} ${b.guests === 1 ? 'person' : 'persons'}.`);
+  add('p', bold(`Number of occupants indicated in the booking: ${b.guests} ${b.guests === 1 ? 'person' : 'persons'}.`));
   add('p', 'Overnight stays or use of the property by persons other than those indicated in the booking are not permitted without the Landlord’s prior written authorisation.');
   add('p', 'Any breach constitutes a serious breach of contract and may lead to termination of the agreement in the cases and manner provided by law, without prejudice to the right to compensation for any damage.');
 
@@ -91,13 +92,13 @@ export function buildContractEn({ house, info, booking: b, guest = null, signedA
   [
     'use the property exclusively for tourist purposes;',
     'look after the property, the furnishings and all equipment with due care;',
-    'return the property in the same condition in which it was received, except for normal wear and tear;',
+    `${bold('return the property in the same condition in which it was received, except for normal wear and tear')};`,
     'promptly report any faults, malfunctions or damage;',
     'comply with the building rules and with the rules of good neighbourliness;',
-    quiet ? `respect quiet hours, indicatively ${quiet};` : null,
+    quiet ? `${bold(`respect quiet hours, indicatively ${quiet}`)};` : null,
     'switch off lights, air conditioners and electrical appliances when not needed and before leaving the property;',
     'leave the kitchen tidy, washing the dishes, pots and utensils used during the stay;',
-    `dispose of waste in the appropriate containers according to the separate waste collection rules and schedule of the Municipality of ${city}, without leaving rubbish bags inside the property on departure.`,
+    `${bold(`dispose of waste in the appropriate containers according to the separate waste collection rules and schedule of the Municipality of ${city}`)}, without leaving rubbish bags inside the property on departure.`,
   ].filter(Boolean).forEach((x) => add('li', x));
   add('p', 'The following are prohibited:');
   [
@@ -129,7 +130,7 @@ export function buildContractEn({ house, info, booking: b, guest = null, signedA
 
   art('Advance payment, balance and cancellation');
   add('p', `At the time of booking the Tenant pays an advance payment${info.advance_pct ? ` of approximately ${info.advance_pct}% of the rent` : ''}, in the amount stated in the written confirmation. The balance is due on arrival, unless otherwise agreed in writing between the Parties.`);
-  add('p', 'If the Tenant cancels, at any time, or fails to arrive, the advance payment is retained by the Landlord and is non-refundable.');
+  add('p', `If the Tenant cancels, at any time, or fails to arrive, ${bold('the advance payment is retained by the Landlord and is non-refundable')}.`);
   add('p', 'In the event of late arrival or early departure compared to the agreed dates, the rent remains due in full.');
   add('p', 'If the lease cannot take place for reasons attributable to the Landlord, the advance payment is refunded to the Tenant in full, without prejudice to the provisions of the law.');
 
@@ -142,18 +143,18 @@ export function buildContractEn({ house, info, booking: b, guest = null, signedA
   else if (b.towels) { add('li', 'initial supply of towels.'); add('p', 'Bed linen is not included.'); }
   else add('p', 'Bed linen and towels are not included.');
   if (info.kwh_day) {
-    add('p', `Electricity consumption up to ${info.kwh_day} kWh per day of stay is also included. Any consumption exceeding this threshold will be charged at ${euroEn(info.kwh_price_cents)} per additional kWh.`);
+    add('p', `Electricity consumption up to ${bold(`${info.kwh_day} kWh per day of stay`)} is also included. Any consumption exceeding this threshold will be charged at ${bold(`${euroEn(info.kwh_price_cents)} per additional kWh`)}.`);
     add('p', 'The meter will be read on arrival and on departure by direct reading or photographic record. Any excess will be calculated by multiplying the kWh exceeding the total threshold for the length of the stay by the unit cost indicated above; the amount will be communicated to the Tenant and must be paid at the end of the stay, upon documentation of the readings taken.');
   } else {
     add('p', 'Electricity consumption is also included, within the limits of normal use.');
   }
-  add('p', `The tourist tax is not included in the rent and is payable separately, according to the rates and exemptions set by the Municipality of ${city}.`);
+  add('p', `${bold('The tourist tax is not included in the rent')} and is payable separately, according to the rates and exemptions set by the Municipality of ${city}.`);
 
   art('Security deposit');
   if (b.security_cents > 0) {
-    add('p', `The Tenant pays a security deposit of ${euroEn(b.security_cents)} as a guarantee of the proper fulfilment of the contractual obligations.`);
+    add('p', `The Tenant pays a security deposit of ${bold(euroEn(b.security_cents))} as a guarantee of the proper fulfilment of the contractual obligations.`);
     add('p', 'The deposit will be returned at the end of the stay, after checking the condition of the premises and equipment and compliance with the contractual obligations.');
-    add('p', 'The Landlord may retain all or part of the deposit solely to cover any damage, excess consumption or documented costs attributable to the Tenant, stating the reasons. Should the damage or the sums due exceed the amount of the deposit, the Tenant shall pay the difference.');
+    add('p', 'The Landlord may retain all or part of the deposit solely to cover any damage, excess consumption or documented costs attributable to the Tenant, stating the reasons. **Should the damage or the sums due exceed the amount of the deposit, the Tenant shall pay the difference.**');
     add('p', 'The deposit is not a penalty and does not entail the automatic loss of the entire amount in the event of breaches.');
   } else {
     add('p', 'No security deposit is required for this stay. The Tenant remains liable for any damage, excess consumption or documented costs attributable to them, as provided in this agreement.');
@@ -161,7 +162,7 @@ export function buildContractEn({ house, info, booking: b, guest = null, signedA
 
   art('Damage and faults');
   add('p', 'The Tenant is liable for damage caused to the property, furnishings, appliances, systems and common areas during the stay, except for normal wear and tear.');
-  add('p', 'Any faults, malfunctions or damage already present on arrival must be reported to the Landlord by the day of check-in, preferably with photographs. The Tenant must promptly report any damage occurring during the stay, preventing it from worsening where possible.');
+  add('p', 'Any faults, malfunctions or damage already present on arrival must be reported to the Landlord **by the day of check-in**, preferably **with photographs**. The Tenant must promptly report any damage occurring during the stay, preventing it from worsening where possible.');
 
   art('Access to the property');
   add('p', 'The Landlord, directly or through a person appointed by them, may access the property, with reasonable notice and in agreement with the Tenant, to check any problems, carry out necessary or urgent maintenance and verify the condition of the property.');

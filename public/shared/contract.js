@@ -44,6 +44,8 @@ export function cleanText(input, { multiline = false } = {}) {
   let s = String(input ?? '').normalize('NFC');
   s = multiline ? s.replace(/\r\n?/g, '\n').replace(/[\t\f\v]/g, ' ') : s.replace(/[\r\n\t\f\v]+/g, ' ');
   s = [...s].filter((ch) => !isInvisible(ch.codePointAt(0))).join('');
+  // L'asterisco serve per il grassetto nel testo del contratto (**così**): nei dati scritti a mano non si usa.
+  s = s.replace(/\*/g, '');
   const SIMPLE = { ł: 'l', Ł: 'L', đ: 'd', Đ: 'D', ı: 'i', ħ: 'h', Ħ: 'H', ŧ: 't', Ŧ: 'T' };
   let out = '';
   for (const ch of s) {
@@ -212,6 +214,11 @@ export function checkGuest(input, today = todayRome()) {
 
 const BLANK = '____________';
 
+/** Grassetto nel testo del contratto: **testo** (come nel contratto Word di Mattia). */
+export const bold = (s) => `**${s}**`;
+/** Toglie i segni del grassetto (testo semplice). */
+export const plain = (s) => String(s ?? '').replace(/\*\*/g, '');
+
 function gender(sal, m, f) { return sal === 'F' ? f : m; }
 
 /** Riga del conduttore (si mostra anche mentre l'ospite scrive i suoi dati). */
@@ -221,14 +228,14 @@ export function guestParagraph(g = {}, lang = 'it') {
   const sal = g.sal === 'F' ? 'La Sig.ra' : 'Il Sig.';
   const cf = g.tax_code ? `, C.F. ${String(g.tax_code).toUpperCase()}` : '';
   return `${sal} ${val(g.name)}, ${gender(g.sal, 'nato', 'nata')} a ${val(g.birth_place)} il ${g.birth_date ? formatItDate(g.birth_date) : BLANK}, `
-    + `residente in ${val(g.residence)}${cf}, documento di identità n. ${val(String(g.doc_number || '').toUpperCase())}, di seguito “Conduttore”;`;
+    + `residente in ${val(g.residence)}${cf}, documento di identità n. ${val(String(g.doc_number || '').toUpperCase())}, di seguito ${bold('“Conduttore”')};`;
 }
 
 function landlordParagraph(info) {
   const role = ROLES[info.landlord_role] ? ROLES[info.landlord_role][info.landlord_sal === 'F' ? 1 : 0] : BLANK;
-  return `${info.landlord_sal === 'F' ? 'La Sig.ra' : 'Il Sig.'} ${info.landlord_name || BLANK}, ${gender(info.landlord_sal, 'nato', 'nata')} a ${info.landlord_birth_place || BLANK} `
-    + `il ${info.landlord_birth_date ? formatItDate(info.landlord_birth_date) : BLANK}, residente in ${info.landlord_residence || BLANK}, `
-    + `in qualità di ${role} dell’immobile, di seguito “Locatore”;`;
+  return `${info.landlord_sal === 'F' ? 'La Sig.ra' : 'Il Sig.'} ${bold(info.landlord_name || BLANK)}, ${gender(info.landlord_sal, 'nato', 'nata')} a ${bold(info.landlord_birth_place || BLANK)} `
+    + `il ${bold(info.landlord_birth_date ? formatItDate(info.landlord_birth_date) : BLANK)}, residente in ${bold(info.landlord_residence || BLANK)}, `
+    + `in qualità di ${bold(role)} dell’immobile, di seguito ${bold('“Locatore”')};`;
 }
 
 /** Data e ora italiane di un istante ISO: { date: '13/11/2026', time: '15:42' }. */
@@ -283,21 +290,21 @@ export function buildContract({ house, info, booking: b, guest = null, signedAt 
   add('center', 'SI CONVIENE E SI STIPULA QUANTO SEGUE.');
 
   art('Oggetto della locazione');
-  add('p', `Il Locatore concede in locazione al Conduttore, che accetta, l’unità immobiliare sita in ${city}, ${info.address || BLANK}, ${info.description || BLANK}, completamente arredata e corredata.`);
+  add('p', `Il Locatore concede in locazione al Conduttore, che accetta, l’unità immobiliare sita in ${bold(`${city}, ${info.address || BLANK}`)}, ${info.description || BLANK}, completamente arredata e corredata.`);
   add('p', 'L’immobile viene concesso esclusivamente per finalità turistiche, ai sensi della normativa vigente.');
-  add('p', `Codice Identificativo Nazionale (CIN): ${info.cin || BLANK}`);
+  add('p', bold(`Codice Identificativo Nazionale (CIN): ${info.cin || BLANK}`));
   add('p', 'Il Conduttore dichiara di aver ricevuto informazioni sulle caratteristiche dell’immobile e di accettarne lo stato di manutenzione, gli arredi e le dotazioni presenti, fatto salvo quanto eventualmente segnalato al momento dell’ingresso.');
 
   art('Durata');
   add('p', 'La locazione avrà durata determinata:');
-  add('li', `dal giorno ${formatItDate(b.check_in)} (check-in dalle ore ${house.checkin_time});`);
-  add('li', `al giorno ${formatItDate(b.check_out)} (check-out entro le ore ${house.checkout_time}).`);
+  add('li', `${bold(`dal giorno ${formatItDate(b.check_in)}`)} (check-in dalle ore ${house.checkin_time});`);
+  add('li', `${bold(`al giorno ${formatItDate(b.check_out)}`)} (check-out entro le ore ${house.checkout_time}).`);
   add('p', 'Alla scadenza il contratto cesserà automaticamente, senza necessità di disdetta. Il Conduttore si impegna a riconsegnare l’immobile libero da persone e cose entro l’orario stabilito.');
   add('p', 'In caso di ritardo non preventivamente autorizzato, il Locatore si riserva il diritto di richiedere il risarcimento degli eventuali danni e delle maggiori spese documentabili derivanti dal ritardo, fatto salvo ogni ulteriore diritto previsto dalla legge.');
 
   art('Numero degli ospiti');
   add('p', 'L’immobile potrà essere occupato esclusivamente dalle persone indicate nella prenotazione e identificate secondo le disposizioni di legge.');
-  add('p', `Numero degli occupanti indicati nella prenotazione: ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}.`);
+  add('p', bold(`Numero degli occupanti indicati nella prenotazione: ${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}.`));
   add('p', 'È vietato consentire il pernottamento o l’utilizzo dell’immobile da parte di persone ulteriori rispetto a quelle indicate nella prenotazione, senza la preventiva autorizzazione scritta del Locatore.');
   add('p', 'L’eventuale violazione costituisce grave inadempimento contrattuale e potrà comportare la risoluzione del contratto nei casi e secondo le modalità previste dalla legge, fatto salvo il diritto al risarcimento degli eventuali danni.');
 
@@ -306,13 +313,13 @@ export function buildContract({ house, info, booking: b, guest = null, signedAt 
   [
     'utilizzare l’immobile esclusivamente per finalità turistiche;',
     'custodire con diligenza l’immobile, gli arredi e tutte le dotazioni;',
-    'restituire l’immobile nello stesso stato in cui lo ha ricevuto, salvo il normale deterioramento dovuto all’uso;',
+    `${bold('restituire l’immobile nello stesso stato in cui lo ha ricevuto, salvo il normale deterioramento dovuto all’uso')};`,
     'comunicare tempestivamente eventuali guasti, anomalie o danni;',
     'rispettare il regolamento condominiale e le norme di civile convivenza;',
-    info.quiet_hours ? `rispettare gli orari di silenzio, indicativamente ${info.quiet_hours};` : null,
+    info.quiet_hours ? `${bold(`rispettare gli orari di silenzio, indicativamente ${info.quiet_hours}`)};` : null,
     'spegnere luci, climatizzatori e apparecchi elettrici quando non necessari e prima di lasciare l’immobile;',
     'lasciare la cucina in ordine, provvedendo al lavaggio delle stoviglie, delle pentole e degli utensili utilizzati durante il soggiorno;',
-    `provvedere allo smaltimento dei rifiuti, conferendoli negli appositi contenitori secondo le modalità e il calendario della raccolta differenziata previsti dal Comune di ${city}, evitando di lasciare sacchetti di spazzatura all’interno dell’immobile al momento della partenza.`,
+    `${bold(`provvedere allo smaltimento dei rifiuti, conferendoli negli appositi contenitori secondo le modalità e il calendario della raccolta differenziata previsti dal Comune di ${city}`)}, evitando di lasciare sacchetti di spazzatura all’interno dell’immobile al momento della partenza.`,
   ].filter(Boolean).forEach((x) => add('li', x));
   add('p', 'È vietato:');
   [
@@ -344,7 +351,7 @@ export function buildContract({ house, info, booking: b, guest = null, signedAt 
 
   art('Acconto, saldo e cancellazione');
   add('p', `Al momento della prenotazione il Conduttore versa un acconto${info.advance_pct ? ` pari a circa il ${info.advance_pct}% del corrispettivo` : ''}, nella misura indicata nella conferma scritta. Il saldo è dovuto all’arrivo, salvo diverso accordo scritto tra le Parti.`);
-  add('p', 'In caso di cancellazione da parte del Conduttore, in qualunque momento, o di mancato arrivo, l’acconto versato resta acquisito dal Locatore e non è rimborsabile.');
+  add('p', `In caso di cancellazione da parte del Conduttore, in qualunque momento, o di mancato arrivo, ${bold('l’acconto versato resta acquisito dal Locatore e non è rimborsabile')}.`);
   add('p', 'In caso di arrivo posticipato o di partenza anticipata rispetto alle date concordate, il corrispettivo resta dovuto per intero.');
   add('p', 'Se la locazione non può avere luogo per causa imputabile al Locatore, l’acconto versato è restituito integralmente al Conduttore, fatto salvo quanto previsto dalla legge.');
 
@@ -359,18 +366,18 @@ export function buildContract({ house, info, booking: b, guest = null, signedAt 
   else notIncluded.push('la biancheria da letto e gli asciugamani');
   if (notIncluded.length) add('p', `Non sono compresi ${notIncluded.join(' e ')}.`);
   if (info.kwh_day) {
-    add('p', `Sono inoltre compresi i consumi di energia elettrica fino a ${info.kwh_day} kWh per ogni giorno di soggiorno. Gli eventuali consumi eccedenti tale soglia saranno addebitati al costo di ${fmtEuro(info.kwh_price_cents)} per ogni kWh eccedente.`);
+    add('p', `Sono inoltre compresi i consumi di energia elettrica fino a ${bold(`${info.kwh_day} kWh per ogni giorno di soggiorno`)}. Gli eventuali consumi eccedenti tale soglia saranno addebitati al costo di ${bold(`${fmtEuro(info.kwh_price_cents)} per ogni kWh eccedente`)}.`);
     add('p', 'La lettura del contatore sarà effettuata all’arrivo e alla partenza mediante rilevazione diretta o documentazione fotografica. L’eventuale eccedenza sarà calcolata moltiplicando i kWh eccedenti la soglia complessiva prevista per la durata del soggiorno per il costo unitario sopra indicato; il relativo importo sarà comunicato al Conduttore e dovrà essere corrisposto al termine del soggiorno, previa documentazione delle letture effettuate.');
   } else {
     add('p', 'Sono inoltre compresi i consumi di energia elettrica, nei limiti di un uso normale.');
   }
-  add('p', `La tassa di soggiorno non è compresa nel corrispettivo ed è dovuta a parte, secondo le tariffe e le esenzioni stabilite dal Comune di ${city}.`);
+  add('p', `${bold('La tassa di soggiorno non è compresa nel corrispettivo')} ed è dovuta a parte, secondo le tariffe e le esenzioni stabilite dal Comune di ${city}.`);
 
   art('Deposito cauzionale');
   if (b.security_cents > 0) {
-    add('p', `Il Conduttore versa a titolo di deposito cauzionale la somma di ${fmtEuro(b.security_cents)}, a garanzia dell’esatto adempimento delle obbligazioni contrattuali.`);
+    add('p', `Il Conduttore versa a titolo di deposito cauzionale la somma di ${bold(fmtEuro(b.security_cents))}, a garanzia dell’esatto adempimento delle obbligazioni contrattuali.`);
     add('p', 'La cauzione sarà restituita al termine del soggiorno, previa verifica dello stato dei locali e delle dotazioni e del rispetto degli obblighi contrattuali.');
-    add('p', 'Il Locatore potrà trattenere totalmente o parzialmente la cauzione esclusivamente per compensare eventuali danni, consumi eccedenti o spese documentabili imputabili al Conduttore, comunicandone le relative motivazioni. Qualora il danno o le somme dovute siano superiori all’importo della cauzione, il Conduttore sarà tenuto a corrispondere la differenza.');
+    add('p', 'Il Locatore potrà trattenere totalmente o parzialmente la cauzione esclusivamente per compensare eventuali danni, consumi eccedenti o spese documentabili imputabili al Conduttore, comunicandone le relative motivazioni. **Qualora il danno o le somme dovute siano superiori all’importo della cauzione, il Conduttore sarà tenuto a corrispondere la differenza.**');
     add('p', 'La cauzione non costituisce penale e non comporta la perdita automatica dell’intero importo in caso di inadempimenti.');
   } else {
     add('p', 'Per il presente soggiorno non è previsto il versamento di un deposito cauzionale. Resta ferma la responsabilità del Conduttore per eventuali danni, consumi eccedenti o spese documentabili a lui imputabili, secondo quanto previsto dal presente contratto.');
@@ -378,7 +385,7 @@ export function buildContract({ house, info, booking: b, guest = null, signedAt 
 
   art('Danni e anomalie');
   add('p', 'Il Conduttore risponde dei danni arrecati all’immobile, agli arredi, agli elettrodomestici, agli impianti e alle parti comuni durante il soggiorno, salvo il normale deterioramento dovuto all’uso.');
-  add('p', 'Eventuali anomalie, guasti o danni già presenti all’arrivo dovranno essere comunicati al Locatore entro il giorno del check-in, preferibilmente mediante documentazione fotografica. Il Conduttore dovrà comunicare tempestivamente eventuali danni verificatisi durante il soggiorno, evitando, ove possibile, che possano aggravarsi.');
+  add('p', 'Eventuali anomalie, guasti o danni già presenti all’arrivo dovranno essere comunicati al Locatore **entro il giorno del check-in**, preferibilmente **mediante documentazione fotografica**. Il Conduttore dovrà comunicare tempestivamente eventuali danni verificatisi durante il soggiorno, evitando, ove possibile, che possano aggravarsi.');
 
   art('Accesso all’immobile');
   add('p', 'Il Locatore, direttamente o tramite un proprio incaricato, potrà accedere all’immobile, previo ragionevole preavviso e accordo con il Conduttore, per verificare eventuali problematiche, effettuare interventi di manutenzione necessari o urgenti e accertare lo stato dell’immobile.');
@@ -412,7 +419,7 @@ export function buildContract({ house, info, booking: b, guest = null, signedAt 
 
 /** Testo semplice del contratto (per l'impronta e i controlli). */
 export function contractText(blocks) {
-  return blocks.map((x) => (x.t === 'li' ? `- ${x.text}` : x.t === 'sign' ? `Firme: ${x.host} / ${x.guest}` : x.text ?? '')).join('\n');
+  return blocks.map((x) => plain(x.t === 'li' ? `- ${x.text}` : x.t === 'sign' ? `Firme: ${x.host} / ${x.guest}` : x.text ?? '')).join('\n');
 }
 
 /**

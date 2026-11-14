@@ -9,6 +9,7 @@ import { validateExpense, validateDeadline, nextDue } from '../public/shared/hou
 import { CONTRACT_TEMPLATE, LANGS, buildContract, checkGuest, checkSignature, contractMissing, hashInput, parseContractInfo,
   purgeDate, sha256Hex, checkContractInfo } from '../public/shared/contract.js';
 import { todayRome } from '../public/shared/dates.js';
+import { checkQuoteSettings } from '../public/shared/quote.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
@@ -758,6 +759,11 @@ async function houseUpdate(db, user, opId, p) {
   for (const k of ['default_linens', 'default_towels']) {
     if (k in c) v[k] = c[k] ? 1 : 0;
   }
+  if ('quote_settings' in c) {
+    const r = checkQuoteSettings(c.quote_settings);
+    if (!r.ok) throw bad(r.error, { errors: { [r.field || 'quote_settings']: r.error } });
+    v.quote_settings = JSON.stringify(r.value);
+  }
   if ('contract_info' in c) {
     const r = checkContractInfo(c.contract_info);
     if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
@@ -783,8 +789,13 @@ async function houseUpdate(db, user, opId, p) {
 export function publicHouse(house, isAdmin) {
   const ready = contractMissing(parseContractInfo(house)).length === 0 ? 1 : 0;
   if (isAdmin) return { ...house, contract_ready: ready };
+  // Ai collaboratori: dell'immobile solo le regole che servono per i preventivi (luce compresa, comune, acconto),
+  // mai i dati personali del locatore.
   const { contract_info: _c, ...rest } = house;
-  return { ...rest, contract_ready: ready };
+  const info = parseContractInfo(house);
+  const shared = {};
+  for (const k of ['city', 'kwh_day', 'kwh_price_cents', 'advance_pct']) if (info[k] !== undefined) shared[k] = info[k];
+  return { ...rest, contract_ready: ready, contract_public: JSON.stringify(shared) };
 }
 
 /* ------------------------------- Calendari ------------------------------- */

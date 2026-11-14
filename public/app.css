@@ -80,6 +80,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .tabbar .nav-btn { flex: 1; flex-direction: column; gap: 2px; justify-content: center; font-size: 12px; min-height: 52px; padding: 0 4px; text-align: center; }
   .tabbar .nav-btn[aria-current="page"] { background: transparent; color: var(--ink); }
   .tabbar .nav-btn:not([aria-current="page"]) { color: var(--muted); }
+  .tabbar .nav-btn { min-width: 0; }
+  .tabbar .nav-btn span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 /* ---------- Indicatore di salvataggio ---------- */
@@ -421,3 +423,25 @@ dialog.wide { width: min(920px, calc(100vw - 32px)); }
 .sig-hint { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; color: #B5B1A8; font-size: 18px; pointer-events: none; }
 .sig-hint[hidden] { display: none; }
 .flow-link { display: block; margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--house); }
+
+/* ---------- Preventivo ---------- */
+.quote-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .quote-grid { grid-template-columns: minmax(0, 1fr); } }
+.quote-msg-wrap { margin-top: 20px; }
+.quote-check { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; }
+.quote-check svg { flex: 0 0 auto; margin-top: 2px; }
+.quote-check.ok { color: var(--ok); }
+.quote-check.warn { color: var(--warn); }
+.quote-check.bad { color: var(--bad); }
+.quote-suggest { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.quote-big { font-size: 30px; font-weight: 800; color: var(--house); letter-spacing: -0.01em; }
+.quote-why { margin: 0; padding-left: 20px; color: var(--ink-2); }
+.quote-why li + li { margin-top: 2px; }
+.quote-hist summary { cursor: pointer; font-weight: 600; color: var(--house); }
+.quote-hist ul { margin: 8px 0; padding-left: 20px; }
+.quote-hist li + li { margin-top: 4px; }
+.quote-msg { font-family: inherit; font-size: 15px; line-height: 1.5; min-height: 320px; resize: vertical; }
+
+/* Telefoni stretti: cinque voci nella barra in basso. */
+@media (max-width: 380px) { .tabbar .nav-btn { font-size: 10.5px; padding: 0 1px; } }
+@media (max-width: 340px) { .tabbar .nav-btn { font-size: 9.5px; letter-spacing: -0.01em; } }

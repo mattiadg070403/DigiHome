@@ -149,7 +149,7 @@ test('dati di prova: solo se abilitati e solo per l’amministratore', async () 
   assert.equal((await call(on, '/api/demo', { token: tc, method: 'POST', body: {} })).status, 403);
   assert.equal((await call(on, '/api/demo', { token: t, method: 'POST', body: {} })).status, 200);
   const st = await (await call(on, '/api/state', { token: t })).json();
-  assert.equal(st.bookings.length, 9);
+  assert.equal(st.bookings.length, 9 + 36); // 9 di questi giorni + 36 soggiorni degli ultimi due anni (storico dei preventivi)
   assert.ok(st.bookings.every((b) => b.guest_name.endsWith('(prova)')));
 });
 

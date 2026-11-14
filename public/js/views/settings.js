@@ -8,6 +8,7 @@ import { checkCalendarUrl } from '../../shared/calendar.js';
 import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
 import { parseEuro, centsToInput } from '../../shared/money.js';
 import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '../../shared/contract.js';
+import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -330,7 +331,9 @@ function housesSection(ctx) {
           h('button', { class: 'btn small', type: 'button', onClick: () => houseDialog(ctx, x) },
             icon('edit', { size: 16 }), 'Modifica impostazioni'),
           h('button', { class: 'btn small', type: 'button', onClick: () => contractInfoDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Dati del contratto')),
+            icon('edit', { size: 16 }), 'Dati del contratto'),
+          h('button', { class: 'btn small', type: 'button', onClick: () => quoteSettingsDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'Preventivi')),
         x.contract_ready ? null : h('div', { class: 'muted small', text: 'Contratto: mancano alcuni dati, completali per farlo firmare.' }))))));
 }
 
@@ -488,6 +491,94 @@ function contractInfoDialog(ctx, house) {
       dlg.close();
     } catch (e) {
       if (e.body?.errors) for (const [k, msg] of Object.entries(e.body.errors)) if (controls[k]) setFieldError(controls[k], msg);
+      dlg.setBanner(e.message);
+    }
+  }
+}
+
+/* --------------------------- Preventivi --------------------------- */
+
+/** Regole dei preventivi di una casa: validità, cauzione, notti minime, correzioni del prezzo, extra, nota finale. */
+function quoteSettingsDialog(ctx, house) {
+  const cur = quoteSettings(house);
+  const num = (value, label, attrs = {}) => h('input', { class: 'input', inputmode: 'numeric', value: value === null || value === undefined ? '' : String(value), attrs: { 'aria-label': label }, ...attrs });
+  const validity = num(cur.validity_days, 'Validità in giorni');
+  const security = h('input', { class: 'input', inputmode: 'decimal', value: centsToInput(cur.security_cents) });
+  const windowDays = num(cur.window_days, 'Giorni prima e dopo');
+  const minInputs = cur.min_nights.map((v, i) => num(v || '', `Notti minime a ${MONTHS_SHORT[i]}`, { placeholder: '–' }));
+  const minGrid = h('div', { class: 'tax-grid' }, minInputs.map((el, i) => h('label', { class: 'tax-month' }, h('span', { text: MONTHS_SHORT[i] }), el)));
+  const long = [0, 1].map((i) => ({ nights: num(cur.long_stay[i]?.nights ?? '', 'Da quante notti'), pct: num(cur.long_stay[i]?.pct ?? '', 'Sconto in percentuale') }));
+  const early = { days: num(cur.early.days || '', 'Giorni di anticipo'), pct: num(cur.early.pct || '', 'Aumento in percentuale') };
+  const last = { days: num(cur.last_minute.days || '', 'Giorni prima dell’arrivo'), pct: num(cur.last_minute.pct || '', 'Sconto in percentuale') };
+  const note = h('textarea', { class: 'input', rows: '2', value: cur.note });
+  const noteEn = h('textarea', { class: 'input', rows: '2', value: cur.note_en });
+
+  const extras = cur.extras.map((x) => ({ ...x, price: centsToInput(x.price_cents) }));
+  const extrasBox = h('div', { class: 'stack' });
+  const drawExtras = () => extrasBox.replaceChildren(
+    ...extras.map((x, i) => h('div', { class: 'form-grid extra-row' },
+      field('Nome', h('input', { class: 'input', value: x.label, onInput: (e) => { x.label = e.target.value; } })),
+      field('Nome in inglese', h('input', { class: 'input', value: x.label_en || '', onInput: (e) => { x.label_en = e.target.value; } })),
+      field('Prezzo (€)', h('input', { class: 'input', inputmode: 'decimal', value: x.price, onInput: (e) => { x.price = e.target.value; } })),
+      field('Si conta', h('select', { class: 'input', onChange: (e) => { x.unit = e.target.value; } },
+        Object.entries(EXTRA_UNITS).map(([k, u]) => h('option', { value: k, text: u.it, selected: x.unit === k })))),
+      h('div', { class: 'field full' }, h('button', { class: 'btn ghost danger small', type: 'button', text: `Togli ${x.label || 'questo extra'}`, onClick: () => { extras.splice(i, 1); drawExtras(); } })))),
+    extras.length < 10 ? h('div', null, h('button', { class: 'btn small', type: 'button', onClick: () => { extras.push({ label: '', label_en: '', price: '', unit: 'soggiorno' }); drawExtras(); } }, icon('plus', { size: 16 }), 'Aggiungi un extra')) : null);
+  drawExtras();
+
+  const pair = (a, b, la, lb) => h('div', { class: 'form-grid' }, field(la, a), field(lb, b));
+  const dlg = openDialog({
+    title: `Preventivi · ${house.name}`,
+    content: h('div', { class: 'stack' },
+      h('div', { class: 'form-grid' },
+        field('Validità del preventivo (giorni)', validity),
+        field('Cauzione proposta (€)', security, { hint: 'Si può cambiare in ogni preventivo' })),
+      h('h3', { text: 'Notti minime per mese' }),
+      h('p', { class: 'muted small', text: 'Solo un avviso nel preventivo, non un blocco. Vuoto = nessun minimo.' }),
+      minGrid,
+      h('h3', { text: 'Prezzo consigliato' }),
+      field('Periodo simile: giorni prima e dopo le date', windowDays, { hint: 'La media usa i soggiorni degli anni passati in queste date ± questi giorni' }),
+      h('p', { class: 'muted small', text: 'Correzioni automatiche (vuoto o 0 = nessuna):' }),
+      pair(long[0].nights, long[0].pct, 'Soggiorno lungo: da notti', 'sconto %'),
+      pair(long[1].nights, long[1].pct, 'Soggiorno più lungo: da notti', 'sconto %'),
+      pair(early.days, early.pct, 'Richiesta anticipata: almeno giorni prima', 'aumento %'),
+      pair(last.days, last.pct, 'Ultimo minuto: entro giorni dall’arrivo', 'sconto %'),
+      h('h3', { text: 'Extra' }),
+      extrasBox,
+      h('h3', { text: 'Nota in fondo al messaggio' }),
+      h('div', { class: 'form-grid' }, field('In italiano', note, { full: true, hint: 'Facoltativa, es. "Per qualsiasi domanda sono a disposizione."' }), field('In inglese', noteEn, { full: true }))),
+    actions: [
+      h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
+      h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
+    ],
+  });
+
+  async function save() {
+    dlg.setBanner('');
+    const n = (el) => (String(el.value).trim() === '' ? 0 : Number(String(el.value).trim()));
+    const sec = parseEuro(security.value);
+    if (sec === null) { setFieldError(security, 'Importo non valido'); dlg.setBanner('Controlla la cauzione.'); return; }
+    const ex = [];
+    for (const x of extras) {
+      if (!String(x.label).trim() && !String(x.price).trim()) continue;
+      const c = parseEuro(x.price);
+      if (c === null) { dlg.setBanner(`Prezzo non valido per ${x.label || 'un extra'}.`); return; }
+      ex.push({ id: x.id, label: x.label, label_en: x.label_en, price_cents: c, unit: x.unit });
+    }
+    const input = {
+      validity_days: n(validity), security_cents: sec, window_days: n(windowDays),
+      min_nights: minInputs.map(n),
+      long_stay: long.map((x) => ({ nights: n(x.nights), pct: n(x.pct) })).filter((x) => x.nights || x.pct),
+      early: { days: n(early.days), pct: n(early.pct) },
+      last_minute: { days: n(last.days), pct: n(last.pct) },
+      extras: ex, note: note.value, note_en: noteEn.value,
+    };
+    const r = checkQuoteSettings(input);
+    if (!r.ok) { dlg.setBanner(r.error); return; }
+    try {
+      await ctx.act('house.update', { id: house.id, version: house.version, changes: { quote_settings: r.value } }, { message: 'Impostazioni dei preventivi salvate' });
+      dlg.close();
+    } catch (e) {
       dlg.setBanner(e.message);
     }
   }

@@ -53,6 +53,7 @@ const ICONS = {
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 20a8 8 0 0 1 16 0',
   home: 'M3 11l9-7 9 7v9H3z',
   folder: 'M3 6h6l2 2h10v11H3z',
+  euro: 'M17 6.5A7 7 0 1 0 17 17.5M4 10h9M4 14h9',
 };
 
 export function icon(name, { size = 18, label } = {}) {

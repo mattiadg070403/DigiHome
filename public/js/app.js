@@ -10,6 +10,7 @@ import { renderBookings } from './views/bookings.js';
 import { renderDetail, renderFlow } from './views/detail.js';
 import { renderSettings } from './views/settings.js';
 import { renderArchive } from './views/archive.js';
+import { renderQuote } from './views/quote.js';
 
 const REFRESH_MS = 30000;
 
@@ -47,6 +48,7 @@ function parseRoute() {
   const parts = (location.hash.replace(/^#\/?/, '') || 'oggi').split('/').map(decodeURIComponent);
   if (parts[0] === 'prenotazioni') return { name: 'bookings', params: {} };
   if (parts[0] === 'impostazioni') return { name: 'settings', params: {} };
+  if (parts[0] === 'preventivo') return { name: 'quote', params: {} };
   if (parts[0] === 'archivio') return { name: 'archive', params: { tab: parts[1] || null, house: parts[2] || null } };
   if (parts[0] === 'p' && parts[1]) {
     if (parts[2] === 'checkin' || parts[2] === 'checkout') return { name: 'flow', params: { id: parts[1], flow: parts[2] } };
@@ -147,6 +149,7 @@ function buildChip() {
 const NAV = [
   { name: 'today', path: 'oggi', label: 'Oggi', icon: 'home' },
   { name: 'bookings', path: 'prenotazioni', label: 'Prenotazioni', icon: 'calendar' },
+  { name: 'quote', path: 'preventivo', label: 'Preventivo', icon: 'euro' },
   { name: 'archive', path: 'archivio', label: 'Archivio', icon: 'folder' },
   { name: 'settings', path: 'impostazioni', label: 'Impostazioni', icon: 'user' },
 ];
@@ -248,6 +251,7 @@ function render() {
     case 'flow': node = renderFlow(ctx, ui.route.params.id, ui.route.params.flow); break;
     case 'settings': node = renderSettings(ctx); break;
     case 'archive': node = renderArchive(ctx); break;
+    case 'quote': node = renderQuote(ctx); break;
     default: node = renderToday(ctx);
   }
   shell.view.replaceChildren(node);

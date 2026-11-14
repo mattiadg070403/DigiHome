@@ -41,7 +41,31 @@ export function demoBookings(today = todayRome()) {
     { house_id: 'faro-blu', channel: 'airbnb', guest_name: 'Sophie Weber (prova)', guests: 6,
       check_in: d(-9), check_out: d(-2), total_cents: 168000, security_cents: 30000, security_status: 'restituita', stage: 'partita',
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi', 'cauzione']) },
+    ...demoHistory(today),
   ];
+}
+
+/**
+ * Soggiorni estivi degli ultimi due anni (inventati), per vedere il prezzo consigliato dei preventivi.
+ * Chiusi, con il prezzo; a notte: Faro Blu ~200-320 €, Isola Bella ~140-230 € (l'anno prima un po' meno).
+ */
+function demoHistory(today) {
+  const y0 = Number(today.slice(0, 4));
+  const out = [];
+  const weeks = [['06-06', 200], ['06-20', 220], ['07-04', 260], ['07-18', 280], ['08-01', 310], ['08-15', 330], ['08-22', 300], ['09-05', 220], ['09-19', 190]];
+  const channels = ['diretto', 'airbnb', 'booking'];
+  for (const back of [1, 2]) {
+    const y = y0 - back;
+    weeks.forEach(([md, eur], i) => {
+      for (const [house, factor, guests] of [['faro-blu', 1, 8], ['isola-bella', 0.7, 4]]) {
+        const ci = `${y}-${md}`;
+        const perNight = Math.round(eur * factor * (back === 2 ? 0.95 : 1)) * 100;
+        out.push({ house_id: house, channel: channels[(i + back) % 3], guest_name: `Storico ${y} (prova)`, guests,
+          check_in: ci, check_out: addDays(ci, 7), total_cents: perNight * 7, security_cents: 0, security_status: 'nessuna', stage: 'chiusa', review_ok: 1 });
+      }
+    });
+  }
+  return out;
 }
 
 export function demoTasks(today = todayRome()) {

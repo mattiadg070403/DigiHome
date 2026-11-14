@@ -460,3 +460,17 @@ dialog.wide { width: min(920px, calc(100vw - 32px)); }
   .rp-months { grid-template-columns: minmax(0, 1fr); }
   .rp-second { display: none; }
 }
+
+/* Contatore della luce */
+.meter-bands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.meter-total { font-weight: 700; color: var(--ink); }
+.meter-due { font-weight: 700; color: var(--warn); }
+.meter-group + .meter-group { padding-top: 12px; border-top: 1px solid var(--line); }
+.banner.ok { background: var(--ok-bg); color: var(--ok); }
+
+/* Importazione */
+.import-list { border: 1px solid var(--line); border-radius: 12px; max-height: 320px; overflow: auto; }
+.import-row { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 12px; font-size: 14px; }
+.import-row + .import-row { border-top: 1px solid var(--line-soft); }
+@media (max-width: 600px) { .import-row { grid-template-columns: minmax(0, 1fr) auto; } .import-row > span:first-child { display: none; } }
+.file-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }

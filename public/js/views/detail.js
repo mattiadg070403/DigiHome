@@ -12,6 +12,8 @@ import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
 import { alertActions, waNumber } from './contact.js';
 import { contractPanel, contractOf, openContract } from './contract.js';
+import { meterSummary, openMeter } from './meter.js';
+import { fmtKwh } from '../../shared/meter.js';
 
 function notFound(ctx) {
   return h('div', { class: 'card' }, h('div', { class: 'empty' },
@@ -92,6 +94,7 @@ export function renderDetail(ctx, id) {
     ['Lenzuola', b.linens ? 'sì' : 'no'],
     ['Asciugamani', b.towels ? 'sì' : 'no'],
     ['Delega minorenni', MINORS[b.minors_delegation]],
+    meterSummary(b, house) ? ['Contatore della luce', meterSummary(b, house)] : null,
     b.stage === 'chiusa' ? ['Recensione', b.review_ok ? 'si può chiedere' : 'meglio di no'] : null,
     b.notes ? ['Note della prenotazione', b.notes] : null,
   ].filter(Boolean));
@@ -346,6 +349,8 @@ export function renderFlow(ctx, id, flow) {
   const toggle = (s) => {
     // Contratto: si apre per leggerlo e firmarlo sull'iPad (o per segnarlo firmato su carta).
     if (isIn && s.key === 'contratto') { openContract(ctx, store.data.bookings.find((x) => x.id === b.id) || b); return; }
+    // Contatore della luce: si apre la finestra della lettura (il passaggio si spunta salvando).
+    if (s.key === 'contatori') { if (canEdit) openMeter(ctx, store.data.bookings.find((x) => x.id === b.id) || b, isIn ? 'start' : 'end'); return; }
     if (!canEdit) return;
     if (!isIn && s.key === 'cauzione') return;
     const target = !done[s.key];
@@ -393,6 +398,12 @@ export function renderFlow(ctx, id, flow) {
       secNum.dataset.n = String(i + 1);
       return h('div', { class: ['flow-step', isDone && 'done'] }, content[0],
         h('div', { class: 'row-main stack' }, content[1], secNeeded ? securityChoice(ctx, b, sec, updateFinish) : h('span', { class: 'muted small', text: b.security_cents ? `${SECURITY_STATUS[b.security_status]}${b.security_status === 'trattenuta' ? `: ${fmtEuro(b.security_withheld_cents)} (${b.security_note})` : ''}` : 'Nessuna cauzione per questa prenotazione.' })));
+    }
+    if (s.key === 'contatori') {
+      const reading = isIn ? b.meter_start : b.meter_end;
+      content[1].append(h('span', { class: 'flow-link', text: Number.isInteger(reading) ? `Lettura: ${fmtKwh(reading)} kWh · tocca per correggerla o inviarla` : 'Tocca per scrivere la lettura' }));
+      if (!isIn && meterSummary(b, house)) content[1].append(h('span', { class: 'flow-help', text: meterSummary(b, house) }));
+      return h('button', { class: ['flow-step', isDone && 'done'], type: 'button', disabled: !canEdit, onClick: () => toggle(s) }, content);
     }
     if (isIn && s.key === 'contratto') {
       // Il contratto firmato si può sempre riaprire (per inviarlo), anche a check-in concluso.

@@ -30,11 +30,12 @@ export const MINORS = {
 /** Passaggi del check-in. `required`: senza questo non si conclude. */
 /* ---------- Extra (soldi a parte: tassa di soggiorno, supplementi) ---------- */
 
-export const EXTRA_KINDS = { tassa_soggiorno: 'Tassa di soggiorno', altro: 'Altro' };
+export const EXTRA_KINDS = { tassa_soggiorno: 'Tassa di soggiorno', altro: 'Altro', luce: 'Luce' };
 
 /** Nome da mostrare per un extra. */
 export function extraLabel(x) {
   if (x.kind === 'altro') return x.label || 'Extra';
+  if (x.kind === 'luce') return `Luce: ${x.label || 'kWh in più'}`;
   if (x.kind === 'tassa_soggiorno') {
     if (x.amount_cents === 0) return 'Tassa di soggiorno (esenti)';
     return `Tassa di soggiorno${Number.isInteger(x.persons) ? ` (${x.persons} ${x.persons === 1 ? 'persona' : 'persone'})` : ''}`;
@@ -88,8 +89,8 @@ export function checkinSteps(b, opt = {}) {
     });
   }
   steps.push({
-    key: 'contatori', required: false, title: 'Lettura dei contatori',
-    help: 'Annota luce e gas, utile per conoscere i consumi del soggiorno.',
+    key: 'contatori', required: false, title: 'Contatore della luce',
+    help: 'Scrivi le tre fasce del contatore (A1, A2, A3) all’arrivo: il totale si calcola da solo e copi il messaggio per l’ospite.',
   });
   steps.push({
     key: 'alloggiati', required: true, title: 'Schedine Alloggiati inviate',
@@ -106,7 +107,7 @@ export function checkoutSteps(b) {
   return [
     { key: 'controllo', required: true, title: 'Controllo della casa', help: 'Giro di tutte le stanze, balconi compresi: danni, oggetti mancanti, pulizia generale.' },
     { key: 'chiavi', required: true, title: 'Chiavi riconsegnate', help: 'Tutte le copie, comprese quelle del garage se usato.' },
-    { key: 'contatori', required: false, title: 'Lettura dei contatori', help: 'Annota luce e gas a fine soggiorno.' },
+    { key: 'contatori', required: false, title: 'Contatore della luce', help: 'Scrivi le tre fasce alla partenza: i kWh in più si calcolano da soli.' },
     { key: 'cauzione', required: b.security_cents > 0, title: 'Cauzione', help: 'Scegli se restituirla tutta o trattenerne una parte, con il motivo.' },
     { key: 'pulizie', required: false, title: 'Pulizie e lavanderia', help: 'Avvisa chi fa le pulizie e porta la biancheria in lavanderia.' },
   ];

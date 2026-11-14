@@ -228,6 +228,8 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
         if (result.record) upsert(entityOf(op.type), result.record);
         // Operazioni che cambiano anche la prenotazione (es. contratto eliminato: passaggio del check-in tolto).
         if (result.booking) upsert('booking', result.booking);
+        // Altri record cambiati insieme (es. lettura del contatore → extra della luce).
+        if (Array.isArray(result.related)) for (const [entity, record] of result.related) if (record) upsert(entity, record);
         if (op.optimistic) op.before = null;
         emit('data');
         op.resolve(result);

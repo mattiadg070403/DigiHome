@@ -10,6 +10,7 @@ import { CONTRACT_TEMPLATE, LANGS, buildContract, checkGuest, checkSignature, co
   purgeDate, sha256Hex, checkContractInfo } from '../public/shared/contract.js';
 import { todayRome } from '../public/shared/dates.js';
 import { checkQuoteSettings } from '../public/shared/quote.js';
+import { meterCalc, meterExtraLabel } from '../public/shared/meter.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
@@ -850,6 +851,138 @@ async function calendarUpdate(db, user, opId, p) {
   return { record: publicCalendar(await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first()) };
 }
 
+/* ------------------------------- Importazione ------------------------------- */
+
+const IMPORT_MAX = 100;
+
+/**
+ * Importazione di prenotazioni da un file (vecchio Excel): solo l'amministratore, al massimo 100 per volta.
+ * Ogni riga si controlla come una prenotazione nuova; le date già occupate si saltano (doppioni).
+ * Soggiorni già finiti → "chiusa"; in corso → "in_casa"; futuri → "confermata".
+ * Restituisce { imported, skipped: [{ index, reason }] }.
+ */
+async function bookingImport(db, user, opId, p) {
+  requireAdmin(user);
+  if (!Array.isArray(p.rows) || p.rows.length === 0 || p.rows.length > IMPORT_MAX) throw bad(`Da 1 a ${IMPORT_MAX} prenotazioni per volta`);
+  const houses = Object.fromEntries(((await db.prepare('SELECT * FROM houses').all()).results || []).map((x) => [x.id, x]));
+  const today = todayRome();
+  const at = nowIso();
+  const skipped = [];
+  const stmts = [];
+  const ids = [];
+  p.rows.forEach((r, index) => {
+    const house = houses[r && r.house_id];
+    if (!house) { skipped.push({ index, reason: 'casa non valida' }); return; }
+    // Per lo storico il numero di persone può superare il massimo di oggi: si controlla con un limite largo.
+    const { ok, value, errors } = validateBooking({ ...r, guest_name: r.guest_name || 'Ospite (importato)' }, { house: { ...house, max_guests: 50 } });
+    if (!ok) { skipped.push({ index, reason: Object.values(errors)[0] }); return; }
+    const id = crypto.randomUUID();
+    const stage = value.check_out <= today ? 'chiusa' : value.check_in <= today ? 'in_casa' : 'confermata';
+    const row = {
+      id, house_id: house.id, channel: value.channel, guest_name: value.guest_name, phone: value.phone ?? null, email: null,
+      guests: value.guests, check_in: value.check_in, check_out: value.check_out, total_cents: value.total_cents ?? 0,
+      deposit_cents: 0, deposit_paid: 0, security_cents: 0, security_status: 'nessuna', stage,
+      notes: 'Importata dal vecchio file',
+    };
+    const cols = Object.keys(row);
+    ids.push({ id, index });
+    stmts.push(db.prepare(`INSERT INTO bookings (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
+      SELECT ${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT}
+      WHERE NOT ${OVERLAP}`)
+      .bind(...cols.map((c) => row[c]), at, user.email, at, user.email, row.house_id, id, row.check_out, row.check_in));
+  });
+  if (!stmts.length) {
+    await db.prepare(`INSERT INTO ops (op_id, at, user_email, result) VALUES (?, ?, ?, ?)`)
+      .bind(opId, at, user.email, JSON.stringify({ imported: 0, skipped })).run();
+    return { imported: 0, skipped };
+  }
+  // Tutto in una sola transazione: prenotazioni, registro e codice dell'operazione (niente doppioni se si riprova).
+  const idsJson = JSON.stringify(ids.map((x) => x.id));
+  const count = '(SELECT COUNT(*) FROM bookings WHERE id IN (SELECT value FROM json_each(?)))';
+  const results = await db.batch([
+    ...stmts,
+    db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'rev'`),
+    db.prepare(`INSERT INTO audit_log (at, user_email, entity, entity_id, action, changes)
+      VALUES (?, ?, 'import', ?, 'import', json_object('importate', ${count}, 'righe', ?))`).bind(at, user.email, opId, idsJson, p.rows.length),
+    db.prepare(`INSERT INTO ops (op_id, at, user_email, result) VALUES (?, ?, ?, json_object('imported', ${count}, 'skipped', json(?)))`)
+      .bind(opId, at, user.email, idsJson, JSON.stringify(skipped)),
+  ]);
+  const inserted = ids.filter((x, i) => results[i].meta.changes === 1);
+  for (const x of ids) if (!inserted.includes(x)) skipped.push({ index: x.index, reason: 'date già occupate (forse è già nel gestionale)' });
+  skipped.sort((x, y) => x.index - y.index);
+  const out = { imported: inserted.length, skipped };
+  return out;
+}
+
+/* ------------------------------- Contatore della luce ------------------------------- */
+
+/**
+ * Lettura del contatore all'arrivo (start) o alla partenza (end), in decimi di kWh; null la toglie.
+ * Spunta da sola il passaggio "contatori" del check-in o del check-out. Nelle prenotazioni dirette,
+ * con entrambe le letture, mette (o aggiorna) l'extra "Luce" con i kWh oltre quelli compresi.
+ */
+async function bookingMeter(db, user, opId, p) {
+  if (!isId(p.id) || !['start', 'end'].includes(p.which)) throw bad('Richiesta non valida');
+  // Le tre fasce del contatore (A1, A2, A3) in decimi di kWh; la lettura è la loro somma. null toglie la lettura.
+  let bands = null;
+  if (p.bands !== null) {
+    if (!Array.isArray(p.bands) || p.bands.length !== 3
+      || !p.bands.every((x) => Number.isSafeInteger(x) && x >= 0 && x <= 333333333)) {
+      throw bad('Lettura non valida: servono le tre fasce A1, A2 e A3', { errors: { value: 'Lettura non valida' } });
+    }
+    bands = p.bands;
+  }
+  const value = bands ? bands[0] + bands[1] + bands[2] : null;
+  const cur = await getBooking(db, p.id);
+  if (!cur) throw notFound();
+  const stages = p.which === 'start' ? ['confermata', 'in_casa', 'partita'] : ['in_casa', 'partita'];
+  if (!stages.includes(cur.stage)) {
+    throw new OpError(409, 'state', p.which === 'start' ? 'La lettura di arrivo si scrive al check-in.' : 'La lettura di partenza si scrive al check-out.');
+  }
+  const next = { ...cur, [`meter_${p.which}`]: value };
+  if (Number.isInteger(next.meter_start) && Number.isInteger(next.meter_end) && next.meter_end < next.meter_start) {
+    throw bad('La lettura di partenza è più bassa di quella di arrivo: controlla i numeri.', { errors: { value: 'Più bassa della lettura di arrivo' } });
+  }
+  const at = nowIso();
+  const col = p.which === 'start' ? 'checkin_steps' : 'checkout_steps';
+  const main = db.prepare(`UPDATE bookings SET meter_${p.which} = ?, meter_${p.which}_bands = ?, meter_${p.which}_at = ?,
+      ${col} = json_set(${col}, '$.contatori', json(?)), rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND stage IN (${stages.map(() => '?').join(', ')})`)
+    .bind(value, bands ? JSON.stringify(bands) : null, value === null ? null : at, value === null ? '0' : '1', at, user.email, p.id, ...stages);
+  const marked = `EXISTS (SELECT 1 FROM bookings WHERE id = ? AND rev = ${REV_NEXT})`;
+
+  // Extra della luce (solo dirette: con Airbnb e Booking si decide a mano dalla scheda).
+  const also = [];
+  let extraId = null;
+  if (cur.channel === 'diretto') {
+    const house = await getHouse(db, cur.house_id);
+    const calc = meterCalc(next, parseContractInfo(house));
+    const existing = await db.prepare("SELECT * FROM booking_extras WHERE booking_id = ? AND kind = 'luce' AND deleted = 0").bind(cur.id).first();
+    if (calc.cost > 0) {
+      const label = meterExtraLabel(calc);
+      if (existing && !existing.paid) {
+        extraId = existing.id;
+        also.push(db.prepare(`UPDATE booking_extras SET amount_cents = ?, label = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+          WHERE id = ? AND paid = 0 AND ${marked}`).bind(calc.cost, label, at, user.email, existing.id, cur.id));
+      } else if (!existing) {
+        extraId = crypto.randomUUID();
+        also.push(db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, created_at, created_by, updated_at, updated_by, rev)
+          SELECT ?, ?, 'luce', ?, ?, 0, ?, ?, ?, ?, ${REV_NEXT} WHERE ${marked}`).bind(extraId, cur.id, label, calc.cost, at, user.email, at, user.email, cur.id));
+      }
+    } else if (existing && !existing.paid) {
+      extraId = existing.id;
+      also.push(db.prepare(`UPDATE booking_extras SET deleted = 1, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+        WHERE id = ? AND paid = 0 AND ${marked}`).bind(at, user.email, existing.id, cur.id));
+    }
+  }
+  const done = await commit(db, { main, also, user, opId, entity: 'booking', entityId: p.id, action: 'meter',
+    changes: { [`meter_${p.which}`]: [cur[`meter_${p.which}`], value], fasce: bands } });
+  if (!done) await explainBookingFailure(db, p.id);
+  const related = [];
+  if (extraId) related.push(['extra', await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(extraId).first()]);
+  return { record: await getBooking(db, p.id), related };
+}
+
 /* ------------------------------- Contratti ------------------------------- */
 
 const CONTRACT_STAGES = ['confermata', 'in_casa'];
@@ -1032,6 +1165,8 @@ const HANDLERS = {
   'user.add': userAdd,
   'user.update': userUpdate,
   'house.update': houseUpdate,
+  'booking.meter': bookingMeter,
+  'booking.import': bookingImport,
   'contract.sign': contractSign,
   'contract.delete': contractDelete,
 };

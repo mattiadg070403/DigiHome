@@ -9,6 +9,7 @@ import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
 import { parseEuro, centsToInput } from '../../shared/money.js';
 import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '../../shared/contract.js';
 import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
+import { importBlock } from './import.js';
 
 export function renderSettings(ctx) {
   const { store } = ctx;
@@ -31,7 +32,8 @@ export function renderSettings(ctx) {
           h('dt', { text: 'Versione' }), h('dd', { text: APP_VERSION }),
           h('dt', { text: 'Ambiente' }), h('dd', { text: store.info.demo ? 'Prova, con dati inventati' : store.info.env === 'produzione' ? 'Definitiva (dati veri)' : store.info.env || '—' })),
         admin && store.info.demo ? demoBlock(ctx) : null,
-        admin ? exportBlock(ctx) : null)),
+        admin ? exportBlock(ctx) : null,
+        admin ? importBlock(ctx) : null)),
     admin ? usersSection(ctx) : h('p', { class: 'section muted', text: 'Utenti, case e regole si cambiano solo dall’amministratore.' }),
     admin ? calendarsSection(ctx) : null,
     admin ? housesSection(ctx) : null);

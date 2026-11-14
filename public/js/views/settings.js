@@ -11,6 +11,8 @@ import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '..
 import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
 import { importBlock } from './import.js';
 
+const IMPORT_VISIBLE = false;
+
 export function renderSettings(ctx) {
   const { store } = ctx;
   const d = store.data;
@@ -33,7 +35,8 @@ export function renderSettings(ctx) {
           h('dt', { text: 'Ambiente' }), h('dd', { text: store.info.demo ? 'Prova, con dati inventati' : store.info.env === 'produzione' ? 'Definitiva (dati veri)' : store.info.env || '—' })),
         admin && store.info.demo ? demoBlock(ctx) : null,
         admin ? exportBlock(ctx) : null)),
-    admin ? h('section', { class: 'card card-pad stack section' }, h('h2', { text: 'Importa prenotazioni passate' }), importBlock(ctx)) : null,
+    // Importazione da Excel: pronta ma nascosta finché Mattia non decide come farla (14/11).
+    admin && IMPORT_VISIBLE ? h('section', { class: 'card card-pad stack section' }, h('h2', { text: 'Importa prenotazioni passate' }), importBlock(ctx)) : null,
     admin ? usersSection(ctx) : h('p', { class: 'section muted', text: 'Utenti, case e regole si cambiano solo dall’amministratore.' }),
     admin ? calendarsSection(ctx) : null,
     admin ? housesSection(ctx) : null);

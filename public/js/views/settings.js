@@ -32,8 +32,8 @@ export function renderSettings(ctx) {
           h('dt', { text: 'Versione' }), h('dd', { text: APP_VERSION }),
           h('dt', { text: 'Ambiente' }), h('dd', { text: store.info.demo ? 'Prova, con dati inventati' : store.info.env === 'produzione' ? 'Definitiva (dati veri)' : store.info.env || '—' })),
         admin && store.info.demo ? demoBlock(ctx) : null,
-        admin ? exportBlock(ctx) : null,
-        admin ? importBlock(ctx) : null)),
+        admin ? exportBlock(ctx) : null)),
+    admin ? h('section', { class: 'card card-pad stack section' }, h('h2', { text: 'Importa prenotazioni passate' }), importBlock(ctx)) : null,
     admin ? usersSection(ctx) : h('p', { class: 'section muted', text: 'Utenti, case e regole si cambiano solo dall’amministratore.' }),
     admin ? calendarsSection(ctx) : null,
     admin ? housesSection(ctx) : null);

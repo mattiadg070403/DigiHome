@@ -3,7 +3,8 @@
 
 import { h, icon, newId } from '../dom.js';
 import { houseVars, tag, field, setFieldError, openDialog, confirmDialog, switchRow, segmented } from '../ui.js';
-import { addDays, fmtShort, monthName, isIsoDate } from '../../shared/dates.js';
+import { addDays, fmtShort, monthName, isIsoDate, todayRome } from '../../shared/dates.js';
+import { dateField } from '../pickers.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
   EXPENSE_CATEGORIES, REPEAT, expenseLabel, expensePeriod, expenseTotals, deadlineStatus, nextDue,
@@ -126,8 +127,9 @@ function expenseRow(ctx, x, showPay = false) {
       showPay && !x.paid ? h('button', { class: 'btn small', type: 'button', onClick: markPaid }, icon('check', { size: 16 }), 'Pagata') : null));
 }
 
+/** Data con lo stesso calendario delle prenotazioni (campo gg/mm/aaaa + calendario). */
 function dateInput(value, label, onChange) {
-  return h('input', { class: 'input', type: 'date', value: value || '', attrs: { 'aria-label': label }, onChange: (e) => onChange(e.target.value) });
+  return dateField({ value, label: `${label} (gg/mm/aaaa)`, today: todayRome(), onChange }).el;
 }
 
 /** Nuova spesa o modifica. Solo dati: importo, data, periodo, note. */

@@ -6,6 +6,7 @@ import { fmtLong, fmtRange, fmtShort, daysBetween } from '../../shared/dates.js'
 import { CHANNELS, LEVEL_ORDER, bookingAlerts, currentAndNext, nextStep, phase, statusTags, guestsLabel } from '../../shared/booking.js';
 import { runNextAction } from './actions.js';
 import { draftBanner } from './form.js';
+import { dateField } from '../pickers.js';
 import { deadlineAlerts, expenseAlerts } from '../../shared/house.js';
 
 export function renderToday(ctx) {
@@ -225,13 +226,15 @@ function addTask(ctx) {
   const house = h('select', { class: 'input', dataset: { key: k('house') }, attrs: { 'aria-label': 'Casa' }, onChange: (e) => { ui.drafts[k('house')] = e.target.value; } },
     h('option', { value: '', text: 'Tutte e due' }),
     d.houses.map((x) => h('option', { value: x.id, text: x.name, selected: ui.drafts[k('house')] === x.id })));
-  const due = h('input', { class: 'input', type: 'date', dataset: { key: k('due') }, value: ui.drafts[k('due')] || '', attrs: { 'aria-label': 'Entro il' },
-    onChange: (e) => { ui.drafts[k('due')] = e.target.value; } });
+  const dueField = dateField({ value: ui.drafts[k('due')] || '', label: 'Entro il (gg/mm/aaaa)', today: ui.today, min: ui.today,
+    onChange: (iso) => { ui.drafts[k('due')] = iso; } });
+  dueField.input.dataset.key = k('due');
+  const due = dueField.el;
   const who = h('select', { class: 'input', dataset: { key: k('who') }, attrs: { 'aria-label': 'Assegnata a' }, onChange: (e) => { ui.drafts[k('who')] = e.target.value; } },
     h('option', { value: '', text: 'Nessuno in particolare' }),
     d.users.filter((u) => u.active).map((u) => h('option', { value: u.id, text: u.name, selected: ui.drafts[k('who')] === u.id })));
   house.style.flex = '0 1 170px';
-  due.style.flex = '0 1 170px';
+  due.style.flex = '1 1 230px';
   who.style.flex = '0 1 200px';
 
   function save() {

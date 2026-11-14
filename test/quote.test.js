@@ -67,21 +67,24 @@ test('controlli: date occupate, minimo di notti in alta stagione, notti scoperte
 test('messaggio: come quello di Mattia, con tassa a parte, extra, acconto e saldo; anche in inglese', () => {
   const garage = { ...DEFAULT_QUOTE.extras[0], amount: 9000 };
   const q = { lang: 'it', name: 'Marco Rossi', checkIn: '2026-08-25', checkOut: '2026-08-31', guests: 9, price: 165000, deposit: 50000,
-    security: 25000, linens: true, towels: false, extras: [garage], validUntil: '2026-11-21' };
+    security: 25000, linens: true, towels: false, extras: [garage], validUntil: '2026-11-21', siteUrl: 'https://faroblugallipoli.it' };
   const info = { kwh_day: 30, kwh_price_cents: 40 };
   const it = quoteMessage(q, HOUSE, info, TAX);
   for (const re of [/Ciao Marco, ecco il preventivo per Faro Blu/, /Date: 25–31 agosto 2026 \(6 notti\)/, /Ospiti: 9/, /\*Prezzo: 1\.650 €\*/,
     /lenzuola per ogni letto \(asciugamani non inclusi\)/, /30 kWh al giorno.*0,40 €\/kWh/, /tassa di soggiorno: 54 € \(1 € a persona a notte\)/,
     /garage: 90 € \(10 € a persona per tutto il soggiorno\)/, /cauzione: 250 €/, /\*Bonifico acconto: 500 €\* \(non rimborsabile\)/,
-    /Saldo all’arrivo: 1\.150 € \+ 250 € di cauzione \+ 54 € di tassa di soggiorno \+ 90 € di garage/, /valido fino al 21 novembre/]) {
+    /Saldo all’arrivo: 1\.150 € \+ 250 € di cauzione \+ 54 € di tassa di soggiorno \+ 90 € di garage = \*1\.544 €\*/, /valido fino al 21 novembre/,
+    /Qui trovi più foto e altre informazioni sulla casa: https:\/\/faroblugallipoli\.it/, /Resto a disposizione per qualsiasi dubbio\.$/]) {
     assert.match(it, re);
   }
   assert.doesNotMatch(it, /gas/i);
   const en = quoteMessage({ ...q, lang: 'en' }, HOUSE, info, TAX);
-  for (const re of [/Hi Marco, here is the quote/, /August 25–31, 2026 \(6 nights\)/, /\*Price: €1,650\*/, /tourist tax: €54/, /Balance on arrival: €1,150/]) assert.match(en, re);
+  for (const re of [/Hi Marco, here is the quote/, /August 25–31, 2026 \(6 nights\)/, /\*Price: €1,650\*/, /tourist tax: €54/, /Balance on arrival: €1,150 .* = \*€1,544\*/,
+    /More photos and information about the house: https:\/\/faroblugallipoli\.it/, /I’m available for any questions\.$/]) assert.match(en, re);
   // Senza acconto, senza cauzione, fuori stagione (niente tassa)
-  const off = quoteMessage({ ...q, checkIn: '2027-01-10', checkOut: '2027-01-12', deposit: 0, security: 0, extras: [] }, HOUSE, info, TAX);
-  assert.match(off, /Pagamento all’arrivo: 1\.650 €/);
+  const off = quoteMessage({ ...q, checkIn: '2027-01-10', checkOut: '2027-01-12', deposit: 0, security: 0, extras: [], siteUrl: '' }, HOUSE, info, TAX);
+  assert.match(off, /Pagamento all’arrivo: \*1\.650 €\*/);
+  assert.doesNotMatch(off, /https:/);
   assert.doesNotMatch(off, /A parte:|tassa/);
   assert.equal(rangeText('2026-07-28', '2026-08-04'), '28 luglio – 4 agosto 2026');
   assert.equal(rangeText('2026-12-28', '2027-01-03', 'en'), 'December 28, 2026 – January 3, 2027');
@@ -93,6 +96,9 @@ test('impostazioni dei preventivi: controlli', () => {
   assert.equal(checkQuoteSettings({ ...DEFAULT_QUOTE, min_nights: [1, 2] }).field, 'min_nights');
   assert.equal(checkQuoteSettings({ ...DEFAULT_QUOTE, extras: [{ label: 'Transfer', price_cents: 5000, unit: 'volo' }] }).field, 'extras');
   assert.equal(checkQuoteSettings({ ...DEFAULT_QUOTE, long_stay: [{ nights: 7, pct: 80 }] }).field, 'long_stay');
+  assert.equal(checkQuoteSettings({ ...DEFAULT_QUOTE, site_url: 'javascript:alert(1)' }).field, 'site_url');
+  assert.equal(checkQuoteSettings({ ...DEFAULT_QUOTE, site_url: 'http://faroblugallipoli.it' }).field, 'site_url');
+  assert.equal(DEFAULT_QUOTE.window_days, 7);
   const dup = checkQuoteSettings({ ...DEFAULT_QUOTE, extras: [{ label: 'Garage', price_cents: 1, unit: 'soggiorno' }, { label: 'Garage', price_cents: 2, unit: 'soggiorno' }] });
   assert.notEqual(dup.value.extras[0].id, dup.value.extras[1].id);
   assert.deepEqual(quoteSettings({ quote_settings: '{rotto' }), DEFAULT_QUOTE);
@@ -104,6 +110,9 @@ test('server: impostazioni salvate solo dall’amministratore; ai collaboratori 
   const collab = await addUser(db, { email: 'collab@example.invalid', name: 'Collab', role: 'collaboratore' });
   const h = await db.prepare("SELECT * FROM houses WHERE id = 'faro-blu'").first();
   assert.equal(quoteSettings(h).extras[0].label, 'Garage');
+  assert.equal(quoteSettings(h).window_days, 7);
+  assert.equal(quoteSettings(h).site_url, 'https://faroblugallipoli.it');
+  assert.equal(quoteSettings(await db.prepare("SELECT * FROM houses WHERE id = 'isola-bella'").first()).site_url, 'https://isolabellagallipoli.it');
   const qs = { ...quoteSettings(h), validity_days: 10 };
   await assert.rejects(runOp(db, collab, { opId: crypto.randomUUID(), type: 'house.update', payload: { id: 'faro-blu', version: h.version, changes: { quote_settings: qs } } }), OpError);
   await assert.rejects(runOp(db, admin, { opId: crypto.randomUUID(), type: 'house.update', payload: { id: 'faro-blu', version: h.version, changes: { quote_settings: { ...qs, validity_days: 99 } } } }), /Validità/);

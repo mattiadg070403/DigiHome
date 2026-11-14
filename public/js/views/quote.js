@@ -10,6 +10,8 @@ import { touristTax, taxSettings, explainTax } from '../../shared/tax.js';
 import { parseContractInfo } from '../../shared/contract.js';
 import { EXTRA_UNITS, depositFor, extraAmount, historyPrice, quoteChecks, quoteMessage, quoteSettings, suggestPrice } from '../../shared/quote.js';
 import { waNumber } from './contact.js';
+import { dateRangeField } from '../pickers.js';
+import { occupiedNights } from '../../shared/booking.js';
 
 // Bozza del preventivo in memoria (si perde chiudendo l'app: è voluto).
 let draft = null;
@@ -43,20 +45,18 @@ export function renderQuote(ctx) {
   /* ------------------------------ Campi ------------------------------ */
   const inputs = {};
   const onChange = () => refresh();
-  const dateIn = h('input', { class: 'input', dataset: { key: 'q-in' }, type: 'date', value: q.checkIn, min: ui.today, onInput: (e) => {
-    q.checkIn = e.target.value;
-    // Partenza automatica una settimana dopo se manca o è prima dell'arrivo.
-    if (isIsoDate(q.checkIn) && (!isIsoDate(q.checkOut) || q.checkOut <= q.checkIn)) { q.checkOut = addDays(q.checkIn, 7); dateOut.value = q.checkOut; }
-    dateOut.min = isIsoDate(q.checkIn) ? addDays(q.checkIn, 1) : ui.today;
-    setFieldError(dateIn, ''); onChange();
-  } });
-  const dateOut = h('input', { class: 'input', dataset: { key: 'q-out' }, type: 'date', value: q.checkOut, min: isIsoDate(q.checkIn) ? addDays(q.checkIn, 1) : ui.today,
-    onInput: (e) => { q.checkOut = e.target.value; setFieldError(dateOut, ''); onChange(); } });
+  let built = false; // finché la pagina non è pronta, il calendario non fa ricalcolare niente
+  // Date: lo stesso calendario delle prenotazioni (stile Airbnb, notti occupate barrate, date scrivibili a mano).
+  const range = dateRangeField({
+    checkIn: q.checkIn, checkOut: q.checkOut, today: ui.today,
+    occupied: occupiedNights(d.bookings, house.id),
+    onChange: (ci, co) => { q.checkIn = ci || ''; q.checkOut = co || ''; if (built) onChange(); },
+  });
   const guestsIn = h('input', { class: 'input', dataset: { key: 'q-guests' }, type: 'number', inputmode: 'numeric', min: '1', max: String(house.max_guests), value: String(q.guests),
     onInput: (e) => { q.guests = Math.max(0, Math.floor(Number(e.target.value) || 0)); onChange(); } });
   const nameIn = h('input', { class: 'input', dataset: { key: 'q-name' }, autocomplete: 'off', value: q.name, placeholder: 'Facoltativo', onInput: (e) => { q.name = e.target.value; onChange(); } });
   const phoneIn = h('input', { class: 'input', dataset: { key: 'q-phone' }, type: 'tel', autocomplete: 'off', value: q.phone, placeholder: 'Facoltativo', onInput: (e) => { q.phone = e.target.value; setFieldError(phoneIn, ''); } });
-  Object.assign(inputs, { dateIn, dateOut, guestsIn });
+  Object.assign(inputs, { guestsIn });
 
   const langSeg = h('div');
   const drawLang = () => langSeg.replaceChildren(segmented([{ value: 'it', label: 'Italiano' }, { value: 'en', label: 'English' }], q.lang,
@@ -71,9 +71,8 @@ export function renderQuote(ctx) {
 
   const stayCard = h('section', { class: 'card card-pad stack' },
     h('h2', { text: 'Soggiorno' }),
+    range.el,
     h('div', { class: 'form-grid' },
-      field('Arrivo', dateIn),
-      field('Partenza', dateOut),
       field('Persone', guestsIn, { hint: `Massimo ${house.max_guests}` }),
       field('Nome dell’ospite', nameIn),
       field('Telefono (per aprire la chat)', phoneIn, { full: true, hint: 'Facoltativo: senza numero scegli tu la chat in WhatsApp' })),
@@ -171,7 +170,7 @@ export function renderQuote(ctx) {
         lang: q.lang, name: q.name, checkIn: q.checkIn, checkOut: q.checkOut, guests: q.guests,
         price: priceC, deposit: depositC || 0, security: security(), linens: linens(), towels: towels(),
         extras: settings.extras.filter((x) => q.extras[x.id]).map((x) => ({ ...x, amount: extraAmount(x, { guests: q.guests, nights: n }) })),
-        validUntil: addDays(ui.today, settings.validity_days), note: settings.note, note_en: settings.note_en,
+        validUntil: addDays(ui.today, settings.validity_days), siteUrl: settings.site_url, note: settings.note, note_en: settings.note_en,
       }, house, rules, taxSet) : '';
       msgArea.value = q.message;
       msgArea.placeholder = ok ? 'Scrivi il prezzo per preparare il messaggio.' : 'Scegli date e prezzo per preparare il messaggio.';
@@ -180,7 +179,7 @@ export function renderQuote(ctx) {
 
   function problems() {
     const { ok } = amounts();
-    if (!ok) { setFieldError(isIsoDate(q.checkIn) ? dateOut : dateIn, isIsoDate(q.checkIn) ? 'La partenza deve essere dopo l’arrivo' : 'Scegli la data di arrivo'); return 'Scegli le date.'; }
+    if (!ok) return range.problem || 'Scegli le date.';
     if (!(q.guests >= 1)) { setFieldError(guestsIn, 'Indica quante persone'); return 'Indica quante persone.'; }
     const p = parseEuro(q.price);
     if (!p) { setFieldError(priceIn, 'Scrivi il prezzo'); return 'Scrivi il prezzo del soggiorno.'; }
@@ -241,6 +240,7 @@ export function renderQuote(ctx) {
         priceCard)),
     h('div', { class: 'quote-msg-wrap' }, msgCard));
   if (q.messageTouched) msgArea.value = q.message;
+  built = true;
   refresh();
   return page;
 }

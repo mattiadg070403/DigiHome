@@ -445,3 +445,18 @@ dialog.wide { width: min(920px, calc(100vw - 32px)); }
 /* Telefoni stretti: cinque voci nella barra in basso. */
 @media (max-width: 380px) { .tabbar .nav-btn { font-size: 10.5px; padding: 0 1px; } }
 @media (max-width: 340px) { .tabbar .nav-btn { font-size: 9.5px; letter-spacing: -0.01em; } }
+
+/* Data singola (campo + calendario) */
+.df { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.df-row { display: flex; gap: 6px; align-items: center; }
+.df-row .input { flex: 1 1 auto; min-width: 0; }
+.df-toggle { flex: 0 0 auto; }
+.df-cal { max-width: 340px; }
+.df-cal .rp-nav .rp-title { margin: 0; }
+
+/* Calendario del periodo in uno spazio stretto (es. Preventivo su iPad): un mese solo. */
+.rp { container-type: inline-size; }
+@container (max-width: 600px) {
+  .rp-months { grid-template-columns: minmax(0, 1fr); }
+  .rp-second { display: none; }
+}

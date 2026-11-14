@@ -12,11 +12,12 @@ export const DEFAULT_QUOTE = {
   validity_days: 7,
   security_cents: 25000,
   min_nights: [0, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0],
-  window_days: 20,
+  window_days: 7,
   long_stay: [{ nights: 7, pct: 5 }, { nights: 14, pct: 10 }],
   early: { days: 120, pct: 5 },
   last_minute: { days: 14, pct: 10 },
   extras: [{ id: 'garage', label: 'Garage', label_en: 'Garage', price_cents: 1000, unit: 'persona' }],
+  site_url: '',
   note: '',
   note_en: '',
 };
@@ -92,6 +93,9 @@ export function checkQuoteSettings(input) {
     ids.add(id);
     v.extras.push({ id, label, label_en: labelEn || null, price_cents: price, unit: x.unit });
   }
+  const site = String(input.site_url ?? '').trim();
+  if (site && (site.length > 200 || !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(site))) return bad('Indirizzo del sito non valido (deve iniziare con https://)', 'site_url');
+  v.site_url = site;
   for (const k of ['note', 'note_en']) {
     const s = String(input[k] ?? '').replace(/\r\n?/g, '\n').trim();
     if (s.length > 500) return bad('Nota troppo lunga (massimo 500 caratteri)', k);
@@ -295,16 +299,28 @@ export function quoteMessage(q, house, info, taxSet) {
   if (q.security > 0) plus.push(en ? `${euroEn(q.security)} security deposit` : `${fmtEuro(q.security)} di cauzione`);
   if (tax.amount > 0) plus.push(en ? `${euroEn(tax.amount)} tourist tax` : `${fmtEuro(tax.amount)} di tassa di soggiorno`);
   for (const x of q.extras) plus.push(en ? `${euroEn(x.amount)} ${(x.label_en || x.label).toLowerCase()}` : `${fmtEuro(x.amount)} di ${x.label.toLowerCase()}`);
+  // Saldo: le voci e, se sono più di una, il totale da pagare all'arrivo.
+  const due = (q.deposit > 0 ? rest : q.price) + (q.security > 0 ? q.security : 0) + tax.amount + q.extras.reduce((s, x) => s + x.amount, 0);
+  const sumText = (first) => {
+    const parts = [eur(first), ...plus];
+    return parts.length > 1 ? `${parts.join(' + ')} = *${eur(due)}*` : `*${eur(due)}*`;
+  };
   if (q.deposit > 0) {
     L.push(en ? `*Deposit by bank transfer: ${euroEn(q.deposit)}* (non-refundable)` : `*Bonifico acconto: ${fmtEuro(q.deposit)}* (non rimborsabile)`);
-    L.push(en ? `Balance on arrival: ${[euroEn(rest), ...plus].join(' + ')}` : `Saldo all’arrivo: ${[fmtEuro(rest), ...plus].join(' + ')}`);
+    L.push(en ? `Balance on arrival: ${sumText(rest)}` : `Saldo all’arrivo: ${sumText(rest)}`);
   } else {
-    L.push(en ? `Payment on arrival: ${[euroEn(q.price), ...plus].join(' + ')}` : `Pagamento all’arrivo: ${[fmtEuro(q.price), ...plus].join(' + ')}`);
+    L.push(en ? `Payment on arrival: ${sumText(q.price)}` : `Pagamento all’arrivo: ${sumText(q.price)}`);
   }
   L.push('');
   L.push(en ? `Check-in from ${house.checkin_time}, check-out by ${house.checkout_time}.` : `Check-in dalle ${house.checkin_time}, check-out entro le ${house.checkout_time}.`);
   if (q.validUntil) L.push(en ? `This quote is valid until ${dayText(q.validUntil, 'en')}.` : `Il preventivo è valido fino al ${dayText(q.validUntil, 'it')}.`);
+  if (q.siteUrl) {
+    L.push('');
+    L.push(en ? `More photos and information about the house: ${q.siteUrl}` : `Qui trovi più foto e altre informazioni sulla casa: ${q.siteUrl}`);
+  }
   const note = en ? (q.note_en || q.note) : q.note;
   if (note) { L.push(''); L.push(note); }
+  L.push('');
+  L.push(en ? 'I’m available for any questions.' : 'Resto a disposizione per qualsiasi dubbio.');
   return L.join('\n');
 }

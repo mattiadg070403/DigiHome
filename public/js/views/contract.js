@@ -9,6 +9,7 @@ import { formatItDate, fmtShort } from '../../shared/dates.js';
 import { parseSteps } from '../../shared/booking.js';
 import { GUEST_FIELDS, LANGS, checkGuest, guestParagraph, romeDateTime } from '../../shared/contract.js';
 import { buildPdf, pdfFileName } from '../pdf.js';
+import { dateField } from '../pickers.js';
 import { waNumber } from './contact.js';
 
 const STAGES = ['confermata', 'in_casa'];
@@ -278,6 +279,13 @@ export function signDialog(ctx, b, house) {
     inputs[k] = el;
     return el;
   };
+  // Data di nascita: si scrive gg/mm/aaaa (un calendario da sfogliare per decenni sarebbe scomodo).
+  function birthDate() {
+    const f = dateField({ value: g.birth_date, label: 'Data di nascita (gg/mm/aaaa)', calendar: false, min: '1900-01-01', max: adultMax(ui.today),
+      onChange: (iso) => { g.birth_date = iso; dirty = true; setFieldError(f.input, ''); updateGuest(); } });
+    inputs.birth_date = f.input;
+    return f.input;
+  }
   const salSeg = h('div');
   const drawSal = () => salSeg.replaceChildren(segmented([{ value: 'M', label: 'Sig.' }, { value: 'F', label: 'Sig.ra' }], g.sal, (v) => { g.sal = v; dirty = true; drawSal(); updateGuest(); }, 'Titolo'));
   drawSal();
@@ -286,7 +294,7 @@ export function signDialog(ctx, b, house) {
     h('div', { class: 'field full' }, h('div', { class: 'label', text: 'Titolo' }), salSeg),
     field(GUEST_FIELDS.name, mk('name'), { full: true }),
     field(GUEST_FIELDS.birth_place, mk('birth_place')),
-    field(GUEST_FIELDS.birth_date, mk('birth_date', { type: 'date', max: adultMax(ui.today), min: '1900-01-01' })),
+    field(GUEST_FIELDS.birth_date, birthDate()),
     field(GUEST_FIELDS.residence, mk('residence'), { full: true, hint: 'Via, numero, città (e Stato, se all’estero)' }),
     field(GUEST_FIELDS.tax_code, mk('tax_code'), { hint: 'Facoltativo per gli ospiti stranieri' }),
     field(GUEST_FIELDS.doc_number, mk('doc_number')));

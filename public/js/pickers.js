@@ -176,6 +176,87 @@ export function dateRangeField(opts) {
 }
 
 /**
+ * Una sola data: campo gg/mm/aaaa scrivibile a mano e, se serve, calendario dello stesso stile del periodo
+ * (si apre con il pulsante accanto). Per le date di nascita si usa senza calendario (calendar: false).
+ * opts: { value, onChange(iso | ''), today, label, min, max, calendar = true }
+ * Restituisce { el, input, set(iso) }.
+ */
+export function dateField(opts) {
+  let val = isIsoDate(opts.value) ? opts.value : '';
+  let open = false;
+  let shown = (val || opts.today || new Date().toISOString().slice(0, 10)).slice(0, 7);
+  const allowed = (d) => (!opts.min || d >= opts.min) && (!opts.max || d <= opts.max);
+
+  const input = maskedInput({
+    mask: maskDate, placeholder: 'gg/mm/aaaa', value: formatItDate(val), label: opts.label || 'Data (gg/mm/aaaa)', maxLength: 10,
+    onValue: (txt) => {
+      if (txt.length < 8) {
+        input.removeAttribute('aria-invalid');
+        if (val) { val = ''; opts.onChange(''); }
+        return false;
+      }
+      const d = parseItDate(txt);
+      if (!d || !allowed(d)) { input.setAttribute('aria-invalid', 'true'); if (val) { val = ''; opts.onChange(''); } return false; }
+      input.removeAttribute('aria-invalid');
+      val = d;
+      shown = d.slice(0, 7);
+      opts.onChange(d);
+      draw();
+      return txt.length === 10;
+    },
+  });
+  const cal = h('div', { class: 'rp-cal df-cal', hidden: true });
+  const toggle = opts.calendar === false ? null : h('button', { class: 'btn ghost icon-only df-toggle', type: 'button',
+    attrs: { 'aria-label': 'Apri il calendario', 'aria-expanded': 'false' },
+    onClick: () => { open = !open; if (open) shown = (val || opts.today || shown).slice(0, 7); draw(); } }, icon('calendar', { size: 18 }));
+  const el = h('div', { class: 'df' }, h('div', { class: 'df-row' }, input, toggle), cal);
+
+  function choose(d) {
+    val = d;
+    input.value = formatItDate(d);
+    input.removeAttribute('aria-invalid');
+    open = false;
+    opts.onChange(d);
+    draw();
+    input.focus();
+  }
+
+  function draw() {
+    if (toggle) toggle.setAttribute('aria-expanded', String(open));
+    cal.hidden = !open;
+    if (!open) { cal.replaceChildren(); return; }
+    const [y, m] = shown.split('-').map(Number);
+    const first = `${shown}-01`;
+    const offset = (weekday(first) + 6) % 7;
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const cells = [];
+    for (let i = 0; i < offset; i++) cells.push(h('span', { class: 'rp-empty', attrs: { 'aria-hidden': 'true' } }));
+    for (let n = 1; n <= days; n++) {
+      const day = `${shown}-${String(n).padStart(2, '0')}`;
+      const sel = day === val;
+      cells.push(h('button', { class: ['rp-day', sel && 'sel', sel && 'start', day === opts.today && 'today'], type: 'button', disabled: !allowed(day),
+        attrs: { 'aria-label': `${n} ${monthName(m)} ${y}`, 'aria-pressed': String(sel) }, onClick: () => choose(day) }, h('span', { text: String(n) })));
+    }
+    const move = (delta) => { shown = new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7); draw(); };
+    cal.replaceChildren(
+      h('div', { class: 'rp-nav' },
+        h('button', { class: 'btn ghost icon-only', type: 'button', attrs: { 'aria-label': 'Mese precedente' }, onClick: () => move(-1) }, icon('back')),
+        h('div', { class: 'rp-title', text: `${monthName(m).charAt(0).toUpperCase()}${monthName(m).slice(1)} ${y}` }),
+        h('button', { class: 'btn ghost icon-only', type: 'button', attrs: { 'aria-label': 'Mese successivo' }, onClick: () => move(1) }, icon('chevron'))),
+      h('div', { class: 'rp-grid' }, DOW.map((d) => h('span', { class: 'rp-dow', text: d, attrs: { 'aria-hidden': 'true' } })), cells),
+      h('div', { class: 'btn-row' },
+        opts.today && allowed(opts.today) ? h('button', { class: 'btn ghost small', type: 'button', text: 'Oggi', onClick: () => choose(opts.today) }) : null,
+        val ? h('button', { class: 'btn ghost small', type: 'button', text: 'Togli la data', onClick: () => { val = ''; input.value = ''; open = false; opts.onChange(''); draw(); } }) : null));
+  }
+
+  return {
+    el,
+    input,
+    set(d) { val = isIsoDate(d) ? d : ''; input.value = formatItDate(val); if (val) shown = val.slice(0, 7); draw(); },
+  };
+}
+
+/**
  * Orario: campo hh:mm con i due punti automatici e orari rapidi.
  * opts: { value, onChange(value|''|null), quick, label }
  */

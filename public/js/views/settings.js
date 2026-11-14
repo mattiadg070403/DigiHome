@@ -3,7 +3,7 @@
 import { h, icon } from '../dom.js';
 import { houseVars, field, openDialog, confirmDialog, switchRow, setFieldError } from '../ui.js';
 import { APP_VERSION } from '../../shared/version.js';
-import { timeField } from '../pickers.js';
+import { timeField, dateField } from '../pickers.js';
 import { checkCalendarUrl } from '../../shared/calendar.js';
 import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
 import { parseEuro, centsToInput } from '../../shared/money.js';
@@ -423,6 +423,12 @@ function contractInfoDialog(ctx, house) {
   v.landlord_sal = info.landlord_sal || 'M';
   const controls = {};
   const mk = ([k, label, opt]) => {
+    if (opt.type === 'date') {
+      // Data di nascita: si scrive gg/mm/aaaa.
+      const f = dateField({ value: v[k], label: `${label} (gg/mm/aaaa)`, calendar: false, min: '1900-01-01', onChange: (iso) => { v[k] = iso; setFieldError(f.input, ''); } });
+      controls[k] = f.input;
+      return field(label, f.input, { full: opt.full, hint: opt.hint || 'gg/mm/aaaa' });
+    }
     const el = h('input', { class: 'input', autocomplete: 'off', value: v[k] === undefined || v[k] === null ? '' : String(v[k]),
       type: opt.type || 'text', inputmode: opt.numeric ? 'numeric' : opt.decimal ? 'decimal' : null,
       onInput: (e) => { v[k] = e.target.value; setFieldError(el, ''); } });
@@ -510,6 +516,7 @@ function quoteSettingsDialog(ctx, house) {
   const long = [0, 1].map((i) => ({ nights: num(cur.long_stay[i]?.nights ?? '', 'Da quante notti'), pct: num(cur.long_stay[i]?.pct ?? '', 'Sconto in percentuale') }));
   const early = { days: num(cur.early.days || '', 'Giorni di anticipo'), pct: num(cur.early.pct || '', 'Aumento in percentuale') };
   const last = { days: num(cur.last_minute.days || '', 'Giorni prima dell’arrivo'), pct: num(cur.last_minute.pct || '', 'Sconto in percentuale') };
+  const site = h('input', { class: 'input', type: 'url', inputmode: 'url', autocomplete: 'off', value: cur.site_url || '', placeholder: 'https://…' });
   const note = h('textarea', { class: 'input', rows: '2', value: cur.note });
   const noteEn = h('textarea', { class: 'input', rows: '2', value: cur.note_en });
 
@@ -537,7 +544,7 @@ function quoteSettingsDialog(ctx, house) {
       h('p', { class: 'muted small', text: 'Solo un avviso nel preventivo, non un blocco. Vuoto = nessun minimo.' }),
       minGrid,
       h('h3', { text: 'Prezzo consigliato' }),
-      field('Periodo simile: giorni prima e dopo le date', windowDays, { hint: 'La media usa i soggiorni degli anni passati in queste date ± questi giorni' }),
+      field('Periodo simile: giorni prima e dopo le date', windowDays, { hint: 'La media usa i soggiorni degli anni passati nelle stesse date ± questi giorni (di solito 7)' }),
       h('p', { class: 'muted small', text: 'Correzioni automatiche (vuoto o 0 = nessuna):' }),
       pair(long[0].nights, long[0].pct, 'Soggiorno lungo: da notti', 'sconto %'),
       pair(long[1].nights, long[1].pct, 'Soggiorno più lungo: da notti', 'sconto %'),
@@ -545,6 +552,8 @@ function quoteSettingsDialog(ctx, house) {
       pair(last.days, last.pct, 'Ultimo minuto: entro giorni dall’arrivo', 'sconto %'),
       h('h3', { text: 'Extra' }),
       extrasBox,
+      h('h3', { text: 'Sito della casa' }),
+      field('Indirizzo del sito', site, { full: true, hint: 'Nel messaggio: "Qui trovi più foto e altre informazioni sulla casa". Vuoto = niente link.' }),
       h('h3', { text: 'Nota in fondo al messaggio' }),
       h('div', { class: 'form-grid' }, field('In italiano', note, { full: true, hint: 'Facoltativa, es. "Per qualsiasi domanda sono a disposizione."' }), field('In inglese', noteEn, { full: true }))),
     actions: [
@@ -571,10 +580,10 @@ function quoteSettingsDialog(ctx, house) {
       long_stay: long.map((x) => ({ nights: n(x.nights), pct: n(x.pct) })).filter((x) => x.nights || x.pct),
       early: { days: n(early.days), pct: n(early.pct) },
       last_minute: { days: n(last.days), pct: n(last.pct) },
-      extras: ex, note: note.value, note_en: noteEn.value,
+      extras: ex, site_url: site.value, note: note.value, note_en: noteEn.value,
     };
     const r = checkQuoteSettings(input);
-    if (!r.ok) { dlg.setBanner(r.error); return; }
+    if (!r.ok) { if (r.field === 'site_url') setFieldError(site, r.error); dlg.setBanner(r.error); return; }
     try {
       await ctx.act('house.update', { id: house.id, version: house.version, changes: { quote_settings: r.value } }, { message: 'Impostazioni dei preventivi salvate' });
       dlg.close();

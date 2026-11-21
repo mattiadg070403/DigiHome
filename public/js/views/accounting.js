@@ -78,27 +78,27 @@ export function renderAccounting(ctx) {
 
   const was = (k) => (prev ? `${year - 1}: ${fmtEuro(Math.round(prev.totals[k] / 100) * 100)}` : null);
   const tiles = h('div', { class: 'acc-tiles' },
-    tile('Ricavi netti', t.netRevenue, was('netRevenue'), null, () => explain(ctx, house, r, 'ricavi')),
-    tile('Spese', t.expenses, was('expenses'), null, () => explain(ctx, house, r, 'spese')),
-    tile('Cedolare', t.cedolare, t.cedolareToPay ? `da versare ${fmtEuro(t.cedolareToPay)}` : was('cedolare'), null, () => explain(ctx, house, r, 'cedolare')),
-    tile('Utile', t.profit, was('profit'), t.profit < 0 ? 'bad' : 'ok', () => explain(ctx, house, r, 'utile')));
+    tile('Ricavi netti', t.netRevenue, was('netRevenue'), 't-rev', () => explain(ctx, house, r, 'ricavi')),
+    tile('Spese', t.expenses, was('expenses'), 't-exp', () => explain(ctx, house, r, 'spese')),
+    tile('Cedolare', t.cedolare, t.cedolareToPay ? `da versare ${fmtEuro(t.cedolareToPay)}` : was('cedolare'), 't-ced', () => explain(ctx, house, r, 'cedolare')),
+    tile('Utile', t.profit, was('profit'), t.profit < 0 ? 't-profit bad' : 't-profit', () => explain(ctx, house, r, 'utile')));
 
   return h('div', { vars: houseVars(house), class: 'acc' }, head, switches,
     tiles,
     goalBox(ctx, house, r, admin),
+    moneyFlowCard(r),
     todoBox(ctx, house),
-    h('div', { class: 'grid-2 section' }, channelsCard(r), expensesCard(house, r)),
+    h('div', { class: 'grid-2 section' }, expensesCard(house, r), touristCard(ctx, house, r)),
     staysSection(ctx, r),
-    h('div', { class: 'grid-2 section' }, touristCard(ctx, house, r), depositsCard(r)),
-    remittancesSection(ctx, house, r));
+    h('div', { class: 'grid-2 section' }, depositsCard(r), remittancesCard(ctx, house, r)));
 }
 
 /** Riquadro con il numero in euro interi (i centesimi sono nella spiegazione). */
 function tile(label, cents, sub, tone, onClick) {
   const round = Math.round(cents / 100) * 100;
-  return h('button', { class: 'acc-tile', type: 'button', onClick, attrs: { 'aria-label': `${label}: ${fmtEuro(round)}. Tocca per la spiegazione` } },
-    h('span', { class: 'acc-tile-label' }, label, icon('info', { size: 15 })),
-    h('strong', { class: ['acc-tile-value', tone], text: fmtEuro(round) }),
+  return h('button', { class: ['acc-tile', tone], type: 'button', onClick, attrs: { 'aria-label': `${label}: ${fmtEuro(round)}. Tocca per la spiegazione` } },
+    h('span', { class: 'acc-tile-label' }, h('span', { class: 'acc-dot' }), label, icon('info', { size: 15 })),
+    h('strong', { class: 'acc-tile-value', text: fmtEuro(round) }),
     sub ? h('span', { class: 'acc-tile-sub', text: sub }) : null);
 }
 
@@ -144,21 +144,51 @@ function todoBox(ctx, house) {
         onClick: () => { ui.accTodoAll = true; ctx.render(); } })) : null)));
 }
 
-/** Ricavo per notte, diviso per canale (colori fissi: diretto verde, Airbnb magenta, Booking blu). */
-function channelsCard(r) {
-  const chans = Object.entries(r.channels).filter(([, c]) => c.nights > 0);
-  const max = Math.max(1, ...chans.map(([, c]) => c.perNight));
-  const body = chans.length ? h('div', { class: 'acc-bars' }, chans.map(([k, c]) => h('div', { class: 'acc-bar-row' },
-    h('div', { class: 'acc-bar-head' },
-      h('span', { class: 'acc-bar-label' }, h('span', { class: ['acc-key', k] }), CH[k]),
-      h('strong', { class: 'amount', text: `${fmtEuro(c.perNight)} a notte` })),
-    h('div', { class: 'acc-bar-track' }, h('span', { class: ['acc-bar', k], vars: { '--w': `${((c.perNight / max) * 100).toFixed(1)}%` } })),
-    h('div', { class: 'muted tiny', text: `${c.nights} ${c.nights === 1 ? 'notte' : 'notti'} · ${c.stays} ${c.stays === 1 ? 'soggiorno' : 'soggiorni'} · ${fmtEuro(c.net)} in tutto` }))))
-    : h('p', { class: 'hint', text: `Nessun soggiorno nel ${r.year}.` });
-  return h('section', { class: 'card card-pad stack' },
-    h('h2', { text: 'Ricavo per notte' }),
-    body,
-    h('p', { class: 'hint', text: 'Prezzo meno la commissione del portale, più gli extra; diviso le notti vendute. Senza tassa di soggiorno.' }));
+/**
+ * Grafico "Dove vanno i soldi": una barra con tutto quello che è entrato (prezzi, extra, cauzioni trattenute),
+ * divisa in commissioni, spese, cedolare e utile. Sotto, "Da dove arrivano": la stessa cifra divisa per canale.
+ * Colori fissi e controllati anche per chi distingue male i colori; ogni pezzo ha etichetta, importo e percentuale.
+ */
+const FLOW = [
+  { key: 'commission', label: 'Commissioni', cls: 'f-comm' },
+  { key: 'expenses', label: 'Spese', cls: 'f-exp' },
+  { key: 'cedolare', label: 'Cedolare', cls: 'f-ced' },
+  { key: 'profit', label: 'Utile', cls: 'f-profit' },
+];
+
+function stackBar(parts, total, label) {
+  const shown = parts.filter((p) => p.value > 0);
+  const pct = (v) => (total > 0 ? Math.round((v / total) * 100) : 0);
+  return h('div', { class: 'stack acc-tight' },
+    h('div', { class: 'acc-stack', attrs: { role: 'img', 'aria-label': `${label}: ${shown.map((p) => `${p.label} ${fmtEuro(p.value)} (${pct(p.value)}%)`).join(', ')}` } },
+      shown.map((p) => h('span', { class: ['acc-seg', p.cls], vars: { '--w': String(Math.max(p.value / total, 0.005)) },
+        attrs: { title: `${p.label}: ${fmtEuro(p.value)} (${pct(p.value)}%)` } }))),
+    h('div', { class: 'acc-legend' }, shown.map((p) => h('span', { class: 'acc-legend-item' },
+      h('span', { class: ['acc-key', p.cls] }),
+      h('span', null, h('strong', { text: p.label }), ` ${fmtEuro(Math.round(p.value / 100) * 100)} · ${pct(p.value)}%`)))));
+}
+
+function moneyFlowCard(r) {
+  const t = r.totals;
+  const gross = t.price + t.extras + t.depositKept;
+  if (gross <= 0) {
+    return h('section', { class: 'card card-pad stack section' }, h('h2', { text: 'Dove vanno i soldi' }),
+      h('p', { class: 'hint', text: `Ancora nessun incasso nel ${r.year}.` }));
+  }
+  const loss = t.profit < 0;
+  const parts = FLOW.map((f) => ({ ...f, value: f.key === 'profit' ? Math.max(0, t.profit) : t[f.key] }));
+  // In perdita i costi superano gli incassi: la barra mostra solo i costi, in proporzione tra loro.
+  const flowTotal = loss ? parts.reduce((s, p) => s + p.value, 0) : gross;
+  const byChannel = { diretto: 0, airbnb: 0, booking: 0 };
+  for (const { a } of r.stays) byChannel[a.channel] += a.price + a.extras + a.depositKept;
+  const chParts = Object.entries(byChannel).map(([k, v]) => ({ key: k, label: CH[k], cls: k, value: v }));
+  return h('section', { class: 'card card-pad stack section acc-flow' },
+    h('div', { class: 'section-head acc-card-head' }, h('h2', { text: 'Dove vanno i soldi' }), h('strong', { class: 'amount', text: `${fmtEuro(Math.round(gross / 100) * 100)} incassati` })),
+    loss ? h('div', { class: 'banner bad small', text: `Anno in perdita di ${fmtEuro(-t.profit)}: i costi superano gli incassi.` }) : null,
+    stackBar(parts, flowTotal, 'Dove vanno i soldi'),
+    h('h3', { class: 'acc-sub-title', text: 'Da dove arrivano' }),
+    stackBar(chParts, gross, 'Da dove arrivano'),
+    h('p', { class: 'hint', text: 'Incassati = prezzi dei soggiorni + extra chiesti a parte + cauzioni trattenute. Senza tassa di soggiorno.' }));
 }
 
 /** Spese per tipo, dalla più alta. */
@@ -223,7 +253,7 @@ function depositsCard(r) {
     h('p', { class: 'hint', text: 'Solo la parte trattenuta entra nei ricavi; il costo vero del danno va tra le spese (tipo “Danni”).' }));
 }
 
-function remittancesSection(ctx, house, r) {
+function remittancesCard(ctx, house, r) {
   const remove = async (x) => {
     const ok = await confirmDialog({ title: 'Eliminare questo versamento?', text: `${REMIT[x.kind]} ${x.year} · ${fmtEuro(x.amount_cents)} del ${fmtShort(x.date)}`, okLabel: 'Elimina', danger: true });
     if (!ok) return;
@@ -234,14 +264,14 @@ function remittancesSection(ctx, house, r) {
     }).catch(() => {});
   };
   const list = [...r.remittances].sort((a, b) => (a.date < b.date ? 1 : -1));
-  return h('section', { class: 'section' },
-    h('div', { class: 'section-head' }, h('h2', { text: `Versamenti ${r.year}` }),
+  return h('section', { class: 'card card-pad stack' },
+    h('div', { class: 'section-head acc-card-head' }, h('h2', { text: `Versamenti ${r.year}` }),
       h('button', { class: 'btn small', type: 'button', onClick: () => remittanceDialog(ctx, house, { year: r.year }) }, icon('plus', { size: 16 }), 'Segna versamento')),
-    list.length ? h('div', { class: 'card' }, h('div', { class: 'rows' }, list.map((x) => h('div', { class: 'row' },
+    list.length ? h('div', { class: 'acc-lines' }, list.map((x) => h('div', { class: 'acc-line acc-remit' },
       h('span', { class: 'row-main' },
         h('span', { class: 'row-title', text: `${REMIT[x.kind]} · ${fmtEuro(x.amount_cents)}` }),
         h('span', { class: 'row-sub', text: [`versata il ${fmtShort(x.date)}`, x.notes].filter(Boolean).join(' · ') })),
-      h('button', { class: 'btn small ghost', type: 'button', attrs: { 'aria-label': `Elimina il versamento del ${fmtShort(x.date)}` }, onClick: () => remove(x) }, icon('trash', { size: 16 }))))))
+      h('button', { class: 'btn small ghost', type: 'button', attrs: { 'aria-label': `Elimina il versamento del ${fmtShort(x.date)}` }, onClick: () => remove(x) }, icon('trash', { size: 16 })))))
       : h('p', { class: 'hint', text: `Nessun versamento segnato per il ${r.year}: tassa di soggiorno al Comune o cedolare delle prenotazioni dirette (e di Airbnb fino al 2026).` }));
 }
 

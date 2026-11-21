@@ -504,7 +504,6 @@ select.input.acc-year { width: auto; }
 .acc-bar-track { height: 10px; border-radius: 5px; background: var(--line-soft); overflow: hidden; }
 .acc-bar { display: block; height: 100%; width: var(--w, 0%); min-width: 4px; border-radius: 5px; background: var(--house); }
 .acc-key { width: 12px; height: 12px; border-radius: 4px; display: inline-block; background: var(--house); }
-.acc-bar.exp { background: #6B675F; }
 .acc-bar.diretto, .acc-key.diretto { background: #4CAF7A; }
 .acc-bar.airbnb, .acc-key.airbnb { background: #B0306E; }
 .acc-bar.booking, .acc-key.booking { background: #3366CC; }
@@ -532,3 +531,31 @@ select.input.acc-year { width: auto; }
 .acc-rule { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; gap: 8px; }
 .acc-checkout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
 .acc-goal-empty .btn { white-space: normal; text-align: left; height: auto; padding-top: 6px; padding-bottom: 6px; }
+
+/* Contabilità: colori (controllati anche per chi distingue male i colori).
+   Ricavi #0E7490, commissioni #2F7FC1, spese #D9782F, cedolare #7C5CC4, utile #1E9E63. */
+.acc-tile { border-top: 4px solid var(--acc-c, var(--line)); background: linear-gradient(180deg, var(--acc-soft, #fff) 0, var(--card) 70%); }
+.acc-tile.t-rev { --acc-c: #0E7490; --acc-soft: #E6F3F6; }
+.acc-tile.t-exp { --acc-c: #D9782F; --acc-soft: #FBEFE5; }
+.acc-tile.t-ced { --acc-c: #7C5CC4; --acc-soft: #F1EDFA; }
+.acc-tile.t-profit { --acc-c: #1E9E63; --acc-soft: #E7F5EE; }
+.acc-tile.t-profit .acc-tile-value { color: var(--ok); }
+.acc-tile.t-profit.bad { --acc-c: var(--bad); --acc-soft: var(--bad-bg); }
+.acc-tile.t-profit.bad .acc-tile-value { color: var(--bad); }
+.acc-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--acc-c); display: inline-block; }
+.acc-flow .acc-sub-title { margin-top: 6px; }
+.acc-stack { display: flex; gap: 2px; height: 30px; border-radius: 8px; overflow: hidden; background: var(--line-soft); }
+.acc-seg { flex: var(--w, 1) 1 0; min-width: 4px; height: 100%; }
+.acc-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--ink-2); }
+.acc-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+.acc-legend-item strong { color: var(--ink); font-weight: 650; }
+.f-comm, .acc-key.f-comm { background: #2F7FC1; }
+.f-exp, .acc-key.f-exp { background: #D9782F; }
+.f-ced, .acc-key.f-ced { background: #7C5CC4; }
+.f-profit, .acc-key.f-profit { background: #1E9E63; }
+.acc-seg.diretto { background: #4CAF7A; }
+.acc-seg.airbnb { background: #B0306E; }
+.acc-seg.booking { background: #3366CC; }
+.acc-bar.exp { background: #D9782F; }
+.acc-remit { align-items: center; }
+.acc-tile:hover { border-top-color: var(--acc-c, #CFCBC2); }

@@ -11,6 +11,7 @@ export const EXPENSE_CATEGORIES = {
   tari: { label: 'TARI', period: true, hint: 'Tassa sui rifiuti: rata o anno' },
   pulizie: { label: 'Pulizie', period: false, hint: 'Pulizie di un soggiorno o della casa' },
   lavanderia: { label: 'Lavanderia', period: false, hint: 'Lenzuola e asciugamani' },
+  danni: { label: 'Danni', period: false, hint: 'Riparazioni o sostituzioni dopo un soggiorno (di solito coperte dalla cauzione)' },
   manutenzione: { label: 'Manutenzione', period: false, hint: 'Riparazioni, idraulico, elettricista…' },
   acquisti: { label: 'Acquisti', period: false, hint: 'Detersivi, carta, piccoli acquisti per la casa' },
   altro: { label: 'Altro', period: false, hint: 'Qualsiasi altra spesa' },

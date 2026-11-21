@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { freshDb, addUser } from './d1.js';
 import worker from '../src/worker.js';
 import { _resetCertCache } from '../src/auth.js';
+import { demoBookings } from '../src/demo.js';
+import { accountingTodo } from '../public/shared/accounting.js';
+import { todayRome } from '../public/shared/dates.js';
 
 const TEAM = 'https://prova.cloudflareaccess.com';
 const AUD = 'aud-di-prova-123';
@@ -149,8 +152,15 @@ test('dati di prova: solo se abilitati e solo per l’amministratore', async () 
   assert.equal((await call(on, '/api/demo', { token: tc, method: 'POST', body: {} })).status, 403);
   assert.equal((await call(on, '/api/demo', { token: t, method: 'POST', body: {} })).status, 200);
   const st = await (await call(on, '/api/state', { token: t })).json();
-  assert.equal(st.bookings.length, 9 + 36); // 9 di questi giorni + 36 soggiorni degli ultimi due anni (storico dei preventivi)
+  // 9 di questi giorni + 36 soggiorni degli ultimi due anni (storico dei preventivi) + quelli già passati di quest'anno.
+  assert.equal(st.bookings.length, demoBookings().length);
+  assert.ok(st.bookings.length >= 9 + 36);
   assert.ok(st.bookings.every((b) => b.guest_name.endsWith('(prova)')));
+  // Contabilità di prova: costi dei soggiorni collegati e cedolare degli anni passati già versata.
+  assert.ok(st.expenses.some((x) => x.booking_id));
+  assert.ok(st.remittances.length >= 2);
+  const todo = st.houses.flatMap((h) => accountingTodo(st, h, todayRome()));
+  assert.ok(!todo.some((x) => x.kind === 'cedolare' && x.year < Number(todayRome().slice(0, 4))), JSON.stringify(todo));
 });
 
 test('le pagine dell’app hanno tutte le intestazioni di sicurezza', async () => {

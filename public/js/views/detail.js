@@ -1,7 +1,7 @@
 // Scheda della prenotazione e procedure guidate di check-in e check-out.
 
 import { h, icon, newId } from '../dom.js';
-import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, confirmDialog } from '../ui.js';
+import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, confirmDialog, segmented } from '../ui.js';
 import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
@@ -14,6 +14,8 @@ import { alertActions, waNumber } from './contact.js';
 import { contractPanel, contractOf, openContract } from './contract.js';
 import { meterSummary, openMeter } from './meter.js';
 import { fmtKwh } from '../../shared/meter.js';
+import { PAY_METHODS } from '../../shared/accounting.js';
+import { stayAccountPanel, addStayCosts, askPayMethod } from './accounting.js';
 
 function notFound(ctx) {
   return h('div', { class: 'card' }, h('div', { class: 'empty' },
@@ -112,6 +114,7 @@ export function renderDetail(ctx, id) {
       panel('Dettagli', details),
       panel('Note', notesBlock(ctx, b)),
       b.channel === 'diretto' ? contractPanel(ctx, b) : null),
+    h('div', { class: 'section' }, stayAccountPanel(ctx, b)),
     h('div', { class: 'section' },
       h('div', { class: 'btn-row' }, flows,
         b.stage === 'cancellata'
@@ -127,11 +130,15 @@ function extrasBlock(ctx, b) {
   const list = ctx.clock(b).extras;
   const editable = b.stage !== 'cancellata';
   const latest = (x) => ctx.store.data.extras.find((e) => e.id === x.id) || x;
-  const togglePaid = (x) => {
+  const togglePaid = async (x) => {
+    const paid = latest(x).paid ? 0 : 1;
+    // Per ogni incasso si segna se è arrivato con bonifico o in contanti.
+    const method = paid ? await askPayMethod(`${extraLabel(x)} · ${fmtEuro(x.amount_cents)}: come è stato pagato?`) : null;
+    if (method === undefined) return;
     const cur = latest(x);
-    const paid = cur.paid ? 0 : 1;
-    ctx.act('extra.update', { id: x.id, version: cur.version, changes: { paid } }, {
-      optimistic: (d) => ({ ...d, extras: d.extras.map((e) => (e.id === x.id ? { ...e, paid } : e)) }),
+    const changes = { paid, paid_method: method };
+    ctx.act('extra.update', { id: x.id, version: cur.version, changes }, {
+      optimistic: (d) => ({ ...d, extras: d.extras.map((e) => (e.id === x.id ? { ...e, ...changes } : e)) }),
       message: paid ? 'Segnato come incassato' : 'Segnato come da incassare',
     }).catch(() => {});
   };
@@ -147,7 +154,7 @@ function extrasBlock(ctx, b) {
   const rows = list.map((x) => h('div', { class: 'extra-row' },
     h('span', { class: 'row-main' },
       h('span', { class: 'row-title', text: `${extraLabel(x)} · ${fmtEuro(x.amount_cents)}` }),
-      h('span', { class: 'row-sub' }, tag({ text: x.paid ? 'Incassato' : 'Da incassare', tone: x.paid ? 'ok' : 'warn' }))),
+      h('span', { class: 'row-sub' }, tag({ text: x.paid ? `Incassato${x.paid_method ? ` · ${PAY_METHODS[x.paid_method].toLowerCase()}` : ''}` : 'Da incassare', tone: x.paid ? 'ok' : 'warn' }))),
     editable ? h('span', { class: 'btn-row' },
       h('button', { class: 'btn small', type: 'button', text: x.paid ? 'Segna da incassare' : 'Segna incassato', onClick: () => togglePaid(x) }),
       x.kind === 'tassa_soggiorno'
@@ -170,7 +177,14 @@ function extrasBlock(ctx, b) {
 
 /** Aggiungi o modifica un extra "a parte" (garage, transfer…). La tassa di soggiorno si gestisce nel modulo della prenotazione. */
 function extraDialog(ctx, b, existing) {
-  const v = existing ? { label: existing.label || '', amount: existing.amount_cents, paid: existing.paid } : { label: '', amount: 0, paid: 0 };
+  const v = existing ? { label: existing.label || '', amount: existing.amount_cents, paid: existing.paid, method: existing.paid_method || null } : { label: '', amount: 0, paid: 0, method: null };
+  const methodBox = h('div', { class: 'field' });
+  const drawMethod = () => {
+    methodBox.hidden = !v.paid;
+    methodBox.replaceChildren(h('div', { class: 'label', text: 'Come è stato pagato' }),
+      segmented(Object.entries(PAY_METHODS).map(([k, l]) => ({ value: k, label: l })), v.method, (m) => { v.method = m; dirty = true; drawMethod(); }, 'Come è stato pagato'));
+  };
+  drawMethod();
   let dirty = false;
   const amount = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: centsToInput(v.amount),
     attrs: { 'aria-label': 'Importo in euro' },
@@ -182,7 +196,8 @@ function extraDialog(ctx, b, existing) {
     canClose: () => !dirty || confirmDialog({ title: 'Uscire senza salvare?', text: 'L’extra non verrà salvato.', okLabel: 'Esci senza salvare' }),
     content: h('div', { class: 'stack' },
       field('Descrizione', label), field('Importo (€)', amount),
-      switchRow('Già incassato', { checked: Boolean(v.paid), onChange: (c) => { v.paid = c ? 1 : 0; dirty = true; } }),
+      switchRow('Già incassato', { checked: Boolean(v.paid), onChange: (c) => { v.paid = c ? 1 : 0; dirty = true; drawMethod(); } }),
+      methodBox,
       h('p', { class: 'hint', text: 'La tassa di soggiorno si inserisce in "Modifica" della prenotazione, dove si calcola da sola.' })),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.requestClose() }),
@@ -193,7 +208,7 @@ function extraDialog(ctx, b, existing) {
   async function save() {
     if (!v.label.trim()) { setFieldError(label, 'Scrivi a cosa si riferisce'); label.focus(); return; }
     if (!v.amount) { setFieldError(amount, 'Scrivi l’importo'); amount.focus(); return; }
-    const extra = { label: v.label.trim(), amount_cents: v.amount, paid: v.paid };
+    const extra = { label: v.label.trim(), amount_cents: v.amount, paid: v.paid, paid_method: v.paid ? v.method : null };
     try {
       if (existing) {
         const cur = ctx.store.data.extras.find((e) => e.id === existing.id) || existing;
@@ -466,7 +481,20 @@ export function renderFlow(ctx, id, flow) {
       h('span', { class: 'progress', text: `${count} di ${steps.length} fatti` })),
     deadline ? h('div', { class: ['banner', deadline.level === 'urgente' ? 'bad' : 'warn'], text: deadline.text, attrs: { role: 'status' } }) : null,
     h('div', { class: 'card' }, rows),
+    !isIn ? h('div', { class: 'section card card-pad acc-checkout' },
+      h('div', { class: 'row-main' }, h('strong', { text: 'Costi del soggiorno' }),
+        h('span', { class: 'muted small', text: costsNote(d, b) })),
+      h('button', { class: 'btn small', type: 'button', onClick: () => addStayCosts(ctx, b) }, icon('plus', { size: 16 }), 'Aggiungi costi del soggiorno')) : null,
     h('div', { class: 'section' }, footer));
+}
+
+/** Riassunto dei costi già segnati per il soggiorno (pulizie, lavanderia, danni). */
+function costsNote(d, b) {
+  const list = d.expenses.filter((x) => x.booking_id === b.id && !x.deleted);
+  if (!list.length) return 'Pulizie, lavanderia o danni: segnali qui, anche da pagare più avanti.';
+  const tot = list.reduce((s, x) => s + x.amount_cents, 0);
+  const unpaid = list.filter((x) => !x.paid).reduce((s, x) => s + x.amount_cents, 0);
+  return `Già segnati ${fmtEuro(tot)}${unpaid ? ` (da pagare ${fmtEuro(unpaid)})` : ''}. Puoi aggiungerne altri.`;
 }
 
 function securityChoice(ctx, b, sec, onChange) {

@@ -133,12 +133,19 @@ function dateInput(value, label, onChange) {
 }
 
 /** Nuova spesa o modifica. Solo dati: importo, data, periodo, note. */
-function expenseDialog(ctx, existing) {
+/** Spese legate a un soggiorno (si sceglie il soggiorno): pulizie, lavanderia, danni. */
+const STAY_CATEGORIES = ['pulizie', 'lavanderia', 'danni'];
+
+/**
+ * Nuova spesa o modifica. preset: valori iniziali per una spesa nuova
+ * (es. dalla scheda di una prenotazione: casa, soggiorno, tipo "pulizie", non ancora pagata).
+ */
+export function expenseDialog(ctx, existing, preset = {}) {
   const { store, ui } = ctx;
   const d = store.data;
   const v = existing ? { ...existing } : {
     house_id: ui.houseId, category: 'acquisti', label: '', amount_cents: 0, date: ui.today,
-    period_from: null, period_to: null, due_date: null, paid: 1, notes: '', booking_id: null,
+    period_from: null, period_to: null, due_date: null, paid: 1, notes: '', booking_id: null, ...preset,
   };
   let dirty = false;
   const touch = () => { dirty = true; };
@@ -177,7 +184,7 @@ function expenseDialog(ctx, existing) {
     const c = EXPENSE_CATEGORIES[v.category];
     catHint.textContent = c.hint;
     periodBox.hidden = !c.period;
-    bookingBox.hidden = !['pulizie', 'lavanderia'].includes(v.category);
+    bookingBox.hidden = !STAY_CATEGORIES.includes(v.category);
     dueBox.hidden = Boolean(v.paid);
     label.placeholder = v.category === 'altro' ? 'Di cosa si tratta' : 'Facoltativa, es. "2a rata" o "detersivi"';
   }
@@ -216,7 +223,7 @@ function expenseDialog(ctx, existing) {
       house_id: v.house_id, category: v.category, label: String(v.label || '').trim(), amount_cents: v.amount_cents, date: v.date,
       period_from: period ? v.period_from : null, period_to: period ? v.period_to : null,
       due_date: v.paid ? null : v.due_date, paid: v.paid, notes: String(v.notes || '').trim(),
-      booking_id: ['pulizie', 'lavanderia'].includes(v.category) ? v.booking_id : null,
+      booking_id: STAY_CATEGORIES.includes(v.category) ? v.booking_id : null,
     };
     try {
       if (existing) {

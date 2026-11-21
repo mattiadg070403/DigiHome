@@ -11,6 +11,7 @@ import { CONTRACT_TEMPLATE, LANGS, buildContract, checkGuest, checkSignature, co
 import { todayRome } from '../public/shared/dates.js';
 import { checkQuoteSettings } from '../public/shared/quote.js';
 import { meterCalc, meterExtraLabel } from '../public/shared/meter.js';
+import { PAY_METHODS, checkAccountingSettings, checkRemittance } from '../public/shared/accounting.js';
 
 export const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.stage <> 'cancellata'
@@ -52,7 +53,7 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances' };
 
 export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
@@ -387,6 +388,10 @@ function validateExtra(input, partial) {
     v.persons = p;
   }
   if (!partial || has('paid')) v.paid = input.paid ? 1 : 0;
+  if (has('paid_method')) {
+    if (input.paid_method !== null && !Object.hasOwn(PAY_METHODS, input.paid_method)) throw bad('Scegli bonifico o contanti');
+    v.paid_method = input.paid_method || null;
+  }
   return v;
 }
 
@@ -424,7 +429,7 @@ async function extraUpdate(db, user, opId, p) {
   const cur = await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(p.id).first();
   if (!cur || cur.deleted) throw notFound();
   if (cur.version !== p.version) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.', { current: cur });
-  for (const k of Object.keys(p.changes || {})) if (!['label', 'amount_cents', 'paid', 'persons'].includes(k)) throw bad('Campo non modificabile');
+  for (const k of Object.keys(p.changes || {})) if (!['label', 'amount_cents', 'paid', 'persons', 'paid_method'].includes(k)) throw bad('Campo non modificabile');
   const v = validateExtra(p.changes || {}, true);
   if (cur.kind === 'altro' && !('label' in v ? v.label : cur.label)) throw bad('Scrivi a cosa si riferisce');
   checkExtraAmount(cur.kind, v.amount_cents ?? cur.amount_cents);
@@ -760,6 +765,11 @@ async function houseUpdate(db, user, opId, p) {
   for (const k of ['default_linens', 'default_towels']) {
     if (k in c) v[k] = c[k] ? 1 : 0;
   }
+  if ('accounting' in c) {
+    const r = checkAccountingSettings(c.accounting);
+    if (!r.ok) throw bad(r.error, { errors: { [r.field || 'accounting']: r.error } });
+    v.accounting = JSON.stringify(r.value);
+  }
   if ('quote_settings' in c) {
     const r = checkQuoteSettings(c.quote_settings);
     if (!r.ok) throw bad(r.error, { errors: { [r.field || 'quote_settings']: r.error } });
@@ -849,6 +859,62 @@ async function calendarUpdate(db, user, opId, p) {
     changes: { calendario: [state(cur.import_url), checked.url ? (cur.import_url ? 'link cambiato' : 'collegato') : 'non collegato'] } });
   if (!done) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
   return { record: publicCalendar(await db.prepare('SELECT * FROM calendars WHERE id = ?').bind(p.id).first()) };
+}
+
+/* ------------------------------- Contabilità ------------------------------- */
+
+/**
+ * Soldi di una prenotazione: come sono stati pagati acconto e saldo (bonifico o contanti)
+ * e, per Airbnb e Booking, quanto è arrivato davvero e quando.
+ */
+async function bookingMoney(db, user, opId, p) {
+  if (!isId(p.id)) throw bad('Richiesta non valida');
+  const cur = await getBooking(db, p.id);
+  if (!cur) throw notFound();
+  const c = p.changes || {};
+  const v = {};
+  for (const k of Object.keys(c)) if (!['deposit_method', 'balance_method', 'payout_cents', 'payout_at'].includes(k)) throw bad('Campo non modificabile');
+  for (const k of ['deposit_method', 'balance_method']) {
+    if (!(k in c)) continue;
+    if (c[k] !== null && !Object.hasOwn(PAY_METHODS, c[k])) throw bad('Scegli bonifico o contanti');
+    v[k] = c[k] || null;
+  }
+  if ('payout_cents' in c) {
+    if (cur.channel === 'diretto') throw bad('Il pagamento della piattaforma vale solo per Airbnb e Booking');
+    const n = c.payout_cents === null ? null : Number(c.payout_cents);
+    if (n !== null && (!Number.isSafeInteger(n) || n < 0 || n > 100000000)) throw bad('Importo non valido', { errors: { payout_cents: 'Importo non valido' } });
+    v.payout_cents = n;
+  }
+  if ('payout_at' in c) {
+    if (c.payout_at !== null && !isIsoDate(c.payout_at)) throw bad('Data non valida', { errors: { payout_at: 'Data non valida' } });
+    v.payout_at = c.payout_at || null;
+  }
+  const changes = diff(cur, v);
+  if (!Object.keys(changes).length) return { record: cur, unchanged: true };
+  const cols = Object.keys(changes);
+  const at = nowIso();
+  const main = db.prepare(`UPDATE bookings SET ${cols.map((k) => `${k} = ?, `).join('')}rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ?`)
+    .bind(...cols.map((k) => v[k]), at, user.email, p.id);
+  const done = await commit(db, { main, user, opId, entity: 'booking', entityId: p.id, action: 'money', changes });
+  if (!done) await explainBookingFailure(db, p.id);
+  return { record: await getBooking(db, p.id) };
+}
+
+/** Versamento della tassa di soggiorno al Comune o della cedolare. */
+async function remittanceAdd(db, user, opId, p) {
+  const r = checkRemittance(p.remittance || {});
+  if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
+  const houseId = p.remittance && p.remittance.house_id;
+  if (!houseId || !(await getHouse(db, houseId))) throw bad('Scegli la casa');
+  const id = isId(p.id) ? p.id : crypto.randomUUID();
+  if (await db.prepare('SELECT 1 FROM remittances WHERE id = ?').bind(id).first()) throw new OpError(409, 'state', 'Versamento già salvato.');
+  const at = nowIso();
+  const row = { id, house_id: houseId, ...r.value };
+  const cols = Object.keys(row);
+  const main = db.prepare(`INSERT INTO remittances (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
+    VALUES (${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT})`).bind(...cols.map((k) => row[k]), at, user.email, at, user.email);
+  await commit(db, { main, user, opId, entity: 'remittance', entityId: id, action: 'create', changes: row });
+  return { record: await db.prepare('SELECT * FROM remittances WHERE id = ?').bind(id).first() };
 }
 
 /* ------------------------------- Importazione ------------------------------- */
@@ -1166,6 +1232,10 @@ const HANDLERS = {
   'user.update': userUpdate,
   'house.update': houseUpdate,
   'booking.meter': bookingMeter,
+  'booking.money': bookingMoney,
+  'remittance.add': remittanceAdd,
+  'remittance.delete': (db, user, opId, p) => softDelete(db, user, opId, p, 'remittances', 'remittance', 1),
+  'remittance.restore': (db, user, opId, p) => softDelete(db, user, opId, p, 'remittances', 'remittance', 0),
   'booking.import': bookingImport,
   'contract.sign': contractSign,
   'contract.delete': contractDelete,

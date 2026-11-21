@@ -10,6 +10,7 @@ import { parseEuro, centsToInput } from '../../shared/money.js';
 import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '../../shared/contract.js';
 import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
 import { importBlock } from './import.js';
+import { accountingSettingsDialog } from './accounting.js';
 
 const IMPORT_VISIBLE = false;
 
@@ -338,7 +339,9 @@ function housesSection(ctx) {
           h('button', { class: 'btn small', type: 'button', onClick: () => contractInfoDialog(ctx, x) },
             icon('edit', { size: 16 }), 'Dati del contratto'),
           h('button', { class: 'btn small', type: 'button', onClick: () => quoteSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Preventivi')),
+            icon('edit', { size: 16 }), 'Preventivi'),
+          h('button', { class: 'btn small', type: 'button', onClick: () => accountingSettingsDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'Contabilità')),
         x.contract_ready ? null : h('div', { class: 'muted small', text: 'Contratto: mancano alcuni dati, completali per farlo firmare.' }))))));
 }
 

@@ -54,6 +54,8 @@ const ICONS = {
   home: 'M3 11l9-7 9 7v9H3z',
   folder: 'M3 6h6l2 2h10v11H3z',
   euro: 'M17 6.5A7 7 0 1 0 17 17.5M4 10h9M4 14h9',
+  chart: 'M4 20h16M7 16v-4M12 16V7M17 16v-7',
+  info: 'M12 16v-5M12 8h.01M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18',
 };
 
 export function icon(name, { size = 18, label } = {}) {

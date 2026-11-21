@@ -21,6 +21,7 @@ export async function readState(db, user) {
     db.prepare('SELECT * FROM deadlines WHERE deleted = 0 ORDER BY due_date'),
     db.prepare(`SELECT id, booking_id, house_id, template, lang, check_in, check_out, guests, signed_at, signer_name, hash, purge_after,
       deleted, version, rev FROM contracts WHERE deleted = 0 ORDER BY signed_at`),
+    db.prepare('SELECT * FROM remittances WHERE deleted = 0 ORDER BY date'),
   ]);
   const rows = (i) => results[i].results || [];
   return {
@@ -38,6 +39,8 @@ export async function readState(db, user) {
     deadlines: rows(9),
     // Contratti: solo se ci sono e quando sono stati firmati. Testo, dati e firme si scaricano a parte.
     contracts: rows(10).map(contractMeta),
+    // Versamenti di tassa di soggiorno e cedolare (contabilità: la vedono tutti, decisione di Mattia 21/11).
+    remittances: rows(11),
   };
 }
 
@@ -72,12 +75,13 @@ export async function readExport(db) {
     q('SELECT * FROM expenses ORDER BY date'),
     q('SELECT * FROM deadlines ORDER BY due_date'),
     q('SELECT * FROM contracts WHERE deleted = 0 ORDER BY signed_at'),
+    q('SELECT * FROM remittances ORDER BY date'),
   ]);
   const rows = (i) => r[i].results || [];
   return {
     rev: rows(0)[0]?.rev ?? 0,
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
     calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
-    extras: rows(8), expenses: rows(9), deadlines: rows(10), contracts: rows(11),
+    extras: rows(8), expenses: rows(9), deadlines: rows(10), contracts: rows(11), remittances: rows(12),
   };
 }

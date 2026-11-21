@@ -11,6 +11,7 @@ import { renderDetail, renderFlow } from './views/detail.js';
 import { renderSettings } from './views/settings.js';
 import { renderArchive } from './views/archive.js';
 import { renderQuote } from './views/quote.js';
+import { renderAccounting } from './views/accounting.js';
 
 const REFRESH_MS = 30000;
 
@@ -49,6 +50,7 @@ function parseRoute() {
   if (parts[0] === 'prenotazioni') return { name: 'bookings', params: {} };
   if (parts[0] === 'impostazioni') return { name: 'settings', params: {} };
   if (parts[0] === 'preventivo') return { name: 'quote', params: {} };
+  if (parts[0] === 'contabilita') return { name: 'accounting', params: {} };
   if (parts[0] === 'archivio') return { name: 'archive', params: { tab: parts[1] || null, house: parts[2] || null } };
   if (parts[0] === 'p' && parts[1]) {
     if (parts[2] === 'checkin' || parts[2] === 'checkout') return { name: 'flow', params: { id: parts[1], flow: parts[2] } };
@@ -148,10 +150,11 @@ function buildChip() {
 
 const NAV = [
   { name: 'today', path: 'oggi', label: 'Oggi', icon: 'home' },
-  { name: 'bookings', path: 'prenotazioni', label: 'Prenotazioni', icon: 'calendar' },
-  { name: 'quote', path: 'preventivo', label: 'Preventivo', icon: 'euro' },
+  { name: 'bookings', path: 'prenotazioni', label: 'Prenotazioni', short: 'Prenot.', icon: 'calendar' },
+  { name: 'quote', path: 'preventivo', label: 'Preventivo', short: 'Prevent.', icon: 'euro' },
+  { name: 'accounting', path: 'contabilita', label: 'Contabilità', short: 'Contab.', icon: 'chart' },
   { name: 'archive', path: 'archivio', label: 'Archivio', icon: 'folder' },
-  { name: 'settings', path: 'impostazioni', label: 'Impostazioni', icon: 'user' },
+  { name: 'settings', path: 'impostazioni', label: 'Impostazioni', short: 'Impost.', icon: 'user' },
 ];
 
 let shell = null;
@@ -159,7 +162,8 @@ let shell = null;
 function buildShell() {
   const navBtns = (cls) => NAV.map((n) => h('a', {
     class: cls, href: `#/${n.path}`, dataset: { nav: n.name },
-  }, icon(n.icon, { size: 20 }), h('span', { text: n.label })));
+    attrs: { 'aria-label': n.label },
+  }, icon(n.icon, { size: 20 }), h('span', { class: 'nav-long', text: n.label }), h('span', { class: 'nav-short', text: n.short || n.label, attrs: { 'aria-hidden': 'true' } })));
   const view = h('div', { class: 'page', id: 'view' });
   const brandSub = h('div', { class: 'brand-sub' });
   const envBadge = h('span', { class: 'env-badge', hidden: true });
@@ -252,6 +256,7 @@ function render() {
     case 'settings': node = renderSettings(ctx); break;
     case 'archive': node = renderArchive(ctx); break;
     case 'quote': node = renderQuote(ctx); break;
+    case 'accounting': node = renderAccounting(ctx); break;
     default: node = renderToday(ctx);
   }
   shell.view.replaceChildren(node);

@@ -2,6 +2,7 @@
 // Disponibile solo se ALLOW_DEMO = "true" (ambiente di prova).
 
 import { addDays, todayRome } from '../public/shared/dates.js';
+import { DEFAULT_ACCOUNTING, stayAccount } from '../public/shared/accounting.js';
 
 const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 
@@ -12,8 +13,9 @@ export function demoBookings(today = todayRome()) {
     // Isola Bella
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Famiglia Conti (prova)', phone: '+39 000 000 0001', guests: 4,
       check_in: d(-3), check_out: d(2), arrival_time: '16:00', total_cents: 98000, deposit_cents: 30000, deposit_paid: 1,
-      security_cents: 20000, security_status: 'incassata', stage: 'in_casa',
-      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'contatori', 'alloggiati', 'dms']) },
+      security_cents: 20000, security_status: 'incassata', stage: 'in_casa', deposit_method: 'bonifico', balance_method: 'contanti',
+      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'contatori', 'alloggiati', 'dms']),
+      extras: [{ kind: 'tassa_soggiorno', amount_cents: 2000, paid: 1, paid_method: 'contanti' }] },
     { house_id: 'isola-bella', channel: 'airbnb', guest_name: 'Lena Hoffmann (prova)', phone: null, guests: 2,
       check_in: d(2), check_out: d(9), arrival_time: null, total_cents: 112000, security_cents: 0, security_status: 'nessuna', stage: 'confermata', extras: [{ kind: 'altro', label: 'Garage', amount_cents: 1500, paid: 0 }] },
     { house_id: 'isola-bella', channel: 'diretto', guest_name: 'Giulia Ferri (prova)', phone: '+39 000 000 0002', guests: 3,
@@ -25,6 +27,9 @@ export function demoBookings(today = todayRome()) {
       ext_uid: 'prova-1@airbnb.com', needs_details: 1 },
     { house_id: 'isola-bella', channel: 'booking', guest_name: 'Pierre Laurent (prova)', guests: 2,
       check_in: d(-20), check_out: d(-13), total_cents: 84000, security_status: 'nessuna', stage: 'chiusa', review_ok: 1,
+      payout_cents: 52786, payout_at: d(-19),
+      extras: [{ kind: 'tassa_soggiorno', amount_cents: 1400, paid: 1, paid_method: 'contanti' }],
+      costs: [{ category: 'pulizie', label: 'Pulizie finali', amount_cents: 6000, paid: 1 }, { category: 'lavanderia', label: null, amount_cents: 2500, paid: 1 }],
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi']) },
     // Faro Blu
     // Check-in lasciato a metà due giorni fa: mancano Alloggiati e DMS, quindi è oltre le 24 ore.
@@ -40,6 +45,8 @@ export function demoBookings(today = todayRome()) {
       security_cents: 30000, security_status: 'da_incassare', stage: 'confermata' },
     { house_id: 'faro-blu', channel: 'airbnb', guest_name: 'Sophie Weber (prova)', guests: 6,
       check_in: d(-9), check_out: d(-2), total_cents: 168000, security_cents: 30000, security_status: 'restituita', stage: 'partita',
+      extras: [{ kind: 'tassa_soggiorno', amount_cents: 4200, paid: 1, paid_method: 'contanti' }, { kind: 'altro', label: 'Pulizie finali (chieste a parte)', amount_cents: 8000, paid: 1, paid_method: 'contanti' }],
+      costs: [{ category: 'pulizie', label: 'Pulizie finali', amount_cents: 9000, paid: 0, notes: 'Da pagare a Rosa con le prossime' }, { category: 'lavanderia', label: null, amount_cents: 4500, paid: 1 }],
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi', 'cauzione']) },
     ...demoHistory(today),
   ];
@@ -54,14 +61,36 @@ function demoHistory(today) {
   const out = [];
   const weeks = [['06-06', 200], ['06-20', 220], ['07-04', 260], ['07-18', 280], ['08-01', 310], ['08-15', 330], ['08-22', 300], ['09-05', 220], ['09-19', 190]];
   const channels = ['diretto', 'airbnb', 'booking'];
-  for (const back of [1, 2]) {
+  const done = JSON.stringify({ ospiti: 1, documenti: 1, pagamenti: 1, contratto: 1, alloggiati: 1, dms: 1 });
+  const out_ = JSON.stringify({ controllo: 1, chiavi: 1, cauzione: 1 });
+  for (const back of [0, 1, 2]) {
     const y = y0 - back;
     weeks.forEach(([md, eur], i) => {
       for (const [house, factor, guests] of [['faro-blu', 1, 8], ['isola-bella', 0.7, 4]]) {
         const ci = `${y}-${md}`;
-        const perNight = Math.round(eur * factor * (back === 2 ? 0.95 : 1)) * 100;
-        out.push({ house_id: house, channel: channels[(i + back) % 3], guest_name: `Storico ${y} (prova)`, guests,
-          check_in: ci, check_out: addDays(ci, 7), total_cents: perNight * 7, security_cents: 0, security_status: 'nessuna', stage: 'chiusa', review_ok: 1 });
+        if (addDays(ci, 7) >= today) continue;
+        const channel = channels[(i + back) % 3];
+        const perNight = Math.round(eur * factor * (back === 2 ? 0.95 : back === 1 ? 1 : 1.05)) * 100;
+        const b = { house_id: house, channel, guest_name: `${back ? 'Storico' : 'Ospite'} ${y} n. ${i + 1} (prova)`, guests,
+          check_in: ci, check_out: addDays(ci, 7), total_cents: perNight * 7, security_cents: 0, security_status: 'nessuna', stage: 'chiusa', review_ok: 1,
+          checkin_steps: done, checkout_steps: out_ };
+        if (channel === 'diretto') Object.assign(b, { deposit_cents: Math.round((b.total_cents * 0.3) / 5000) * 5000, deposit_paid: 1, deposit_method: 'bonifico', balance_method: i % 2 ? 'contanti' : 'bonifico' });
+        if (back === 0) {
+          // Stagione in corso: tassa di soggiorno, pulizie e lavanderia di ogni soggiorno; qualche cosa lasciata da sistemare.
+          b.extras = [{ kind: 'tassa_soggiorno', amount_cents: guests * 7 * 150, paid: 1, paid_method: 'contanti' }];
+          if (i === 2) b.extras.push({ kind: 'altro', label: 'Garage', amount_cents: guests * 1000, paid: 1, paid_method: 'contanti' });
+          b.costs = [
+            { category: 'pulizie', label: 'Pulizie finali', amount_cents: house === 'faro-blu' ? 9000 : 6000, paid: i === 8 ? 0 : 1, notes: i === 8 ? 'Da pagare a fine mese' : null },
+            { category: 'lavanderia', label: null, amount_cents: guests * 600, paid: 1 },
+          ];
+          if (i === 4 && house === 'faro-blu') Object.assign(b, { security_cents: 30000, security_status: 'trattenuta', security_withheld_cents: 12000, security_note: 'Tavolino del terrazzo rotto' });
+        }
+        // Pagamento delle piattaforme arrivato (tranne uno di quest'anno, per vedere l'avviso).
+        if (channel !== 'diretto' && !(back === 0 && i === 7)) {
+          const a = stayAccount(b, { settings: DEFAULT_ACCOUNTING });
+          Object.assign(b, { payout_cents: a.expectedPayout, payout_at: addDays(ci, 1) });
+        }
+        out.push(b);
       }
     });
   }
@@ -83,11 +112,12 @@ export async function loadDemo(db, user) {
     db.prepare('DELETE FROM contracts'),
     db.prepare('DELETE FROM booking_extras'),
     db.prepare('DELETE FROM expenses'),
+    db.prepare('DELETE FROM remittances'),
     db.prepare('DELETE FROM deadlines'),
     db.prepare('DELETE FROM booking_notes'),
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM bookings'),
-    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline', 'contract')"),
+    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline', 'contract', 'remittance')"),
   ];
   // Dati del contratto inventati, solo dove mancano (quelli scritti in Impostazioni non si toccano).
   const fake = { landlord_sal: 'M', landlord_name: 'Mario Rossi (prova)', landlord_birth_place: 'Lecce', landlord_birth_date: '1970-01-01',
@@ -95,21 +125,42 @@ export async function loadDemo(db, user) {
     description: 'piano primo, composta da tre vani, cucina e servizi', description_en: 'first floor, consisting of three rooms, kitchen and bathroom', cin: 'IT075031C2PROVA0001', advance_pct: 30 };
   stmts.push(db.prepare(`UPDATE houses SET contract_info = json_patch(?, COALESCE(contract_info, '{}')), version = version + 1, rev = ${REV_NEXT}
     WHERE json_extract(COALESCE(contract_info, '{}'), '$.landlord_name') IS NULL`).bind(JSON.stringify(fake)));
+  const cedolarePast = new Map();
   for (const b of demoBookings()) {
     const row = {
       id: crypto.randomUUID(), phone: null, arrival_time: null, deposit_cents: 0, deposit_paid: 0, security_cents: 0,
       minors_delegation: 'non_serve', checkin_steps: '{}', checkout_steps: '{}', review_ok: null, ...b,
     };
     const extras = row.extras || [];
+    const costs = row.costs || [];
     delete row.extras;
+    delete row.costs;
     const cols = Object.keys(row);
     stmts.push(db.prepare(`INSERT INTO bookings (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
       VALUES (${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT})`)
       .bind(...cols.map((c) => row[c]), at, user.email, at, user.email));
     for (const x of extras) {
-      stmts.push(db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, created_at, created_by, rev)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), row.id, x.kind, x.label || null, x.amount_cents, x.paid, at, user.email));
+      stmts.push(db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, paid_method, created_at, created_by, rev)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), row.id, x.kind, x.label || null, x.amount_cents, x.paid, x.paid_method || null, at, user.email));
     }
+    for (const x of costs) {
+      stmts.push(db.prepare(`INSERT INTO expenses (id, house_id, category, label, amount_cents, date, paid, paid_at, notes, booking_id, created_at, created_by, rev)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
+        .bind(crypto.randomUUID(), row.house_id, x.category, x.label || null, x.amount_cents, row.check_out, x.paid, x.paid ? at : null, x.notes || null, row.id, at, user.email));
+    }
+    // Anni passati: cedolare già versata (per non vederla tra le cose da sistemare).
+    const y = Number(row.check_in.slice(0, 4));
+    if (y < Number(todayRome().slice(0, 4))) {
+      const a = stayAccount(row, { settings: DEFAULT_ACCOUNTING });
+      const k = `${row.house_id}|${y}`;
+      cedolarePast.set(k, (cedolarePast.get(k) || 0) + a.cedolareToPay);
+    }
+  }
+  for (const [k, cents] of cedolarePast) {
+    if (!cents) continue;
+    const [house, y] = k.split('|');
+    stmts.push(db.prepare(`INSERT INTO remittances (id, house_id, kind, year, amount_cents, date, notes, created_at, created_by, updated_at, updated_by, rev)
+      VALUES (?, ?, 'cedolare', ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), house, Number(y), cents, `${Number(y) + 1}-06-16`, 'F24 (prova)', at, user.email, at, user.email));
   }
   for (const t of demoTasks()) {
     stmts.push(db.prepare(`INSERT INTO tasks (id, title, house_id, due_date, created_at, created_by, rev)

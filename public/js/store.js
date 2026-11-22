@@ -10,7 +10,7 @@
 // - Le modifiche non ancora confermate sono copiate sul dispositivo (fino a 72 ore): se l'app si chiude,
 //   si ricarica o la sessione scade, al riavvio ripartono con lo stesso codice (il server non le ripete).
 
-const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [], extras: [], expenses: [], deadlines: [], contracts: [], remittances: [] };
+const EMPTY = { rev: -1, me: null, houses: [], users: [], bookings: [], notes: [], tasks: [], calendars: [], extras: [], expenses: [], deadlines: [], contracts: [], remittances: [], receipts: [] };
 const COLLECTION = { booking: 'bookings', note: 'notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances' };
 const TIMEOUT_MS = 15000;
 const RETRIES = [1000, 3000, 8000];
@@ -69,9 +69,9 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     emit('status');
   }
 
-  async function request(path, { method = 'GET', body } = {}) {
+  async function request(path, { method = 'GET', body, timeout = TIMEOUT_MS } = {}) {
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), TIMEOUT_MS) : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeout) : null;
     let res;
     try {
       res = await fetchImpl(path, {
@@ -136,7 +136,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       }
       return false;
     }
-    info = { version: res.version, env: res.env, demo: Boolean(res.demo), calendarBase: res.calendarBase || null };
+    info = { version: res.version, env: res.env, demo: Boolean(res.demo), calendarBase: res.calendarBase || null, secretReady: Boolean(res.secretReady) };
     lastSync = now();
     if (seq < appliedSeq) return false;
     appliedSeq = seq;
@@ -156,7 +156,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       return false;
     }
     staleRetries = 0;
-    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [], extras: res.extras || [], expenses: res.expenses || [], deadlines: res.deadlines || [], contracts: res.contracts || [], remittances: res.remittances || [] };
+    data = { rev: res.rev, me: res.me, houses: res.houses, users: res.users, bookings: res.bookings, notes: res.notes, tasks: res.tasks, calendars: res.calendars || [], extras: res.extras || [], expenses: res.expenses || [], deadlines: res.deadlines || [], contracts: res.contracts || [], remittances: res.remittances || [], receipts: res.receipts || [] };
     maxSeenRev = Math.max(maxSeenRev, res.rev);
     emit('data');
     return true;

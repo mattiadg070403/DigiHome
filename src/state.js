@@ -22,6 +22,7 @@ export async function readState(db, user) {
     db.prepare(`SELECT id, booking_id, house_id, template, lang, check_in, check_out, guests, signed_at, signer_name, hash, purge_after,
       deleted, version, rev FROM contracts WHERE deleted = 0 ORDER BY signed_at`),
     db.prepare('SELECT * FROM remittances WHERE deleted = 0 ORDER BY date'),
+    db.prepare('SELECT id, house_id, date, size, fetched_at, purge_after FROM alloggiati_receipts ORDER BY date DESC'),
   ]);
   const rows = (i) => results[i].results || [];
   return {
@@ -41,6 +42,8 @@ export async function readState(db, user) {
     contracts: rows(10).map(contractMeta),
     // Versamenti di tassa di soggiorno e cedolare (contabilità: la vedono tutti, decisione di Mattia 21/11).
     remittances: rows(11),
+    // Ricevute di Alloggiati Web: solo data e dimensione; il PDF si scarica a parte.
+    receipts: rows(12),
   };
 }
 

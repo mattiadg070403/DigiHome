@@ -53,7 +53,7 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances', guest: 'guests' };
 
 export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
@@ -1241,7 +1241,18 @@ const HANDLERS = {
   'contract.delete': contractDelete,
 };
 
-export const OP_TYPES = Object.keys(HANDLERS);
+/**
+ * Altri moduli (ospiti, DMS) aggiungono qui le loro operazioni, senza import circolari.
+ * private: operazioni con dati personali, che non passano mai dalla coda offline (/api/ops le rifiuta).
+ */
+export const PRIVATE_OPS = new Set(['contract.sign']);
+export function registerOps(map, { private: isPrivate = false } = {}) {
+  for (const [type, fn] of Object.entries(map)) {
+    if (HANDLERS[type]) throw new Error(`Operazione già registrata: ${type}`);
+    HANDLERS[type] = fn;
+    if (isPrivate) PRIVATE_OPS.add(type);
+  }
+}
 
 /**
  * Esegue un'operazione. Se lo stesso opId è già stato eseguito, non la ripete.

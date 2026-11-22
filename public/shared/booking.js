@@ -98,7 +98,7 @@ export function checkinSteps(b, opt = {}) {
   });
   steps.push({
     key: 'dms', required: true, title: 'Comunicazione DMS Puglia',
-    help: 'Obbligatoria: registra l’arrivo degli ospiti sul portale DMS della Regione Puglia.',
+    help: 'Obbligatoria: carica sul DMS Puglia (con SPID, «Carica movimentazione») il file preparato in Archivio → Questura e DMS, oppure registra l’arrivo a mano.',
   });
   return steps;
 }

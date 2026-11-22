@@ -1,7 +1,7 @@
 // Impostazioni: account, utenti e case (solo amministratore), dati di prova.
 
 import { h, icon } from '../dom.js';
-import { houseVars, field, openDialog, confirmDialog, switchRow, setFieldError } from '../ui.js';
+import { houseVars, field, openDialog, confirmDialog, switchRow, setFieldError, tag } from '../ui.js';
 import { APP_VERSION } from '../../shared/version.js';
 import { timeField, dateField } from '../pickers.js';
 import { checkCalendarUrl } from '../../shared/calendar.js';
@@ -11,6 +11,7 @@ import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '..
 import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
 import { importBlock } from './import.js';
 import { accountingSettingsDialog } from './accounting.js';
+import { alloggiatiSettingsDialog, dmsSettingsDialog, alloggiatiSummary } from './questura.js';
 
 const IMPORT_VISIBLE = false;
 
@@ -341,8 +342,13 @@ function housesSection(ctx) {
           h('button', { class: 'btn small', type: 'button', onClick: () => quoteSettingsDialog(ctx, x) },
             icon('edit', { size: 16 }), 'Preventivi'),
           h('button', { class: 'btn small', type: 'button', onClick: () => accountingSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Contabilità')),
-        x.contract_ready ? null : h('div', { class: 'muted small', text: 'Contratto: mancano alcuni dati, completali per farlo firmare.' }))))));
+            icon('edit', { size: 16 }), 'Contabilità'),
+          h('button', { class: 'btn small', type: 'button', onClick: () => alloggiatiSettingsDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'Alloggiati Web'),
+          h('button', { class: 'btn small', type: 'button', onClick: () => dmsSettingsDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'DMS Puglia')),
+        x.contract_ready ? null : h('div', { class: 'muted small', text: 'Contratto: mancano alcuni dati, completali per farlo firmare.' }),
+        h('div', { class: 'row-sub' }, tag(alloggiatiSummary(x))))))));
 }
 
 function houseDialog(ctx, house) {

@@ -2,7 +2,7 @@
 
 import { h, icon, newId } from '../dom.js';
 import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, confirmDialog, segmented } from '../ui.js';
-import { fmtLong, fmtShort, nights } from '../../shared/dates.js';
+import { fmtLong, fmtShort, nights, todayRome } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
   CHANNELS, arrivalReminderItems, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
@@ -16,6 +16,7 @@ import { meterSummary, openMeter } from './meter.js';
 import { fmtKwh } from '../../shared/meter.js';
 import { PAY_METHODS } from '../../shared/accounting.js';
 import { stayAccountPanel, addStayCosts, askPayMethod } from './accounting.js';
+import { guestsPanel, openGuests, alloggiatiReady } from './guests.js';
 
 function notFound(ctx) {
   return h('div', { class: 'card' }, h('div', { class: 'empty' },
@@ -114,6 +115,7 @@ export function renderDetail(ctx, id) {
       panel('Dettagli', details),
       panel('Note', notesBlock(ctx, b)),
       b.channel === 'diretto' ? contractPanel(ctx, b) : null),
+    b.stage !== 'cancellata' ? h('div', { class: 'section' }, guestsPanel(ctx, b)) : null,
     h('div', { class: 'section' }, stayAccountPanel(ctx, b)),
     h('div', { class: 'section' },
       h('div', { class: 'btn-row' }, flows,
@@ -366,6 +368,8 @@ export function renderFlow(ctx, id, flow) {
     if (isIn && s.key === 'contratto') { openContract(ctx, store.data.bookings.find((x) => x.id === b.id) || b); return; }
     // Contatore della luce: si apre la finestra della lettura (il passaggio si spunta salvando).
     if (s.key === 'contatori') { if (canEdit) openMeter(ctx, store.data.bookings.find((x) => x.id === b.id) || b, isIn ? 'start' : 'end'); return; }
+    // Schedine: con il collegamento impostato si aprono ospiti e invio (il passaggio si spunta da solo).
+    if (isIn && s.key === 'alloggiati' && alloggiatiReady(house) && !done.alloggiati) { openGuests(ctx, store.data.bookings.find((x) => x.id === b.id) || b); return; }
     if (!canEdit) return;
     if (!isIn && s.key === 'cauzione') return;
     const target = !done[s.key];
@@ -419,6 +423,13 @@ export function renderFlow(ctx, id, flow) {
       content[1].append(h('span', { class: 'flow-link', text: Number.isInteger(reading) ? `Lettura: ${fmtKwh(reading)} kWh · tocca per correggerla o inviarla` : 'Tocca per scrivere la lettura' }));
       if (!isIn && meterSummary(b, house)) content[1].append(h('span', { class: 'flow-help', text: meterSummary(b, house) }));
       return h('button', { class: ['flow-step', isDone && 'done'], type: 'button', disabled: !canEdit, onClick: () => toggle(s) }, content);
+    }
+    if (isIn && s.key === 'alloggiati' && alloggiatiReady(house)) {
+      const sentDay = b.alloggiati_at ? todayRome(new Date(b.alloggiati_at)) : null;
+      content[1].append(h('span', { class: 'flow-link', text: sentDay ? `Inviate dal gestionale il ${fmtShort(sentDay)}`
+        : `Ospiti inseriti: ${b.guests_done || 0} completi su ${b.guests} · tocca per i dati e l’invio` }));
+      return h('button', { class: ['flow-step', isDone && 'done'], type: 'button', disabled: !canEdit && !sentDay,
+        onClick: () => (sentDay ? openGuests(ctx, b) : toggle(s)) }, content);
     }
     if (isIn && s.key === 'contratto') {
       // Il contratto firmato si può sempre riaprire (per inviarlo), anche a check-in concluso.

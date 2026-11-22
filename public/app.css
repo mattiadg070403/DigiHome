@@ -559,3 +559,24 @@ select.input.acc-year { width: auto; }
 .acc-bar.exp { background: #D9782F; }
 .acc-remit { align-items: center; }
 .acc-tile:hover { border-top-color: var(--acc-c, #CFCBC2); }
+
+/* Ospiti e Questura */
+.guests-panel h2 { margin: 0; }
+.guest-row.row-button { display: flex; flex-direction: row; align-items: center; width: 100%; padding: 9px 0; gap: 10px; justify-content: space-between; color: var(--ink); text-align: left; }
+.guest-row + .guest-row { border-top: 1px solid var(--line-soft); }
+.questura { padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.place-field { position: relative; }
+.place-list {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+  max-height: 260px; overflow-y: auto;
+}
+.place-item { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 15px; }
+.place-item.active, .place-item:hover { background: var(--line-soft); }
+.place-empty { padding: 10px 12px; font-size: 14px; color: var(--muted); }
+.plain-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; }
+.plain-steps .btn-row { margin-top: 6px; }
+.input.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; min-width: 0; flex: 1 1 220px; }
+.copy-lead { align-self: flex-start; }
+/* Sui telefoni anche le finestre larghe occupano tutto lo schermo (prima restavano spostate a sinistra). */
+@media (max-width: 560px) { dialog.wide { width: 100vw; } }

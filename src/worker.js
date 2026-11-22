@@ -2,7 +2,11 @@
 
 import { authenticate } from './auth.js';
 import { fail, json, secure, text } from './http.js';
-import { OpError, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
+import { OpError, PRIVATE_OPS, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
+import { GUEST_HANDLERS, listGuests, purgeGuests } from './guests.js';
+import { checkConnection, docTypes, fetchReceipt, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine } from './questura.js';
+import { dmsFile } from './dms.js';
+import { hasSecret } from './secrets.js';
 import { readExport, readHistory, readState } from './state.js';
 import { loadDemo } from './demo.js';
 import { syncAll } from './calendars.js';
@@ -40,7 +44,7 @@ async function handleApi(request, env, url) {
 
   if (request.method === 'GET') {
     if (path === '/api/state') {
-      const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION,
+      const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION, secretReady: hasSecret(env),
         calendarBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.CALENDAR_PUBLIC_URL || '') ? env.CALENDAR_PUBLIC_URL : null };
       // Controllo veloce: se l'app ha già l'ultima versione dei dati, non li rimanda.
       const known = url.searchParams.get('rev');
@@ -61,6 +65,29 @@ async function handleApi(request, env, url) {
     const m = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/history$/);
     if (m) return json({ ok: true, history: await readHistory(env.DB, m[1]) });
     try {
+      // Ospiti della prenotazione: si leggono solo aprendo la scheda (non fanno parte dello stato).
+      const g = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/guests$/);
+      if (g) return json({ ok: true, guests: await listGuests(env.DB, g[1]) }, { headers: { 'Cache-Control': 'no-store' } });
+      if (path === '/api/places') {
+        return json({ ok: true, places: await searchPlaces(env.DB, url.searchParams.get('q'), url.searchParams.get('kind')) });
+      }
+      if (path === '/api/doc-types') return json({ ok: true, docTypes: await docTypes(env.DB) });
+      const rc = path.match(/^\/api\/receipts\/([A-Za-z0-9-]{8,64})$/);
+      if (rc) {
+        const r = await readReceipt(env.DB, rc[1]);
+        const bytes = r.pdf instanceof Uint8Array ? r.pdf : new Uint8Array(r.pdf);
+        return secure(new Response(bytes, { status: 200, headers: {
+          'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': `attachment; filename="ricevuta-alloggiati-${r.house_id}-${r.date}.pdf"`,
+        } }), { cache: 'no-store' });
+      }
+      if (path === '/api/dms') {
+        const { house, xml } = await dmsFile(env.DB, url.searchParams.get('house'), url.searchParams.get('from'), url.searchParams.get('to'));
+        return secure(new Response(xml, { status: 200, headers: {
+          'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': `attachment; filename="dms-${house.id}-${url.searchParams.get('from')}-${url.searchParams.get('to')}.xml"`,
+        } }), { cache: 'no-store' });
+      }
       const draft = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/contract-draft$/);
       if (draft) return json({ ok: true, ...(await contractDraft(env.DB, draft[1], url.searchParams.get('lang') || 'it')) });
       const c = path.match(/^\/api\/contracts\/([A-Za-z0-9-]{8,64})$/);
@@ -78,8 +105,31 @@ async function handleApi(request, env, url) {
       if (path === '/api/ops') {
         const body = await readJson(request);
         // La firma del contratto non passa dalla coda delle modifiche: si fa solo in linea, dal suo indirizzo.
-        if (body && body.type === 'contract.sign') return fail(400, 'validation', 'Richiesta non valida.');
+        // Firme e dati degli ospiti non passano dalla coda delle modifiche: si salvano solo in linea, dai loro indirizzi.
+        if (body && PRIVATE_OPS.has(body.type)) return fail(400, 'validation', 'Richiesta non valida.');
         return json(await runOp(env.DB, user, body));
+      }
+      if (path === '/api/guests') {
+        const body = await readJson(request);
+        if (!body || !Object.hasOwn(GUEST_HANDLERS, body.type)) return fail(400, 'validation', 'Richiesta non valida.');
+        return json(await runOp(env.DB, user, body), { headers: { 'Cache-Control': 'no-store' } });
+      }
+      if (path === '/api/alloggiati/credentials') {
+        const body = await readJson(request);
+        return json({ ok: true, result: await saveCredentials(env.DB, env, user, body || {}) });
+      }
+      if (path === '/api/alloggiati/check') {
+        const body = await readJson(request);
+        if (user.role !== 'admin') return fail(403, 'forbidden', 'Solo l’amministratore può farlo.');
+        return json({ ok: true, result: await checkConnection(env.DB, env, user, { houseId: body && body.houseId, tables: Boolean(body && body.tables) }) });
+      }
+      if (path === '/api/alloggiati/send') {
+        const body = await readJson(request);
+        return json({ ok: true, result: await sendSchedine(env.DB, env, user, body || {}) });
+      }
+      if (path === '/api/alloggiati/receipt') {
+        const body = await readJson(request);
+        return json({ ok: true, result: await fetchReceipt(env.DB, env, body && body.houseId, body && body.date) });
       }
       if (path === '/api/contracts') {
         const body = await readJson(request, MAX_BODY_CONTRACT);
@@ -144,5 +194,17 @@ export default {
     ctx.waitUntil(purgeContracts(env.DB, undefined, 'sistema@digihome.invalid').then((n) => {
       if (n) console.log('Contratti cancellati per fine conservazione', n);
     }).catch((e) => console.error('Cancellazione contratti non riuscita', e && e.stack ? e.stack : e)));
+    // Alloggiati Web: ricevute dei giorni di invio (si conservano 5 anni) e dati degli ospiti oltre un anno dalla partenza.
+    // Le ricevute si cercano tre volte al giorno (7, 13 e 19, ora italiana): il portale le prepara dal giorno dopo l'invio.
+    const romeHour = Number(new Intl.DateTimeFormat('it-IT', { hour: '2-digit', hour12: false, timeZone: 'Europe/Rome' }).format(new Date(event.scheduledTime || Date.now())));
+    const romeMinute = new Date(event.scheduledTime || Date.now()).getUTCMinutes();
+    const download = [7, 13, 19].includes(romeHour) && romeMinute < 30;
+    ctx.waitUntil(receiptJob(env.DB, env, { download }).then((r) => {
+      if (r.fetched || r.purged) console.log('Ricevute Alloggiati', JSON.stringify({ scaricate: r.fetched, cancellate: r.purged }));
+      if (r.errors.length) console.warn('Ricevute Alloggiati non scaricate', r.errors.join('; '));
+    }).catch((e) => console.error('Ricevute Alloggiati', e && e.stack ? e.stack : e)));
+    ctx.waitUntil(purgeGuests(env.DB).then((n) => {
+      if (n) console.log('Ospiti cancellati (oltre un anno dalla partenza)', n);
+    }).catch((e) => console.error('Cancellazione ospiti non riuscita', e && e.stack ? e.stack : e)));
   },
 };

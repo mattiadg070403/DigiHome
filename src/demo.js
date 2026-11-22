@@ -3,6 +3,7 @@
 
 import { addDays, todayRome } from '../public/shared/dates.js';
 import { DEFAULT_ACCOUNTING, stayAccount } from '../public/shared/accounting.js';
+import { guestMissing } from '../public/shared/alloggiati.js';
 
 const REV_NEXT = "(SELECT value FROM meta WHERE key = 'rev') + 1";
 
@@ -36,10 +37,19 @@ export function demoBookings(today = todayRome()) {
     { house_id: 'faro-blu', channel: 'diretto', guest_name: 'Coppia Rizzi (prova)', phone: '+39 000 000 0005', guests: 2,
       check_in: d(-2), check_out: d(0), arrival_time: '15:00', total_cents: 36000, deposit_cents: 10000, deposit_paid: 1,
       security_cents: 0, security_status: 'nessuna', stage: 'confermata',
-      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto']) },
+      checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto']),
+      people: [
+        { last_name: 'Rizzi', first_name: 'Paolo', sex: 'M', birth_date: '1985-04-12', birth_place: '475000001', citizenship: '100000100', residence: '475000002', doc_type: 'IDELE', doc_number: 'CA00000AA', doc_place: '475000002' },
+        { last_name: 'Rizzi', first_name: 'Elena', sex: 'F', birth_date: '1987-09-30', birth_place: '475000003', citizenship: '100000100', residence: '475000002' },
+      ] },
     { house_id: 'faro-blu', channel: 'booking', guest_name: 'Gruppo Ferraro (prova)', phone: '+39 000 000 0003', guests: 9,
       check_in: d(0), check_out: d(7), arrival_time: '16:30', total_cents: 245000, security_cents: 30000,
-      security_status: 'da_incassare', stage: 'confermata', checkin_steps: steps(['ospiti']) },
+      security_status: 'da_incassare', stage: 'confermata', checkin_steps: steps(['ospiti']),
+      people: [
+        { last_name: 'Ferraro', first_name: 'Davide', sex: 'M', birth_date: '1990-02-02', birth_place: '475000004', citizenship: '100000100', residence: '475000004', doc_type: 'PATEN', doc_number: 'NA0000000X', doc_place: '475000004' },
+        { last_name: 'Schmidt', first_name: 'Jonas', sex: 'M', birth_date: '1991-06-15', birth_place: '100000901', citizenship: '100000901', residence: '100000901' },
+        { last_name: 'Ferraro', first_name: 'Chiara' },
+      ] },
     { house_id: 'faro-blu', channel: 'diretto', guest_name: 'Marco Bellini (prova)', phone: '+39 000 000 0004', guests: 8,
       check_in: d(9), check_out: d(16), total_cents: 210000, deposit_cents: 50000, deposit_paid: 1,
       security_cents: 30000, security_status: 'da_incassare', stage: 'confermata' },
@@ -106,10 +116,23 @@ export function demoTasks(today = todayRome()) {
 }
 
 /** Cancella prenotazioni, note e cose da fare e carica i dati di prova. */
+// Luoghi e documenti di prova (codici inventati, tranne Italia 100000100).
+export const DEMO_PLACES = [
+  ['100000100', 'ITALIA', null, 'S'], ['100000901', 'GERMANIA', null, 'S'], ['100000902', 'FRANCIA', null, 'S'],
+  ['100000903', 'REGNO UNITO', null, 'S'], ['100000904', 'SVIZZERA', null, 'S'], ['100000905', 'PAESI BASSI', null, 'S'],
+  ['100000906', 'SPAGNA', null, 'S'], ['100000907', 'STATI UNITI D\'AMERICA', null, 'S'],
+  ['475000001', 'GALLIPOLI', 'LE', 'C'], ['475000002', 'LECCE', 'LE', 'C'], ['475000003', 'BARI', 'BA', 'C'],
+  ['475000004', 'NAPOLI', 'NA', 'C'], ['475000005', 'ROMA', 'RM', 'C'], ['475000006', 'MILANO', 'MI', 'C'],
+  ['475000007', 'TORINO', 'TO', 'C'], ['475000008', 'BOLOGNA', 'BO', 'C'], ['475000009', 'GALATINA', 'LE', 'C'],
+];
+const DEMO_DOCS = [['IDENT', 'CARTA DI IDENTITA\''], ['IDELE', 'CARTA IDENTITA\' ELETTRONICA'], ['PASOR', 'PASSAPORTO ORDINARIO'], ['PATEN', 'PATENTE DI GUIDA']];
+
 export async function loadDemo(db, user) {
   const at = new Date().toISOString();
   const stmts = [
     db.prepare('DELETE FROM contracts'),
+    db.prepare('DELETE FROM guests'),
+    db.prepare('DELETE FROM alloggiati_receipts'),
     db.prepare('DELETE FROM booking_extras'),
     db.prepare('DELETE FROM expenses'),
     db.prepare('DELETE FROM remittances'),
@@ -117,7 +140,7 @@ export async function loadDemo(db, user) {
     db.prepare('DELETE FROM booking_notes'),
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM bookings'),
-    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline', 'contract', 'remittance')"),
+    db.prepare("DELETE FROM audit_log WHERE entity IN ('booking', 'note', 'task', 'extra', 'expense', 'deadline', 'contract', 'remittance', 'guest')"),
   ];
   // Dati del contratto inventati, solo dove mancano (quelli scritti in Impostazioni non si toccano).
   const fake = { landlord_sal: 'M', landlord_name: 'Mario Rossi (prova)', landlord_birth_place: 'Lecce', landlord_birth_date: '1970-01-01',
@@ -126,6 +149,19 @@ export async function loadDemo(db, user) {
   stmts.push(db.prepare(`UPDATE houses SET contract_info = json_patch(?, COALESCE(contract_info, '{}')), version = version + 1, rev = ${REV_NEXT}
     WHERE json_extract(COALESCE(contract_info, '{}'), '$.landlord_name') IS NULL`).bind(JSON.stringify(fake)));
   const cedolarePast = new Map();
+  let demoCode = 100000;
+  // Tabelle dei luoghi e dei documenti: quelle vere arrivano dal portale Alloggiati; qui, se mancano, poche di prova
+  // (codici inventati, tranne Italia). Non sostituiscono mai le tabelle vere già scaricate.
+  for (const [code, name, prov, kind] of DEMO_PLACES) {
+    stmts.push(db.prepare(`INSERT OR IGNORE INTO places (code, name, province, kind, active)
+      SELECT ?, ?, ?, ?, 1 WHERE (SELECT COUNT(*) FROM places) < 100`).bind(code, name, prov, kind));
+  }
+  for (const [code, name] of DEMO_DOCS) {
+    stmts.push(db.prepare(`INSERT OR IGNORE INTO doc_types (code, name) SELECT ?, ? WHERE (SELECT COUNT(*) FROM doc_types) < 10`).bind(code, name));
+  }
+  // DMS: camere e posti letto di prova, solo se non impostati.
+  stmts.push(db.prepare(`UPDATE houses SET dms_settings = CASE id WHEN 'faro-blu' THEN '{"rooms":3,"beds":9}' ELSE '{"rooms":2,"beds":4}' END
+    WHERE dms_settings IS NULL`));
   for (const b of demoBookings()) {
     const row = {
       id: crypto.randomUUID(), phone: null, arrival_time: null, deposit_cents: 0, deposit_paid: 0, security_cents: 0,
@@ -133,8 +169,14 @@ export async function loadDemo(db, user) {
     };
     const extras = row.extras || [];
     const costs = row.costs || [];
+    const people = row.people || [];
     delete row.extras;
     delete row.costs;
+    delete row.people;
+    if (people.length) {
+      row.guests_entered = people.length;
+      row.guests_done = people.filter((g, i) => !guestMissing(g, i === 0).length).length;
+    }
     const cols = Object.keys(row);
     stmts.push(db.prepare(`INSERT INTO bookings (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
       VALUES (${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ${REV_NEXT})`)
@@ -143,6 +185,14 @@ export async function loadDemo(db, user) {
       stmts.push(db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, amount_cents, paid, paid_method, created_at, created_by, rev)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`).bind(crypto.randomUUID(), row.id, x.kind, x.label || null, x.amount_cents, x.paid, x.paid_method || null, at, user.email));
     }
+    people.forEach((g, i) => {
+      demoCode += 1;
+      stmts.push(db.prepare(`INSERT INTO guests (id, booking_id, position, code, last_name, first_name, sex, birth_date, birth_place, citizenship, residence,
+          doc_type, doc_number, doc_place, complete, created_at, created_by, rev) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
+        .bind(crypto.randomUUID(), row.id, i, demoCode, g.last_name, g.first_name, g.sex || null, g.birth_date || null, g.birth_place || null,
+          g.citizenship || null, g.residence || null, g.doc_type || null, g.doc_number || null, g.doc_place || null,
+          guestMissing(g, i === 0).length ? 0 : 1, at, user.email));
+    });
     for (const x of costs) {
       stmts.push(db.prepare(`INSERT INTO expenses (id, house_id, category, label, amount_cents, date, paid, paid_at, notes, booking_id, created_at, created_by, rev)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)

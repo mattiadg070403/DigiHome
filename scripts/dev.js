@@ -8,7 +8,7 @@ import { extname, join, normalize } from 'node:path';
 import { FakeD1, freshDb } from '../test/d1.js';
 import worker from '../src/worker.js';
 import publicCalendar from '../src/public-calendar.js';
-import { loadDemo } from '../src/demo.js';
+import { loadDemo, DEMO_PLACES } from '../src/demo.js';
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = new URL('../public/', import.meta.url).pathname;
@@ -59,10 +59,37 @@ globalThis.fetch = async (url, opts) => {
     'END:VCALENDAR'].join('\r\n');
     return new Response(body, { status: 200, headers: { 'Content-Type': 'text/calendar' } });
   }
+  // Portale Alloggiati Web finto (nessuna schedina vera parte mai dal server locale).
+  if (host === 'alloggiatiweb.poliziadistato.it') return fakeAlloggiati(opts);
   return realFetch(url, opts);
 };
 
+function fakeAlloggiati(opts) {
+  const method = /AlloggiatiService\/(\w+)/.exec(opts.headers.SOAPAction)[1];
+  const ok = '<esito>true</esito>';
+  const wrap = (inner) => new Response(`<?xml version="1.0"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><${method}Response xmlns="AlloggiatiService">${inner}</${method}Response></soap:Body></soap:Envelope>`);
+  if (/<all:Password>sbagliata</.test(opts.body)) return wrap('<GenerateTokenResult /><result><esito>false</esito><ErroreCod>100</ErroreCod><ErroreDes>Utente o password errati (prova)</ErroreDes></result>');
+  if (method === 'GenerateToken') return wrap(`<GenerateTokenResult><token>TOKEN-DI-PROVA</token></GenerateTokenResult><result>${ok}</result>`);
+  if (method === 'Authentication_Test') return wrap(`<Authentication_TestResult>${ok}</Authentication_TestResult>`);
+  if (method === 'Tabella') {
+    const luoghi = /<all:tipo>Luoghi</.test(opts.body);
+    const rows = luoghi
+      ? ['Codice;Descrizione;Provincia;DataFineVal', ...DEMO_PLACES.map(([c, n, pr]) => `${c};${n};${pr || 'ES'};`),
+        ...Array.from({ length: 120 }, (_, i) => `4990${String(i).padStart(5, '0')};COMUNE DI PROVA ${i + 1};TO;`)]
+      : ['Codice;Descrizione', 'IDENT;CARTA DI IDENTITA', 'IDELE;CARTA IDENTITA ELETTRONICA', 'PASOR;PASSAPORTO ORDINARIO', 'PATEN;PATENTE DI GUIDA'];
+    return wrap(`<TabellaResult>${ok}</TabellaResult><CSV>${rows.join('\r\n')}</CSV>`);
+  }
+  if (method === 'Test' || method === 'Send') {
+    const n = (opts.body.match(/<all:string>/g) || []).length;
+    return wrap(`<${method}Result>${ok}</${method}Result><result><SchedineValide>${n}</SchedineValide><Dettaglio>${`<EsitoOperazioneServizio>${ok}</EsitoOperazioneServizio>`.repeat(n)}</Dettaglio></result>`);
+  }
+  if (method === 'Ricevuta') return wrap(`<RicevutaResult>${ok}</RicevutaResult><PDF>${Buffer.from('%PDF-1.4\n% ricevuta di prova (server locale)\n').toString('base64')}</PDF>`);
+  return new Response('?', { status: 500 });
+}
+
 const env = {
+  // Chiave delle credenziali solo per il server locale (in Cloudflare è un segreto vero).
+  CHIAVE_CREDENZIALI: 'chiave-del-server-locale-solo-per-prove-0123456789',
   DB: db, ASSETS, CALENDAR_PUBLIC_URL: `http://localhost:${PORT}`, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
 };
 

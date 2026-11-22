@@ -5,7 +5,7 @@ import worker from '../src/worker.js';
 import { _resetCertCache } from '../src/auth.js';
 import { demoBookings } from '../src/demo.js';
 import { accountingTodo } from '../public/shared/accounting.js';
-import { todayRome } from '../public/shared/dates.js';
+import { addDays, todayRome } from '../public/shared/dates.js';
 
 const TEAM = 'https://prova.cloudflareaccess.com';
 const AUD = 'aud-di-prova-123';
@@ -259,4 +259,37 @@ test('contratto: la firma passa solo dal suo indirizzo, che accetta richieste pi
   assert.equal(cross.status, 403);
   // Contratto inesistente: 404, non un errore del server.
   assert.equal((await call(env, `/api/contracts/${crypto.randomUUID()}`, { token })).status, 404);
+});
+
+test('ospiti: mai dalla coda (/api/ops), sì da /api/guests; lettura solo con accesso; DMS e ricevute protetti', async () => {
+  const env = await makeEnv();
+  const token = await sign(claims());
+  const created = await (await call(env, '/api/ops', { token, method: 'POST', body: { opId: crypto.randomUUID(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', channel: 'diretto', guest_name: 'Prova Ospiti', phone: '+39 000', guests: 1,
+    check_in: todayRome(), check_out: addDays(todayRome(), 3), total_cents: 1000, deposit_cents: 0, security_cents: 0 } } } })).json();
+  const id = created.record.id;
+  const guest = { last_name: 'Bianchi', first_name: 'Sara' };
+  const viaOps = await call(env, '/api/ops', { token, method: 'POST', body: { opId: crypto.randomUUID(), type: 'guest.save', payload: { bookingId: id, id: crypto.randomUUID(), guest } } });
+  assert.equal(viaOps.status, 400);
+  const other = await call(env, '/api/guests', { token, method: 'POST', body: { opId: crypto.randomUUID(), type: 'note.add', payload: {} } });
+  assert.equal(other.status, 400);
+  const ok = await call(env, '/api/guests', { token, method: 'POST', body: { opId: crypto.randomUUID(), type: 'guest.save', payload: { bookingId: id, id: crypto.randomUUID(), guest } } });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).guests[0].first_name, 'Sara');
+  assert.equal((await call(env, `/api/bookings/${id}/guests`)).status, 401);
+  const list = await call(env, `/api/bookings/${id}/guests`, { token });
+  assert.equal(list.headers.get('Cache-Control'), 'no-store');
+  assert.equal((await list.json()).guests.length, 1);
+  assert.equal((await call(env, '/api/dms?house=faro-blu&from=2026-01-01&to=2026-01-02')).status, 401);
+  assert.equal((await call(env, '/api/receipts/abcdefgh-1234')).status, 401);
+  assert.equal((await call(env, '/api/receipts/abcdefgh-1234', { token })).status, 404);
+  // Credenziali: un collaboratore non può salvarle; senza il segreto Cloudflare non si salvano.
+  const collab = await sign(claims({ email: 'collab@example.invalid' }));
+  const c1 = await call(env, '/api/alloggiati/credentials', { token: collab, method: 'POST', body: { houseId: 'faro-blu', utente: 'u', password: 'p', wskey: 'k' } });
+  assert.equal(c1.status, 403);
+  const c2 = await call(env, '/api/alloggiati/credentials', { token, method: 'POST', body: { houseId: 'faro-blu', utente: 'u', password: 'p', wskey: 'k' } });
+  assert.equal(c2.status, 409);
+  const st = await (await call(env, '/api/state', { token })).json();
+  assert.equal(st.secretReady, false);
+  assert.ok(!JSON.stringify(st).includes('Bianchi'));
 });

@@ -9,6 +9,7 @@ import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
   EXPENSE_CATEGORIES, REPEAT, expenseLabel, expensePeriod, expenseTotals, deadlineStatus, nextDue,
 } from '../../shared/house.js';
+import { questuraView } from './questura.js';
 
 function readPref(key, fallback) {
   try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
@@ -25,23 +26,25 @@ export function renderArchive(ctx) {
   const p = ui.route.params || {};
   if (ui.archiveHash !== location.hash) {
     ui.archiveHash = location.hash;
-    if (p.tab === 'spese' || p.tab === 'scadenze') ui.archiveTab = p.tab;
+    if (p.tab === 'spese' || p.tab === 'scadenze' || p.tab === 'questura') ui.archiveTab = p.tab;
     if (p.house && d.houses.some((x) => x.id === p.house) && ui.houseId !== p.house) ctx.setHouse(p.house, { silent: true });
   }
   const house = d.houses.find((x) => x.id === ui.houseId) || d.houses[0];
   if (!ui.archiveTab) ui.archiveTab = readPref('dh.archivio', 'spese');
 
   const head = h('div', { class: 'page-head' },
-    h('div', null, h('h1', { text: 'Archivio della casa' }), h('div', { class: 'sub', text: 'Spese e scadenze' })),
+    h('div', null, h('h1', { text: 'Archivio della casa' }), h('div', { class: 'sub', text: 'Spese, scadenze, Questura e DMS' })),
     h('div', { class: 'btn-row' },
       ctx.syncChip(),
       ui.archiveTab === 'spese'
         ? h('button', { class: 'btn primary', type: 'button', onClick: () => expenseDialog(ctx, null) }, icon('plus'), 'Nuova spesa')
-        : h('button', { class: 'btn primary', type: 'button', onClick: () => deadlineDialog(ctx, null) }, icon('plus'), 'Nuova scadenza')));
+        : ui.archiveTab === 'scadenze'
+          ? h('button', { class: 'btn primary', type: 'button', onClick: () => deadlineDialog(ctx, null) }, icon('plus'), 'Nuova scadenza')
+          : null));
 
   const switches = h('div', { class: 'btn-row' },
     segmented(d.houses.map((x) => ({ value: x.id, label: x.name, swatch: true, vars: houseVars(x) })), house.id, (id) => ctx.setHouse(id), 'Casa'),
-    segmented([{ value: 'spese', label: 'Spese' }, { value: 'scadenze', label: 'Scadenze' }], ui.archiveTab, (v) => {
+    segmented([{ value: 'spese', label: 'Spese' }, { value: 'scadenze', label: 'Scadenze' }, { value: 'questura', label: 'Questura e DMS' }], ui.archiveTab, (v) => {
       ui.archiveTab = v;
       writePref('dh.archivio', v);
       ctx.render();
@@ -49,7 +52,7 @@ export function renderArchive(ctx) {
   switches.style.marginBottom = '20px';
 
   return h('div', { vars: houseVars(house) }, head, switches,
-    ui.archiveTab === 'spese' ? expensesView(ctx, house) : deadlinesView(ctx, house));
+    ui.archiveTab === 'spese' ? expensesView(ctx, house) : ui.archiveTab === 'scadenze' ? deadlinesView(ctx, house) : questuraView(ctx, house));
 }
 
 /* --------------------------------- Spese --------------------------------- */

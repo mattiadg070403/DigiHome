@@ -337,3 +337,12 @@ test('trascrizione fedele: ogni campo della schedina si rilegge uguale ai dati s
   assert.throws(() => cleanGuest({ ...capo, doc_number: 'AB/123' }), /solo lettere e numeri/);
   assert.deepEqual(docDropped('AB 12-3'), []);
 });
+
+test('luoghi: date di fine nel futuro = ancora validi; la ricerca trova anche i comuni non più esistenti (dopo quelli validi)', async () => {
+  const p = parsePlaces('Codice;Descrizione;Provincia;DataFineVal\n415146133;MILANO;MI;31/12/9999\n415146999;MILANO VECCHIO;MI;01/01/1950\n');
+  assert.deepEqual(p.map((x) => x.active), [1, 0]);
+  const db = freshDb();
+  for (const x of p) await db.prepare('INSERT INTO places (code, name, province, kind, active) VALUES (?, ?, ?, ?, ?)').bind(x.code, x.name, x.province, x.kind, x.active).run();
+  const found = await searchPlaces(db, 'mila', 'C');
+  assert.deepEqual(found.map((x) => [x.name, x.active]), [['MILANO', 1], ['MILANO VECCHIO', 0]]);
+});

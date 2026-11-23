@@ -50,6 +50,13 @@ export function alloggiatiSettingsDialog(ctx, house) {
   };
   const latest = () => store.data.houses.find((x) => x.id === house.id) || house;
   drawStatus(latest());
+  // Quanti luoghi ci sono nelle tabelle ufficiali scaricate (per capire subito se qualcosa non va).
+  const statsBox = h('p', { class: 'hint' });
+  const loadStats = () => store.request('/api/places/stats').then((r) => {
+    const s = r.stats || {};
+    statsBox.textContent = `Tabelle nel gestionale: ${s.comuni} comuni (più ${s.comuniSoppressi} non più esistenti), ${s.stati} stati, ${s.documenti} tipi di documento.`;
+  }).catch(() => { statsBox.textContent = ''; });
+  loadStats();
 
   const show = (r) => {
     if (r.ok) {
@@ -66,6 +73,7 @@ export function alloggiatiSettingsDialog(ctx, house) {
     btn.textContent = old;
     await store.load({ force: true }).catch(() => {});
     drawStatus(latest());
+    loadStats();
   };
 
   const content = [h('p', { class: 'muted small', text: 'Con le credenziali della casa il gestionale invia le schedine e scarica le ricevute da solo. Le credenziali si salvano cifrate: dopo il salvataggio nessuno (nemmeno tu) può rileggerle, si possono solo sostituire.' })];
@@ -85,7 +93,7 @@ export function alloggiatiSettingsDialog(ctx, house) {
         h('li', { text: 'Torna qui e ricarica la pagina: comparirà il modulo per le credenziali.' })),
       h('p', { class: 'hint', text: 'La chiave non serve conservarla altrove: se un giorno cambia, basta inserire di nuovo le credenziali di Alloggiati.' }));
   }
-  content.push(statusBox);
+  content.push(statusBox, statsBox);
 
   const utente = h('input', { class: 'input', autocomplete: 'off', maxlength: '60', attrs: { autocapitalize: 'off', spellcheck: 'false' } });
   const password = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', maxlength: '120' });

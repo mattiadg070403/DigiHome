@@ -164,7 +164,7 @@
     const paint = (msg) => {
       list.replaceChildren(...(msg ? [h('li', { class: 'empty', text: msg })] : items.map((p, i) => h('li', {
         class: i === active ? 'active' : '', role: 'option', 'aria-selected': String(i === active),
-        text: p.kind === 'C' && p.province ? `${p.name} (${p.province})` : p.name,
+        text: `${p.kind === 'C' && p.province ? `${p.name} (${p.province})` : p.name}${p.active === 0 ? (lang === 'en' ? ' – no longer exists' : ' – non più esistente') : ''}`,
         onPointerdown: (e) => { e.preventDefault(); pick(p); },
       }))));
       list.hidden = false;

@@ -312,7 +312,7 @@ export function placeField(ctx, { code, name, kind = null, placeholder, onChange
     list.replaceChildren(...(message ? [h('li', { class: 'place-empty', text: message })] : items.map((p, i) => h('li', {
       class: ['place-item', i === active && 'active'], attrs: { role: 'option', 'aria-selected': String(i === active) },
       onPointerdown: (e) => { e.preventDefault(); pick(p); },
-    }, h('span', { text: placeLabel(p) }), h('span', { class: 'muted tiny', text: p.kind === 'C' ? 'comune' : 'stato' })))));
+    }, h('span', { text: placeLabel(p) }), h('span', { class: 'muted tiny', text: `${p.kind === 'C' ? 'comune' : 'stato'}${p.active === 0 ? ' non più esistente' : ''}` })))));
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');
   };

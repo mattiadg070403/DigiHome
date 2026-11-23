@@ -168,6 +168,15 @@ export function alloggiatiClient(cred, { fetchImpl = fetch } = {}) {
 
 /* ------------------------------ Tabelle ufficiali ------------------------------ */
 
+/** "31/12/2020", "2020-12-31" o "31/12/2020 00:00:00" → "2020-12-31" (null se non è una data). */
+function parseItDate(s) {
+  const t = String(s || '').trim();
+  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(t);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
 function splitCsv(csv) {
   const lines = csv.replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
   return lines.map((l) => l.split(';').map((x) => x.trim().replace(/^"(.*)"$/, '$1')));
@@ -194,8 +203,10 @@ export function parsePlaces(csv) {
     if (code.length !== 9 || !name) continue;
     const prov = (r[iProv] || '').trim().toUpperCase().slice(0, 2);
     const state = code.startsWith('100') || prov === 'ES' || !prov;
-    const end = iEnd >= 0 ? (r[iEnd] || '').trim() : '';
-    out.push({ code, name: name.slice(0, 80), province: state ? null : prov, kind: state ? 'S' : 'C', active: end ? 0 : 1 });
+    // Non più valido solo se c'è una data di fine già passata (date come 31/12/9999 = ancora valido).
+    const endIso = parseItDate(iEnd >= 0 ? r[iEnd] : '');
+    const active = endIso && endIso < new Date().toISOString().slice(0, 10) ? 0 : 1;
+    out.push({ code, name: name.slice(0, 80), province: state ? null : prov, kind: state ? 'S' : 'C', active });
   }
   return out;
 }

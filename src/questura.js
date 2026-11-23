@@ -142,16 +142,27 @@ export async function loadTables(db, client) {
 
 /* ------------------------------ Luoghi ------------------------------ */
 
-/** Ricerca di luoghi per nome (comuni italiani e/o stati), solo quelli validi. */
+/**
+ * Ricerca di luoghi per nome (comuni italiani e/o stati). Prima quelli validi oggi; poi anche quelli che non
+ * esistono più (servono per chi è nato in un comune poi soppresso o fuso), segnati come tali.
+ */
 export async function searchPlaces(db, q, kind) {
-  const text = String(q || '').trim().toUpperCase().slice(0, 40);
+  const text = String(q || '').trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 40);
   if (text.length < 2) return [];
   const kinds = kind === 'C' ? ['C'] : kind === 'S' ? ['S'] : ['C', 'S'];
-  const r = await db.prepare(`SELECT code, name, province, kind FROM places
-    WHERE active = 1 AND kind IN (${kinds.map(() => '?').join(', ')}) AND (UPPER(name) LIKE ? OR UPPER(name) LIKE ?)
-    ORDER BY CASE WHEN UPPER(name) = ? THEN 0 WHEN UPPER(name) LIKE ? THEN 1 ELSE 2 END, kind DESC, name LIMIT 15`)
-    .bind(...kinds, `${text}%`, `% ${text}%`, text, `${text}%`).all();
+  const r = await db.prepare(`SELECT code, name, province, kind, active FROM places
+    WHERE kind IN (${kinds.map(() => '?').join(', ')}) AND (UPPER(TRIM(name)) LIKE ? OR UPPER(name) LIKE ? OR UPPER(name) LIKE ?)
+    ORDER BY active DESC, CASE WHEN UPPER(TRIM(name)) = ? THEN 0 WHEN UPPER(TRIM(name)) LIKE ? THEN 1 ELSE 2 END, kind DESC, name LIMIT 15`)
+    .bind(...kinds, `${text}%`, `% ${text}%`, `%-${text}%`, text, `${text}%`).all();
   return r.results || [];
+}
+
+/** Riassunto delle tabelle ufficiali (per l'amministratore): quanti comuni e stati, validi e non. */
+export async function placesStats(db) {
+  const rows = (await db.prepare('SELECT kind, active, COUNT(*) AS n FROM places GROUP BY kind, active').all()).results || [];
+  const get = (k, a) => (rows.find((x) => x.kind === k && x.active === a) || { n: 0 }).n;
+  const docs = (await db.prepare('SELECT COUNT(*) AS n FROM doc_types').first()).n;
+  return { comuni: get('C', 1), comuniSoppressi: get('C', 0), stati: get('S', 1), statiSoppressi: get('S', 0), documenti: docs };
 }
 
 export async function docTypes(db) {

@@ -4,7 +4,7 @@ import { authenticate } from './auth.js';
 import { fail, json, secure, text } from './http.js';
 import { OpError, PRIVATE_OPS, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
 import { GUEST_HANDLERS, listGuests, purgeGuests } from './guests.js';
-import { checkConnection, docTypes, fetchReceipt, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine } from './questura.js';
+import { checkConnection, docTypes, fetchReceipt, placesStats, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine } from './questura.js';
 import { dmsFile } from './dms.js';
 import './guest-form.js';
 import { hasSecret } from './secrets.js';
@@ -88,6 +88,7 @@ async function handleApi(request, env, url) {
         return json({ ok: true, places: await searchPlaces(env.DB, url.searchParams.get('q'), url.searchParams.get('kind')) });
       }
       if (path === '/api/doc-types') return json({ ok: true, docTypes: await docTypes(env.DB) });
+      if (path === '/api/places/stats') return json({ ok: true, stats: await placesStats(env.DB) });
       const rc = path.match(/^\/api\/receipts\/([A-Za-z0-9-]{8,64})$/);
       if (rc) {
         const r = await readReceipt(env.DB, rc[1]);

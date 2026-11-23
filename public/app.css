@@ -714,3 +714,4 @@ hr.soft { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; widt
 /* Logo nella barra laterale */
 .brand-title { display: flex; align-items: center; gap: 9px; }
 .brand-logo { width: 26px; height: 26px; flex-shrink: 0; }
+.wk-section { margin-top: 0; margin-bottom: 24px; }

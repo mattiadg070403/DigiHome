@@ -295,3 +295,4 @@ Migrazione 0019 (`houses.receipts_enabled`, tabella `pay_receipts`). Testo: `pub
 - Calendario delle prenotazioni con i colori dei canali (diretto verde, Airbnb rosa, Booking blu, come in Contabilità) e legenda.
 - Testo più grande su iPad e computer (≥ 761 px): corpo 17 px, interlinea 1,55; il telefono resta com'era.
 - Nuova icona dell'app e logo: casa piena con sfumatura verde Isola Bella → blu Faro Blu e "DG" in color carta (`public/icons/`: icon.svg, logo.svg, apple-touch-icon.png, icon-192/512.png, icon-maskable-512.png). Logo anche nella barra laterale.
+- 0.16.1: icona definitiva = opzione A scelta da Mattia (fondo con sfumatura verde → blu, casa a contorno color carta, "DG" centrato in orizzontale e otticamente in verticale nella casa). "Prossimi 7 giorni" confermata e spostata sopra le schede delle case; tolto "· tutte e due le case" sotto la data di Oggi.

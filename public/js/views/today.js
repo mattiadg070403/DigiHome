@@ -18,14 +18,15 @@ export function renderToday(ctx) {
 
   return h('div', null,
     h('div', { class: 'page-head' },
-      h('div', null, h('h1', { text: 'Oggi' }), h('div', { class: 'sub', text: `${longDate.charAt(0).toUpperCase()}${longDate.slice(1)} · tutte e due le case` })),
+      h('div', null, h('h1', { text: 'Oggi' }), h('div', { class: 'sub', text: `${longDate.charAt(0).toUpperCase()}${longDate.slice(1)}` })),
       ctx.syncChip()),
     overdueBanner(ctx),
     demoBanner(ctx),
     draftBanner(ctx),
     pricingBanner(ctx),
-    h('div', { class: 'grid-2' }, d.houses.map((house) => houseCard(ctx, house))),
+    // La settimana sopra le schede delle case (scelta di Mattia, 23/11).
     weekSection(ctx),
+    h('div', { class: 'grid-2' }, d.houses.map((house) => houseCard(ctx, house))),
     alertsSection(ctx),
     tasksSection(ctx));
 }
@@ -94,7 +95,7 @@ function weekSection(ctx) {
         change ? h('span', { class: 'wk-tag', text: 'Cambio' }) : null),
       lines.map((l) => h('a', { class: ['wk-line', l.k], href: `#/p/${l.b.id}` }, icon(l.k === 'arr' ? 'home' : 'door', { size: 14 }), h('span', { text: l.text }))));
   };
-  return h('section', { class: 'section', attrs: { 'aria-label': 'Prossimi 7 giorni' } },
+  return h('section', { class: 'section wk-section', attrs: { 'aria-label': 'Prossimi 7 giorni' } },
     h('div', { class: 'section-head' }, h('h2', { text: 'Prossimi 7 giorni' }),
       h('span', { class: 'muted small', text: busy ? `${busy} ${busy === 1 ? 'giorno' : 'giorni'} con arrivi o partenze` : 'Nessun arrivo né partenza' })),
     !busy ? h('div', { class: 'card' }, h('div', { class: 'empty', text: 'Nessun arrivo né partenza nei prossimi 7 giorni.' })) : h('div', { class: 'card wk' }, days.map((x) => {

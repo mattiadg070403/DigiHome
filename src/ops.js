@@ -11,6 +11,7 @@ import { CONTRACT_TEMPLATE, LANGS, buildContract, checkGuest, checkSignature, co
 import { todayRome } from '../public/shared/dates.js';
 import { checkQuoteSettings } from '../public/shared/quote.js';
 import { checkPricingSettings, checkWeekChanges } from '../public/shared/pricing.js';
+import { checkMarketSettings } from '../public/shared/market.js';
 import { meterCalc, meterExtraLabel } from '../public/shared/meter.js';
 import { PAY_METHODS, checkAccountingSettings, checkRemittance } from '../public/shared/accounting.js';
 
@@ -776,6 +777,11 @@ async function houseUpdate(db, user, opId, p) {
     const r = checkQuoteSettings(c.quote_settings);
     if (!r.ok) throw bad(r.error, { errors: { [r.field || 'quote_settings']: r.error } });
     v.quote_settings = JSON.stringify(r.value);
+  }
+  if ('market_settings' in c) {
+    const r = checkMarketSettings(c.market_settings);
+    if (!r.ok) throw bad(r.error, { errors: { [r.field || 'market_settings']: r.error } });
+    v.market_settings = JSON.stringify(r.value);
   }
   if ('pricing' in c) {
     const r = checkPricingSettings(c.pricing);

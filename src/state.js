@@ -25,6 +25,9 @@ export async function readState(db, user) {
     db.prepare('SELECT id, house_id, date, size, fetched_at, purge_after FROM alloggiati_receipts ORDER BY date DESC'),
     db.prepare('SELECT * FROM price_lists ORDER BY house_id, year'),
     db.prepare('SELECT * FROM pay_receipts ORDER BY issued_at'),
+    db.prepare('SELECT * FROM market_comps ORDER BY house_id, selected DESC, score'),
+    db.prepare('SELECT house_id, listing_id, week_start, status, week_cents, cleaning_cents, checked_at, rev FROM market_prices ORDER BY house_id, week_start'),
+    db.prepare('SELECT id, house_id, kind, week_start, status, error, items, created_at, finished_at FROM market_jobs ORDER BY created_at DESC LIMIT 60'),
   ]);
   const rows = (i) => results[i].results || [];
   return {
@@ -50,6 +53,10 @@ export async function readState(db, user) {
     prices: rows(13),
     // Ricevute del saldo: contengono i dati del locatore, solo per l'amministratore.
     payReceipts: isAdmin ? rows(14) : [],
+    // Mercato: case simili (dati pubblici degli annunci), prezzi per settimana e ultimi lavori su Apify.
+    marketComps: rows(15),
+    marketPrices: rows(16),
+    marketJobs: isAdmin ? rows(17) : [],
   };
 }
 

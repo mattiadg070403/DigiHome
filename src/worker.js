@@ -24,6 +24,7 @@ function formDomains(env) {
 import { readExport, readHistory, readState } from './state.js';
 import { loadDemo } from './demo.js';
 import { syncAll } from './calendars.js';
+import { apifyReady, marketTick, requestRefresh, startDiscovery } from './market.js';
 import { APP_VERSION } from '../public/shared/version.js';
 
 export { APP_VERSION };
@@ -58,7 +59,7 @@ async function handleApi(request, env, url) {
 
   if (request.method === 'GET') {
     if (path === '/api/state') {
-      const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION, secretReady: hasSecret(env),
+      const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION, secretReady: hasSecret(env), apifyReady: apifyReady(env),
         calendarBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.CALENDAR_PUBLIC_URL || '') ? env.CALENDAR_PUBLIC_URL : null,
         formBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.OSPITI_PUBLIC_URL || '') ? env.OSPITI_PUBLIC_URL : null,
         formBases: formDomains(env) };
@@ -160,6 +161,16 @@ async function handleApi(request, env, url) {
           stack: clip(b.stack, 1500), route: clip(b.route, 30), version: clip(b.version, 20) }));
         return json({ ok: true });
       }
+      if (path === '/api/market/discover' || path === '/api/market/refresh' || path === '/api/market/check') {
+        // Mercato (Apify): solo l'amministratore. La chiave resta sul server.
+        const body = await readJson(request);
+        if (user.role !== 'admin') return fail(403, 'forbidden', 'Solo l’amministratore può farlo.');
+        const houseId = body && body.houseId;
+        const result = path === '/api/market/discover' ? await startDiscovery(env.DB, env, user, houseId)
+          : path === '/api/market/refresh' ? await requestRefresh(env.DB, env, user, houseId)
+            : await marketTick(env.DB, env);
+        return json({ ok: true, result });
+      }
       if (path === '/api/calendars/sync') {
         // "Aggiorna ora": i calendari aggiornati nell'ultimo minuto non si riscaricano.
         await readJson(request);
@@ -223,5 +234,9 @@ export default {
     ctx.waitUntil(purgeGuests(env.DB).then((n) => {
       if (n) console.log('Ospiti cancellati (oltre un anno dalla partenza)', n);
     }).catch((e) => console.error('Cancellazione ospiti non riuscita', e && e.stack ? e.stack : e)));
+    // Mercato (Apify): legge i lavori finiti, mette in coda l'aggiornamento settimanale, avvia i prossimi.
+    ctx.waitUntil(marketTick(env.DB, env).then((r) => {
+      if (r && !r.skipped && (r.done || r.started || r.failed)) console.log('Mercato', JSON.stringify(r));
+    }).catch((e) => console.error('Mercato', e && e.stack ? e.stack : e)));
   },
 };

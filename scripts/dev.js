@@ -75,8 +75,61 @@ globalThis.fetch = async (url, opts) => {
   }
   // Portale Alloggiati Web finto (nessuna schedina vera parte mai dal server locale).
   if (host === 'alloggiatiweb.poliziadistato.it') return fakeAlloggiati(opts);
+  // Apify finto: case simili e prezzi inventati (nessuna richiesta vera parte dal server locale).
+  if (host === 'api.apify.com') return fakeApify(String(url), opts);
   return realFetch(url, opts);
 };
+
+// Apify finto. Ricerca: 40 annunci inventati intorno a Gallipoli; prezzi: per ogni annuncio e settimana un prezzo
+// (più alto ad agosto) oppure "non disponibile" (più spesso ad agosto e vicino alla data).
+const apifyRuns = new Map();
+const AMEN = [['Air conditioning'], ['Wifi'], ['Free parking on premises'], ['Patio or balcony'], ['Sea view'], ['Washer'], ['Dishwasher'], ['Outdoor shower'], ['TV'], ['Pool']];
+function fakeListing(i) {
+  const seed = (n) => ((i * 9301 + n * 49297) % 233280) / 233280;
+  const cap = 2 + Math.floor(seed(1) * 9);
+  return {
+    id: String(5000000 + i), url: `https://www.airbnb.com/rooms/${5000000 + i}`, title: `Casa di prova ${i + 1} a Gallipoli`,
+    personCapacity: cap, coordinates: { latitude: 40.0558 + (seed(2) - 0.5) * 0.05, longitude: 17.9925 + (seed(3) - 0.5) * 0.05 },
+    rating: { guestSatisfaction: 4.3 + seed(4) * 0.7, reviewsCount: Math.floor(seed(5) * 120) },
+    subDescription: { items: [`${cap} guests`, `${Math.max(1, Math.round(cap / 2.5))} bedrooms`, `${cap} beds`, '1 bath'] },
+    amenities: [{ title: 'Servizi', values: AMEN.filter((_, k) => seed(10 + k) > 0.35).map(([t]) => ({ title: t, available: true })) }],
+  };
+}
+function fakeApify(url, opts) {
+  const u = new URL(url);
+  const ok = (data) => new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  let m = /^\/v2\/acts\/([^/]+)\/runs$/.exec(u.pathname);
+  if (m && opts.method === 'POST') {
+    const id = `run-${apifyRuns.size + 1}`;
+    apifyRuns.set(id, { actor: m[1], input: JSON.parse(opts.body) });
+    return ok({ data: { id, defaultDatasetId: `ds-${id}`, status: 'RUNNING' } });
+  }
+  m = /^\/v2\/actor-runs\/([^/]+)$/.exec(u.pathname);
+  if (m) return ok({ data: { id: m[1], status: 'SUCCEEDED', defaultDatasetId: `ds-${m[1]}` } });
+  m = /^\/v2\/datasets\/ds-([^/]+)\/items$/.exec(u.pathname);
+  if (m) {
+    const run = apifyRuns.get(m[1]);
+    if (!run) return ok([]);
+    if (run.actor.endsWith('airbnb-scraper')) return ok(Array.from({ length: 40 }, (_, i) => fakeListing(i)));
+    const ws = run.input.checkIn;
+    const month = Number(ws.slice(5, 7));
+    return ok(run.input.startUrls.map(({ url: lu }) => {
+      const i = Number(/rooms\/(\d+)/.exec(lu)[1]) - 5000000;
+      const item = fakeListing(i);
+      const r = ((i * 7 + Number(ws.slice(8)) * 13 + month * 31) % 100) / 100;
+      const busy = month === 8 ? 0.75 : month === 7 ? 0.55 : 0.3;
+      if (r < busy) return { ...item, price: null };
+      const night = Math.round((month === 8 ? 260 : month === 7 ? 210 : 150) * (0.8 + item.personCapacity / 15) * (0.85 + r * 0.3));
+      const cleaning = i % 3 ? 60 : 0;
+      return { ...item, price: { label: `€${night} night`, amount: `€${night}`, breakDown: {
+        basePrice: { description: '7 nights', price: `€${(night * 7).toLocaleString('en-US')}` },
+        ...(cleaning ? { cleaningFee: { description: 'Cleaning fee', price: `€${cleaning}` } } : {}),
+        serviceFee: { description: 'Airbnb service fee', price: '€0' },
+        totalBeforeTaxes: { description: 'Total before taxes', price: `€${(night * 7 + cleaning).toLocaleString('en-US')}` } } } };
+    }));
+  }
+  return new Response('{}', { status: 404 });
+}
 
 function fakeAlloggiati(opts) {
   const method = /AlloggiatiService\/(\w+)/.exec(opts.headers.SOAPAction)[1];
@@ -104,6 +157,8 @@ function fakeAlloggiati(opts) {
 const env = {
   // Chiave delle credenziali solo per il server locale (in Cloudflare è un segreto vero).
   CHIAVE_CREDENZIALI: 'chiave-del-server-locale-solo-per-prove-0123456789',
+  // Chiave finta di Apify (le richieste vanno all'Apify finto qui sopra).
+  APIFY_TOKEN: 'apify_api_server_locale_solo_prove_000000',
   DB: db, ASSETS, CALENDAR_PUBLIC_URL: `http://localhost:${PORT}`, OSPITI_PUBLIC_URL: `http://localhost:${Number(PORT) + 1}`, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
 };
 

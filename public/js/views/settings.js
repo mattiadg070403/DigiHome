@@ -6,12 +6,13 @@ import { APP_VERSION } from '../../shared/version.js';
 import { timeField, dateField } from '../pickers.js';
 import { checkCalendarUrl } from '../../shared/calendar.js';
 import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
-import { parseEuro, centsToInput } from '../../shared/money.js';
+import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '../../shared/contract.js';
 import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
 import { MONTHS_LONG, WEEKDAYS, checkPricingSettings, pricingSettings } from '../../shared/pricing.js';
 import { importBlock } from './import.js';
 import { accountingSettingsDialog } from './accounting.js';
+import { accountingSettings, channelRule, effectiveBp } from '../../shared/accounting.js';
 import { alloggiatiSettingsDialog, dmsSettingsDialog, alloggiatiSummary } from './questura.js';
 
 const IMPORT_VISIBLE = false;
@@ -40,9 +41,9 @@ export function renderSettings(ctx) {
         admin ? exportBlock(ctx) : null)),
     // Importazione da Excel: pronta ma nascosta finché Mattia non decide come farla (14/11).
     admin && IMPORT_VISIBLE ? h('section', { class: 'card card-pad stack section' }, h('h2', { text: 'Importa prenotazioni passate' }), importBlock(ctx)) : null,
-    admin ? usersSection(ctx) : h('p', { class: 'section muted', text: 'Utenti, case e regole si cambiano solo dall’amministratore.' }),
+    admin ? housesSection(ctx) : null,
     admin ? calendarsSection(ctx) : null,
-    admin ? housesSection(ctx) : null);
+    admin ? usersSection(ctx) : h('p', { class: 'section muted', text: 'Utenti, case e regole si cambiano solo dall’amministratore.' }));
 }
 
 /* ------------------------- Calendari Airbnb e Booking ------------------------- */
@@ -327,31 +328,42 @@ function userDialog(ctx, user) {
   }
 }
 
+/**
+ * Case: per ogni casa un elenco di voci con il riassunto di quello che è impostato (e cosa manca),
+ * invece di sette pulsanti uguali. Ogni voce apre la sua finestra, come prima.
+ */
 function housesSection(ctx) {
   const d = ctx.store.data;
+  const pctBp = (bp) => `${(bp / 100).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%`;
+  const items = (x) => {
+    const q = quoteSettings(x);
+    const pr = pricingSettings(x);
+    const acc = accountingSettings(x);
+    const today = ctx.ui.today;
+    const comm = (ch) => pctBp(effectiveBp(channelRule(acc, ch, today)));
+    let dms = {};
+    try { dms = x.dms_settings ? JSON.parse(x.dms_settings) : {}; } catch { dms = {}; }
+    const allo = alloggiatiSummary(x);
+    return [
+      { label: 'Casa', sub: `Fino a ${x.max_guests} persone · check-in ${x.checkin_time} · check-out ${x.checkout_time} · tassa di soggiorno`, open: () => houseDialog(ctx, x) },
+      { label: 'Dati del contratto', sub: x.contract_ready ? 'Completi' : 'Mancano alcuni dati: completali per far firmare il contratto', tone: x.contract_ready ? null : 'warn', open: () => contractInfoDialog(ctx, x) },
+      { label: 'Preventivi', sub: `Validità ${q.validity_days} giorni · cauzione ${fmtEuro(q.security_cents)} · extra: ${q.extras.length ? q.extras.map((e) => e.label.toLowerCase()).join(', ') : 'nessuno'}`, open: () => quoteSettingsDialog(ctx, x) },
+      { label: 'Listino', sub: `Settimane da ${WEEKDAYS[pr.week_start]} · ${MONTHS_LONG[pr.months[0] - 1]}–${MONTHS_LONG[pr.months[1] - 1]}`, open: () => pricingSettingsDialog(ctx, x) },
+      { label: 'Contabilità', sub: `Airbnb ${comm('airbnb')} · Booking ${comm('booking')} · cedolare ${pctBp(acc.cedolare_bp)}`, open: () => accountingSettingsDialog(ctx, x) },
+      { label: 'Alloggiati Web', sub: allo.text.replace(/^Alloggiati Web: /, '').replace(/^./, (c) => c.toUpperCase()), tone: allo.tone === 'ok' ? 'ok' : allo.tone === 'warn' ? 'warn' : null, open: () => alloggiatiSettingsDialog(ctx, x) },
+      { label: 'DMS Puglia', sub: dms.rooms ? `${dms.rooms} ${dms.rooms === 1 ? 'camera' : 'camere'} · ${dms.beds} posti letto` : 'Camere e posti letto da impostare', tone: dms.rooms ? null : 'warn', open: () => dmsSettingsDialog(ctx, x) },
+    ];
+  };
   return h('section', { class: 'section' },
     h('div', { class: 'section-head' }, h('h2', { text: 'Case' })),
     h('div', { class: 'grid-2' }, d.houses.map((x) => h('div', { class: 'card house-card', vars: houseVars(x) },
       h('div', { class: 'house-top' }, h('span', { class: 'name', text: x.name })),
-      // Le impostazioni della casa si vedono solo aprendo "Modifica impostazioni" (richiesta di Mattia).
-      h('div', { class: 'house-body' },
-        h('div', { class: 'btn-row' },
-          h('button', { class: 'btn small', type: 'button', onClick: () => houseDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Modifica impostazioni'),
-          h('button', { class: 'btn small', type: 'button', onClick: () => contractInfoDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Dati del contratto'),
-          h('button', { class: 'btn small', type: 'button', onClick: () => quoteSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Preventivi'),
-          h('button', { class: 'btn small', type: 'button', onClick: () => pricingSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Listino'),
-          h('button', { class: 'btn small', type: 'button', onClick: () => accountingSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Contabilità'),
-          h('button', { class: 'btn small', type: 'button', onClick: () => alloggiatiSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'Alloggiati Web'),
-          h('button', { class: 'btn small', type: 'button', onClick: () => dmsSettingsDialog(ctx, x) },
-            icon('edit', { size: 16 }), 'DMS Puglia')),
-        x.contract_ready ? null : h('div', { class: 'muted small', text: 'Contratto: mancano alcuni dati, completali per farlo firmare.' }),
-        h('div', { class: 'row-sub' }, tag(alloggiatiSummary(x))))))));
+      // Le impostazioni si vedono solo aprendo la voce (richiesta di Mattia): qui solo il riassunto.
+      h('div', { class: 'rows' }, items(x).map((it) => h('button', { class: 'row row-button set-row', type: 'button', onClick: it.open, attrs: { 'aria-label': `${it.label} di ${x.name}: ${it.sub}` } },
+        h('span', { class: 'row-main' },
+          h('span', { class: 'row-title', text: it.label }),
+          h('span', { class: ['row-sub', 'small', it.tone === 'warn' ? 'warn-text' : it.tone === 'ok' ? 'ok-text' : 'muted'], text: it.sub })),
+        icon('chevron', { size: 18 }))))))));
 }
 
 function houseDialog(ctx, house) {

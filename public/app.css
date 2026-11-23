@@ -478,7 +478,7 @@ dialog.wide { width: min(920px, calc(100vw - 32px)); }
 
 /* Contabilità */
 .acc-switches { margin-bottom: 20px; }
-select.input.acc-year { width: auto; }
+.btn-row > select.input.acc-year { width: auto; flex: 0 0 auto; }
 .acc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 @media (max-width: 900px) { .acc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
 .acc-tile {
@@ -657,3 +657,10 @@ select.input.acc-year { width: auto; }
 .exp-summary-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .exp-total { font-size: 28px; font-weight: 750; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: #B35E1E; }
 .exp-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Impostazioni → Case: una voce per ogni gruppo di impostazioni, con il riassunto */
+.set-row { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 20px; text-align: left; color: var(--ink); }
+.set-row + .set-row { border-top: 1px solid var(--line-soft); }
+.set-row:hover { background: #FCFBF9; }
+.set-row svg { flex: 0 0 auto; color: var(--muted); }
+hr.soft { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }

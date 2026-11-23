@@ -111,8 +111,8 @@ export function renderDetail(ctx, id) {
     head, next, alertBox, reminders,
     h('div', { class: 'grid-2' },
       panel('Soldi', h('div', { class: 'stack' }, kv(money), extrasBlock(ctx, b))),
-      panel('Contatti', contacts),
-      panel('Dettagli', details),
+      // Contatti e dettagli insieme (giro di semplificazione 23/11): una scheda in meno.
+      panel('Contatti e dettagli', h('div', { class: 'stack' }, contacts, h('hr', { class: 'soft' }), details)),
       panel('Note', notesBlock(ctx, b)),
       b.channel === 'diretto' ? contractPanel(ctx, b) : null),
     b.stage !== 'cancellata' ? h('div', { class: 'section' }, guestsPanel(ctx, b)) : null,

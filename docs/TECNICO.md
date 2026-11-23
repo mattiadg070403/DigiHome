@@ -270,3 +270,9 @@ Migrazione 0018 (`houses.pricing`, tabella `price_lists`, `bookings.booked_on`).
 - 0.14.1: nella scheda "Copia solo il link" (oltre a "Copia il messaggio"); nella definitiva il modulo ospiti resta spento (niente `OSPITI_PUBLIC_URL` in produzione/wrangler.jsonc) finché il Worker `digihome-ospiti` non è creato e collegato ai domini: così non si possono creare link che non funzionano.
 - 0.14.2: Archivio → Spese, riepilogo dell'anno rifatto (totale in evidenza, una barra per tipo di spesa dalla più alta, con margini interni).
 - Nome scelto da Mattia (23/11) per i link del modulo: `registrazione.faroblugallipoli.it` e `registrazione.isolabellagallipoli.it` (sottodomini dei siti, da collegare al Worker `digihome-ospiti` nei collegamenti finali).
+
+## 0.14.3 (23 novembre 2026): giro di semplificazione
+- Impostazioni: la sezione "Case" viene per prima e, per ogni casa, al posto di sette pulsanti uguali c'è un elenco di voci (Casa, Dati del contratto, Preventivi, Listino, Contabilità, Alloggiati Web, DMS Puglia) con il riassunto di quello che è impostato e, in arancione, cosa manca. Ogni voce apre la stessa finestra di prima. Poi calendari e utenti.
+- Scheda della prenotazione: "Contatti" e "Dettagli" uniti in una sola scheda.
+- Contabilità: la scelta dell'anno non si allarga più su tutta la riga.
+- Controllate tutte le schermate su iPad e telefono: nessun errore. L'avviso rosso in cima a Oggi per il check-in in ritardo resta anche se la scheda della casa lo mostra (sul telefono la scheda può essere fuori schermo).

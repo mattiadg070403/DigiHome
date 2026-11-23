@@ -72,13 +72,18 @@ function expensesView(ctx, house) {
   years.map((y) => h('option', { value: String(y), text: `Anno ${y}`, selected: y === year })));
   yearSel.style.width = 'auto';
 
-  const summary = h('div', { class: 'card' },
-    h('div', { class: 'stack' },
-      h('div', { class: 'section-head' }, h('h2', { text: `Totale ${year}: ${fmtEuro(totals.total)}` }), yearSel),
-      Object.keys(totals.byCat).length
-        ? h('dl', { class: 'kv' }, Object.entries(EXPENSE_CATEGORIES).filter(([k]) => totals.byCat[k]).flatMap(([k, c]) => [
-          h('dt', { text: c.label }), h('dd', { text: fmtEuro(totals.byCat[k]) })]))
-        : h('p', { class: 'hint', text: 'Nessuna spesa in questo anno.' })));
+  // Riepilogo dell'anno: totale in evidenza e una barra per ogni tipo di spesa (dalla più alta), come in Contabilità.
+  const cats = Object.entries(EXPENSE_CATEGORIES).filter(([k]) => totals.byCat[k]).sort(([a], [b]) => totals.byCat[b] - totals.byCat[a]);
+  const top = cats.length ? totals.byCat[cats[0][0]] : 0;
+  const summary = h('section', { class: 'card card-pad stack exp-summary' },
+    h('div', { class: 'exp-summary-head' },
+      h('div', null, h('span', { class: 'acc-tile-label', text: `Spese ${year}` }), h('div', { class: 'exp-total', text: fmtEuro(totals.total) })),
+      yearSel),
+    cats.length
+      ? h('div', { class: 'acc-bars' }, cats.map(([k, c]) => h('div', { class: 'acc-bar-row' },
+        h('div', { class: 'acc-bar-head' }, h('span', { class: 'acc-bar-label', text: c.label }), h('strong', { class: 'exp-amount', text: fmtEuro(totals.byCat[k]) })),
+        h('div', { class: 'acc-bar-track', attrs: { 'aria-hidden': 'true' } }, h('span', { class: 'acc-bar exp', vars: { '--w': `${Math.max(2, Math.round((totals.byCat[k] / top) * 100))}%` } })))))
+      : h('p', { class: 'hint', text: 'Nessuna spesa in questo anno.' }));
 
   // Raggruppate per mese, dalla più recente.
   const months = new Map();

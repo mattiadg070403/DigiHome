@@ -652,3 +652,8 @@ select.input.acc-year { width: auto; }
   .pl-night { font-size: 16px; }
   .pl-switches { justify-content: flex-start; }
 }
+
+/* Archivio → Spese: riepilogo dell'anno */
+.exp-summary-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.exp-total { font-size: 28px; font-weight: 750; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: #B35E1E; }
+.exp-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }

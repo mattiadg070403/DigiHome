@@ -287,3 +287,4 @@ Migrazione 0019 (`houses.receipts_enabled`, tabella `pay_receipts`). Testo: `pub
 - Dicitura (da confermare con il commercialista): "Operazione fuori campo IVA. Locatore persona fisica in regime di cedolare secca."
 - Dati del contratto: nuovo campo facoltativo "Codice fiscale" del locatore (controllato), usato solo nella ricevuta.
 - Giro di semplificazione (0.14.3) già in definitiva.
+- 0.15.2: colori "Carta calda" (scelta di Mattia: lo schermo stancava). Sfondo #E9E5DD, schede #F6F3ED, campi #FBF9F5, testo #2B2824, secondario #645E54 (contrasti 13:1 e ≥ 4,8:1). Niente bianco puro né nero pieno; colori delle case invariati. Il modulo per gli ospiti non cambia.

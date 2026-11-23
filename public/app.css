@@ -287,11 +287,16 @@ dialog::backdrop { background: rgba(20, 19, 17, .45); }
   background: var(--card); padding: 6px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; position: relative;
 }
 .cal-day:nth-child(7n) { border-right: 0; }
-.cal-day.out { background: #FAF9F6; color: #B1ADA4; }
+.cal-day.out { background: var(--card-soft); color: #A39C90; }
 .cal-day.today .cal-n { background: var(--ink); color: #fff; }
 .cal-n { font-size: 13px; font-weight: 650; width: 24px; height: 24px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; }
 .cal-bar { font-size: 12px; font-weight: 650; background: var(--house); color: #fff; border-radius: 6px; padding: 2px 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cal-bar.cont { background: var(--house-soft); color: var(--house-dark); }
+/* Canali nel calendario (stessi colori della Contabilità, testo bianco leggibile: contrasto ≥ 4,5:1) */
+.cal-bar.diretto { background: #2E7D55; } .cal-bar.airbnb { background: #A8306A; } .cal-bar.booking { background: #2F5FBF; }
+.cal-bar.cont.diretto { background: #D5EADD; color: #1E5C3A; } .cal-bar.cont.airbnb { background: #F3DAE6; color: #8A2456; } .cal-bar.cont.booking { background: #DAE3F5; color: #23498F; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 18px 10px; font-size: 13px; color: var(--ink-2); }
+.cal-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .cal-bar.leave { background: transparent; color: var(--muted); padding-left: 0; font-weight: 550; }
 @media (max-width: 560px) { .cal-day { min-height: 56px; padding: 4px; } .cal-bar { font-size: 10px; padding: 1px 4px; } }
 
@@ -668,3 +673,44 @@ dialog.wide { width: min(920px, calc(100vw - 32px)); }
 .set-row:hover { background: var(--card-soft); }
 .set-row svg { flex: 0 0 auto; color: var(--muted); }
 hr.soft { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
+
+/* Testo più grande su iPad e computer (richiesta di Mattia, 23/11): corpo 17 px, più aria tra le righe.
+   Sul telefono restano le misure di prima (lo spazio è poco). */
+@media (min-width: 761px) {
+  body { font-size: 17px; line-height: 1.55; }
+  .small, .kv, .acc-lines { font-size: 15.5px; }
+  .row-sub, .guest-meta, .house-foot, .field > label, .field > .label, .btn.small { font-size: 15px; }
+  .hint, .acc-tile-sub, .acc-hint, .pl-week, .cal-legend, .tag { font-size: 14px; }
+  .kv { gap: 12px 16px; }
+  .stack { gap: 16px; }
+  .page-head .sub { font-size: 17px; }
+}
+
+/* Oggi: prossimi 7 giorni (arrivi, partenze, cambi) */
+.wk { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.wk-day { display: flex; flex-direction: column; gap: 8px; padding: 12px 10px 14px; border-right: 1px solid var(--line-soft); min-height: 132px; }
+.wk-day:last-child { border-right: 0; }
+.wk-day.today { background: var(--card-soft); }
+.wk-date { display: flex; align-items: baseline; gap: 6px; }
+.wk-dow { font-size: 13px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
+.wk-n { font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.wk-none { font-size: 13px; color: #A39C90; }
+.wk-ev { display: flex; flex-direction: column; gap: 3px; padding: 7px 8px; border-radius: 10px; background: var(--house-soft); border-left: 3px solid var(--house); }
+.wk-ev.change { box-shadow: inset 0 0 0 1px var(--house); }
+.wk-ev-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--house-dark); }
+.wk-tag { font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 6px; background: var(--house); color: #fff; }
+.wk-line { display: flex; align-items: center; gap: 4px; font-size: 13px; line-height: 1.3; color: var(--ink-2); text-decoration: none; }
+.wk-line:hover span { text-decoration: underline; }
+.wk-line.arr svg { color: var(--ok); } .wk-line.dep svg { color: var(--muted); }
+@media (max-width: 900px) {
+  .wk { grid-template-columns: minmax(0, 1fr); }
+  .wk-day { flex-direction: row; flex-wrap: wrap; align-items: flex-start; min-height: 0; border-right: 0; border-bottom: 1px solid var(--line-soft); padding: 10px 14px; }
+  .wk-day:last-child { border-bottom: 0; }
+  .wk-date { width: 116px; flex-shrink: 0; }
+  .wk-day.empty { display: none; } /* sul telefono solo i giorni con qualcosa */
+  .wk-ev { flex: 1 1 200px; }
+}
+
+/* Logo nella barra laterale */
+.brand-title { display: flex; align-items: center; gap: 9px; }
+.brand-logo { width: 26px; height: 26px; flex-shrink: 0; }

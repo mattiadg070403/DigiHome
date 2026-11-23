@@ -8,6 +8,20 @@ export function houseVars(house) {
   return { '--house': house.color, '--house-dark': house.color_dark, '--house-soft': house.color_soft };
 }
 
+/**
+ * Icona di un avviso secondo il tipo (giro di grafica 23/11): soldi, Questura e check-in, orari e scadenze,
+ * telefono, dati degli ospiti, calendari, partenza. Il colore resta quello dell'urgenza.
+ */
+const ALERT_ICONS = {
+  deposit: 'euro', total: 'euro', extras: 'euro', tax: 'euro', expense: 'euro',
+  payout: 'euro', payout_diff: 'euro', saldo: 'euro', costs: 'euro', extra: 'euro', cedolare: 'euro', tassa: 'euro',
+  checkin: 'shield', arrival: 'clock', deadline: 'clock', phone: 'phone', details: 'people', minors: 'people',
+  calendar: 'calendar', ext_cancelled: 'calendar', ext_gone: 'calendar', overlap: 'calendar', checkout: 'door', close: 'door',
+};
+export function alertIcon(key, size = 16) {
+  return icon(ALERT_ICONS[key] || 'alert', { size });
+}
+
 export function tag(t) {
   return h('span', { class: ['tag', t.tone], text: t.text });
 }

@@ -117,8 +117,8 @@ function calendar(ctx, house, mine) {
     if (leaving) bars.push(h('span', { class: 'cal-bar leave', text: `↤ ${firstWord(leaving.guest_name)}` }));
     if (staying) {
       const start = staying.check_in === day || (i % 7 === 0);
-      bars.push(h('span', { class: ['cal-bar', staying.check_in !== day && 'cont'], text: start ? firstWord(staying.guest_name) : ' ' }));
-      label.push(`occupato da ${staying.guest_name}`);
+      bars.push(h('span', { class: ['cal-bar', staying.channel, staying.check_in !== day && 'cont'], text: start ? firstWord(staying.guest_name) : ' ' }));
+      label.push(`occupato da ${staying.guest_name} (${CHANNEL_NAMES[staying.channel] || staying.channel})`);
     } else label.push('libero');
     if (leaving) label.push(`partenza di ${leaving.guest_name}`);
     cells.push(h('button', {
@@ -135,11 +135,15 @@ function calendar(ctx, house, mine) {
       h('div', { class: 'btn-row' },
         month !== ui.today.slice(0, 7) ? h('button', { class: 'btn small', type: 'button', text: 'Oggi', onClick: () => { ui.calMonth = null; ctx.render(); } }) : null,
         h('button', { class: 'btn ghost icon-only', type: 'button', onClick: () => shift(1), attrs: { 'aria-label': 'Mese successivo' } }, icon('chevron')))),
+    // Colori dei canali, gli stessi della Contabilità.
+    h('div', { class: 'cal-legend', attrs: { 'aria-hidden': 'true' } }, ['diretto', 'airbnb', 'booking'].map((ch) => h('span', { class: 'cal-legend-item' }, h('span', { class: ['acc-key', ch] }), CHANNEL_NAMES[ch]))),
     h('div', { class: 'cal-grid' },
       ['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'].map((x) => h('div', { class: 'cal-dow', text: x, attrs: { 'aria-hidden': 'true' } })),
       cells),
     h('div', { class: 'house-foot', text: 'Tocca un giorno libero per creare una prenotazione da quella data, o un giorno occupato per aprirla.' }));
 }
+
+const CHANNEL_NAMES = { diretto: 'Diretto', airbnb: 'Airbnb', booking: 'Booking' };
 
 function firstWord(name) {
   return String(name).replace(/\s*\(prova\)$/, '').split(/\s+/).slice(0, 2).join(' ');

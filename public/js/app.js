@@ -169,7 +169,7 @@ function buildShell() {
   const envBadge = h('span', { class: 'env-badge', hidden: true });
   const versionLine = h('span', { text: `Versione ${APP_VERSION}` });
   const side = h('nav', { class: 'side', attrs: { 'aria-label': 'Sezioni' } },
-    h('div', { class: 'brand' }, h('div', { class: 'brand-title', text: 'DigiHome' }), brandSub),
+    h('div', { class: 'brand' }, h('div', { class: 'brand-title' }, h('img', { class: 'brand-logo', src: '/icons/logo.svg', alt: '', width: '26', height: '26' }), h('span', { text: 'DigiHome' })), brandSub),
     navBtns('nav-btn'),
     h('div', { class: 'side-foot' }, envBadge, versionLine));
   const tabbar = h('nav', { class: 'tabbar', attrs: { 'aria-label': 'Sezioni' } }, navBtns('nav-btn'));

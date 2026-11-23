@@ -3,7 +3,7 @@
 // Calcoli in public/shared/accounting.js; qui solo la presentazione.
 
 import { h, icon, newId } from '../dom.js';
-import { houseVars, chan, tag, field, setFieldError, openDialog, confirmDialog, switchRow, segmented } from '../ui.js';
+import { houseVars, chan, tag, field, setFieldError, openDialog, confirmDialog, switchRow, segmented, alertIcon } from '../ui.js';
 import { fmtShort, isIsoDate } from '../../shared/dates.js';
 import { dateField } from '../pickers.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
@@ -131,7 +131,7 @@ function todoBox(ctx, house) {
   const showAll = ui.accTodoAll;
   const shown = showAll ? list : list.slice(0, 6);
   const rows = shown.map((x) => h('div', { class: 'row alert-row' },
-    h('span', { class: ['lvl', x.level] }, icon('alert', { size: 16 })),
+    h('span', { class: ['lvl', x.level] }, alertIcon(x.kind)),
     h('span', { class: 'row-main' }, h('span', { class: 'row-title', text: x.amount ? `${x.text}: ${fmtEuro(x.amount)}` : x.text })),
     h('span', { class: 'row-end' }, x.bookingId
       ? h('a', { class: 'btn small', href: `#/p/${x.bookingId}`, text: 'Apri' })

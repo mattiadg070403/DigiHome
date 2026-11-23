@@ -288,3 +288,10 @@ Migrazione 0019 (`houses.receipts_enabled`, tabella `pay_receipts`). Testo: `pub
 - Dati del contratto: nuovo campo facoltativo "Codice fiscale" del locatore (controllato), usato solo nella ricevuta.
 - Giro di semplificazione (0.14.3) già in definitiva.
 - 0.15.2: colori "Carta calda" (scelta di Mattia: lo schermo stancava). Sfondo #E9E5DD, schede #F6F3ED, campi #FBF9F5, testo #2B2824, secondario #645E54 (contrasti 13:1 e ≥ 4,8:1). Niente bianco puro né nero pieno; colori delle case invariati. Il modulo per gli ospiti non cambia.
+
+## Novità della 0.16 (23 novembre 2026): grafica
+- Avvisi con un'icona per tipo (`alertIcon` in ui.js): soldi, Questura/check-in (scudo), orari e scadenze (orologio), telefono, dati degli ospiti, calendari, partenza. Il colore resta quello dell'urgenza. Anche in Contabilità e nella scheda.
+- Oggi: "Prossimi 7 giorni" con arrivi, partenze e cambi per casa (iPad: una colonna per giorno; telefono: solo i giorni con movimenti). DA CONFERMARE da Mattia (voleva vederla prima).
+- Calendario delle prenotazioni con i colori dei canali (diretto verde, Airbnb rosa, Booking blu, come in Contabilità) e legenda.
+- Testo più grande su iPad e computer (≥ 761 px): corpo 17 px, interlinea 1,55; il telefono resta com'era.
+- Nuova icona dell'app e logo: casa piena con sfumatura verde Isola Bella → blu Faro Blu e "DG" in color carta (`public/icons/`: icon.svg, logo.svg, apple-touch-icon.png, icon-192/512.png, icon-maskable-512.png). Logo anche nella barra laterale.

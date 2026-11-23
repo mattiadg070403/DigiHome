@@ -1,7 +1,7 @@
 // Scheda della prenotazione e procedure guidate di check-in e check-out.
 
 import { h, icon, newId } from '../dom.js';
-import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, confirmDialog, segmented } from '../ui.js';
+import { houseVars, tag, chan, field, setFieldError, openDialog, switchRow, confirmDialog, segmented, alertIcon } from '../ui.js';
 import { fmtLong, fmtShort, nights, todayRome } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
@@ -65,7 +65,7 @@ export function renderDetail(ctx, id) {
 
   // Ogni avviso ha il suo pulsante per sistemarlo subito (chiedere, segnare, completare).
   const alertBox = alerts.length ? h('div', { class: 'card' }, h('div', { class: 'rows' }, alerts.map((a) =>
-    h('div', { class: 'row alert-row' }, h('span', { class: ['lvl', a.level] }, icon('alert', { size: 16 })),
+    h('div', { class: 'row alert-row' }, h('span', { class: ['lvl', a.level] }, alertIcon(a.key)),
       h('span', { class: 'row-main' }, h('span', { class: 'row-title', text: a.text }), alertActions(ctx, b, a)))))) : null;
 
   // Promemoria per l'arrivo: cosa preparare e cosa incassare.

@@ -10,7 +10,7 @@ import './guest-form.js';
 import { hasSecret } from './secrets.js';
 
 /**
- * Indirizzo del modulo per gli ospiti casa per casa (dominio della casa, es. checkin.faroblugallipoli.it):
+ * Indirizzo del modulo per gli ospiti casa per casa (dominio della casa, es. registrazione.faroblugallipoli.it):
  * variabile OSPITI_DOMINI = {"faro-blu":"https://…","isola-bella":"https://…"}. Solo indirizzi https validi.
  */
 function formDomains(env) {

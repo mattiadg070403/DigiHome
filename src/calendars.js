@@ -72,6 +72,7 @@ async function create(db, cal, ev) {
     total_cents: 0, deposit_cents: 0, deposit_paid: 0, security_cents: 0, security_status: 'nessuna',
     linens: 1, towels: 0, minors_delegation: 'non_serve',
     ext_uid: ev.uid, ext_url: info.url, needs_details: 1, ext_gone: 0,
+    booked_on: todayRome(), // per il ritmo delle prenotazioni: arriva dal calendario poche ore dopo la prenotazione
   };
   const cols = Object.keys(row);
   const main = db.prepare(`INSERT INTO bookings (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)

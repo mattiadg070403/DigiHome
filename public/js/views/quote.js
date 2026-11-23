@@ -12,6 +12,9 @@ import { EXTRA_UNITS, depositFor, extraAmount, historyPrice, quoteChecks, quoteM
 import { waNumber } from './contact.js';
 import { dateRangeField } from '../pickers.js';
 import { occupiedNights } from '../../shared/booking.js';
+import { accountingSettings } from '../../shared/accounting.js';
+import { directPriceFromList, listWeeks } from '../../shared/pricing.js';
+import { renderPricing } from './pricing.js';
 
 // Bozza del preventivo in memoria (si perde chiudendo l'app: è voluto).
 let draft = null;
@@ -28,8 +31,16 @@ function houseRules(house) {
   try { return JSON.parse(house.contract_public || '{}') || {}; } catch { return {}; }
 }
 
+/** Schede in alto: Preventivo | Listino (il listino sta "nei preventivi", come chiesto da Mattia). */
+function quoteTabs(ctx, current) {
+  const t = h('div', { class: 'pl-tabs' }, segmented([{ value: 'preventivo', label: 'Preventivo' }, { value: 'listino', label: 'Listino prezzi' }], current,
+    (v) => ctx.go(v === 'listino' ? 'preventivo/listino' : 'preventivo'), 'Sezione'));
+  return t;
+}
+
 export function renderQuote(ctx) {
   const { store, ui } = ctx;
+  if (ui.route.params.tab === 'listino') return renderPricing(ctx, { tabs: quoteTabs(ctx, 'listino') });
   const d = store.data;
   const house = d.houses.find((x) => x.id === ui.houseId) || d.houses[0];
   if (!draft) draft = fresh();
@@ -132,10 +143,24 @@ export function renderQuote(ctx) {
 
     // Prezzo consigliato
     let sug = null;
+    let fromList = null;
     if (ok) {
       const hist = historyPrice(d.bookings, house.id, q.checkIn, q.checkOut, { windowDays: settings.window_days, today: ui.today });
       sug = suggestPrice(hist, { checkIn: q.checkIn, checkOut: q.checkOut, today: ui.today, settings });
-      if (!sug) {
+      // Prima il listino (il prezzo deciso per quelle settimane), poi lo storico come confronto.
+      // (Le notti che non sono nel listino di quell'anno, es. a cavallo di capodanno, lasciano il consiglio allo storico.)
+      fromList = directPriceFromList(listWeeks(d.prices, house.id, Number(q.checkIn.slice(0, 4))), { checkIn: q.checkIn, checkOut: q.checkOut, acc: accountingSettings(house) });
+      const listBox = fromList ? h('div', { class: 'stack acc-tight' },
+        h('div', { class: 'quote-suggest' },
+          h('div', { class: 'quote-big', text: fmtEuro(fromList.total) }),
+          h('div', { class: 'muted', text: `dal listino · circa ${fmtEuro(Math.round(fromList.total / n / 100) * 100)} a notte` })),
+        h('a', { class: 'small pl-link', href: '#/preventivo/listino', text: 'Apri il listino' })) : null;
+      if (fromList && !sug) {
+        suggestBox.replaceChildren(listBox, h('p', { class: 'muted small', text: 'Nello storico non ci sono soggiorni simili da confrontare.' }));
+      } else if (fromList) {
+        suggestBox.replaceChildren(listBox,
+          h('p', { class: 'muted small', text: `Per confronto, dallo storico: ${fmtEuro(sug.total)} (${fmtEuro(hist.perNight)} a notte negli anni scorsi).` }));
+      } else if (!sug) {
         suggestBox.replaceChildren(h('p', { class: 'muted', text: hist.count ? 'Lo storico non basta per un consiglio.'
           : `Nessun soggiorno degli anni passati tra il ${formatItDate(addDays(q.checkIn, -settings.window_days)).slice(0, 5)} e il ${formatItDate(addDays(q.checkOut, settings.window_days)).slice(0, 5)}: scrivi tu il prezzo. Lo storico si riempie caricando le prenotazioni degli anni scorsi.` }));
       } else {
@@ -155,10 +180,12 @@ export function renderQuote(ctx) {
     } else suggestBox.replaceChildren(h('p', { class: 'muted', text: 'Il consiglio compare quando scegli le date.' }));
 
     // Prezzo, acconto (se non cambiati a mano seguono il consiglio)
-    if (!q.priceTouched) { q.price = sug ? centsToInput(sug.total) : q.price; priceIn.value = q.price; }
+    const proposed = fromList ? fromList.total : sug ? sug.total : null;
+    if (!q.priceTouched) { q.price = proposed ? centsToInput(proposed) : q.price; priceIn.value = q.price; }
     const priceC = parseEuro(q.price);
     if (!q.depositTouched) { q.deposit = priceC ? centsToInput(depositFor(priceC, pct)) : ''; depositIn.value = q.deposit; }
-    useSuggested.hidden = !(sug && (q.priceTouched || q.depositTouched));
+    useSuggested.hidden = !(proposed && (q.priceTouched || q.depositTouched));
+    useSuggested.textContent = fromList ? 'Usa il prezzo del listino' : 'Usa il prezzo consigliato';
 
     const tax = ok ? touristTax(q.checkIn, q.checkOut, q.guests, taxSet) : null;
     taxLine.textContent = tax ? `Tassa di soggiorno (a parte): ${explainTax(tax, q.guests)}` : '';
@@ -232,7 +259,7 @@ export function renderQuote(ctx) {
     }, 'Casa'));
   switches.style.marginBottom = '20px';
 
-  const page = h('div', { vars: houseVars(house) }, head, switches,
+  const page = h('div', { vars: houseVars(house) }, head, quoteTabs(ctx, 'preventivo'), switches,
     h('div', { class: 'quote-grid' },
       h('div', { class: 'stack' }, stayCard),
       h('div', { class: 'stack' },

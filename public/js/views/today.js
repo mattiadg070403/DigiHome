@@ -2,7 +2,8 @@
 
 import { h, icon, newId } from '../dom.js';
 import { houseVars, tag, chan } from '../ui.js';
-import { fmtLong, fmtRange, fmtShort, daysBetween } from '../../shared/dates.js';
+import { fmtLong, fmtRange, fmtShort, daysBetween, weekday } from '../../shared/dates.js';
+import { buildList, pricingSettings, seasonYear, suggestionCount } from '../../shared/pricing.js';
 import { CHANNELS, LEVEL_ORDER, bookingAlerts, currentAndNext, nextStep, phase, statusTags, guestsLabel } from '../../shared/booking.js';
 import { runNextAction } from './actions.js';
 import { draftBanner } from './form.js';
@@ -22,6 +23,7 @@ export function renderToday(ctx) {
     overdueBanner(ctx),
     demoBanner(ctx),
     draftBanner(ctx),
+    pricingBanner(ctx),
     h('div', { class: 'grid-2' }, d.houses.map((house) => houseCard(ctx, house))),
     alertsSection(ctx),
     tasksSection(ctx));
@@ -39,6 +41,26 @@ function overdueBanner(ctx) {
     late.map(({ a, b }) => h('div', { class: 'urgent-item' },
       h('span', { text: `${houses[b.house_id]?.name || ''} · ${b.guest_name}: ${a.text}` }),
       h('button', { class: 'btn small', type: 'button', text: 'Completa il check-in', onClick: () => runNextAction(ctx, b, 'checkin') }))));
+}
+
+/**
+ * Il lunedì, da gennaio ad agosto (quando Mattia rivede i prezzi): quante settimane del listino hanno un suggerimento.
+ * Solo per l'amministratore, che è l'unico a cambiare il listino.
+ */
+function pricingBanner(ctx) {
+  const { store, ui } = ctx;
+  const d = store.data;
+  if (d.me.role !== 'admin' || weekday(ui.today) !== 1 || Number(ui.today.slice(5, 7)) > 8) return null;
+  const counts = d.houses.map((house) => {
+    const year = seasonYear(ui.today, pricingSettings(house));
+    return { house, n: suggestionCount(buildList({ bookings: d.bookings, prices: d.prices, extras: d.extras, house, year, today: ui.today })) };
+  }).filter((x) => x.n);
+  const total = counts.reduce((s, x) => s + x.n, 0);
+  if (!total) return null;
+  return h('div', { class: 'banner pl-banner' },
+    h('span', null, h('strong', { text: 'Lunedì dei prezzi: ' }),
+      `${total === 1 ? '1 settimana da valutare' : `${total} settimane da valutare`} nel listino (${counts.map((x) => `${x.house.name} ${x.n}`).join(', ')}).`),
+    h('button', { class: 'btn small', type: 'button', text: 'Apri il listino', onClick: () => { if (counts.length === 1) ctx.setHouse(counts[0].house.id, { silent: true }); ctx.go('preventivo/listino'); } }));
 }
 
 function demoBanner(ctx) {

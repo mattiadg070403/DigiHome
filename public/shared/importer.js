@@ -15,6 +15,8 @@ export const IMPORT_FIELDS = {
   total: { label: 'Prezzo del soggiorno', required: true, words: ['prezzo', 'totale', 'lordo', 'importo', 'incasso', 'tariffa', 'price', 'total', 'compenso'] },
   guest_name: { label: 'Nome dell’ospite', required: false, words: ['nome', 'ospite', 'cliente', 'cognome', 'nominativo', 'name', 'guest'] },
   phone: { label: 'Telefono', required: false, words: ['telefono', 'cellulare', 'tel', 'phone', 'numero di telefono'] },
+  // Quando è arrivata la prenotazione: serve al ritmo delle prenotazioni nel listino (facoltativa).
+  booked_on: { label: 'Data della prenotazione', required: false, words: ['data prenotazione', 'data di prenotazione', 'prenotata il', 'prenotato il', 'data della prenotazione', 'booked', 'booking date', 'data creazione', 'creata il'] },
 };
 
 const norm = (s) => [...String(s ?? '').toLowerCase().normalize('NFD')].filter((ch) => { const c = ch.codePointAt(0); return c < 0x300 || c > 0x36F; }).join('').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -134,7 +136,9 @@ export function buildImport(rows, { mapping, header, houses, fixedHouse = null, 
     const name = withNames ? String(get(r, 'guest_name') ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) : '';
     const phoneRaw = withNames ? String(get(r, 'phone') ?? '').trim() : '';
     const phone = /^[+()\d\s./-]{5,40}$/.test(phoneRaw) ? phoneRaw : null;
-    out.push({ line, ok: true, row: { house_id: house, channel, guest_name: name || 'Ospite (importato)', phone, guests, check_in: ci, check_out: co, total_cents: total } });
+    const bookedOn = toIsoDate(get(r, 'booked_on'));
+    out.push({ line, ok: true, row: { house_id: house, channel, guest_name: name || 'Ospite (importato)', phone, guests, check_in: ci, check_out: co, total_cents: total,
+      booked_on: bookedOn && bookedOn <= ci ? bookedOn : null } });
   }
   return out;
 }

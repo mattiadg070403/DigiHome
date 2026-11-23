@@ -10,6 +10,7 @@ import { CONTRACT_TEMPLATE, LANGS, buildContract, checkGuest, checkSignature, co
   purgeDate, sha256Hex, checkContractInfo } from '../public/shared/contract.js';
 import { todayRome } from '../public/shared/dates.js';
 import { checkQuoteSettings } from '../public/shared/quote.js';
+import { checkPricingSettings, checkWeekChanges } from '../public/shared/pricing.js';
 import { meterCalc, meterExtraLabel } from '../public/shared/meter.js';
 import { PAY_METHODS, checkAccountingSettings, checkRemittance } from '../public/shared/accounting.js';
 
@@ -53,7 +54,7 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances', guest: 'guests' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances', guest: 'guests', price: 'price_lists' };
 
 export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
@@ -143,6 +144,7 @@ async function bookingCreate(db, user, opId, p) {
     security_status: (value.security_cents ?? 0) > 0 ? 'da_incassare' : 'nessuna',
     linens: value.linens ?? 1, towels: value.towels ?? 0, minors_delegation: value.minors_delegation ?? 'non_serve',
     notes: value.notes ?? null,
+    booked_on: todayRome(), // giorno in cui è arrivata (ritmo delle prenotazioni nel listino)
   };
   if (row.deposit_cents > row.total_cents) throw bad('L’acconto supera il totale', { errors: { deposit_cents: 'L’acconto supera il totale' } });
   const cols = Object.keys(row);
@@ -775,6 +777,11 @@ async function houseUpdate(db, user, opId, p) {
     if (!r.ok) throw bad(r.error, { errors: { [r.field || 'quote_settings']: r.error } });
     v.quote_settings = JSON.stringify(r.value);
   }
+  if ('pricing' in c) {
+    const r = checkPricingSettings(c.pricing);
+    if (!r.ok) throw bad(r.error, { errors: { [r.field || 'pricing']: r.error } });
+    v.pricing = JSON.stringify(r.value);
+  }
   if ('contract_info' in c) {
     const r = checkContractInfo(c.contract_info);
     if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
@@ -901,6 +908,47 @@ async function bookingMoney(db, user, opId, p) {
 }
 
 /** Versamento della tassa di soggiorno al Comune o della cedolare. */
+/* ------------------------------- Listino prezzi ------------------------------- */
+
+/**
+ * Netti per settimana del listino (solo l'amministratore: listino e regole di prezzo sono impostazioni).
+ * p: { house_id, year, weeks: { 'AAAA-MM-GG': centesimi | null } } → si uniscono a quelli già salvati (null = togli).
+ * Più dispositivi possono scrivere settimane diverse: in caso di scrittura contemporanea si rilegge e si riprova.
+ */
+async function priceSet(db, user, opId, p) {
+  requireAdmin(user);
+  const house = typeof p.house_id === 'string' ? await getHouse(db, p.house_id) : null;
+  if (!house) throw bad('Casa non trovata');
+  const r = checkWeekChanges(p.year, p.weeks);
+  if (!r.ok) throw bad(r.error);
+  const id = `${house.id}:${p.year}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const cur = await db.prepare('SELECT * FROM price_lists WHERE id = ?').bind(id).first();
+    let weeks = {};
+    try { weeks = cur ? JSON.parse(cur.weeks || '{}') : {}; } catch { weeks = {}; }
+    const changes = {};
+    for (const [k, c] of Object.entries(r.value)) {
+      const before = weeks[k] ?? null;
+      if (before === c) continue;
+      changes[k] = [before, c];
+      if (c === null) delete weeks[k]; else weeks[k] = c;
+    }
+    if (!Object.keys(changes).length) return cur ? { record: cur, unchanged: true } : { unchanged: true };
+    if (Object.keys(weeks).length > 120) throw bad('Troppe settimane in questo listino');
+    const json = JSON.stringify(Object.fromEntries(Object.entries(weeks).sort(([a], [b]) => (a < b ? -1 : 1))));
+    const at = nowIso();
+    const main = cur
+      ? db.prepare(`UPDATE price_lists SET weeks = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+          WHERE id = ? AND version = ?`).bind(json, at, user.email, id, cur.version)
+      : db.prepare(`INSERT INTO price_lists (id, house_id, year, weeks, created_at, created_by, updated_at, updated_by, rev)
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT} WHERE NOT EXISTS (SELECT 1 FROM price_lists WHERE id = ?)`)
+        .bind(id, house.id, p.year, json, at, user.email, at, user.email, id);
+    const done = await commit(db, { main, user, opId, entity: 'price', entityId: id, action: 'update', changes: { anno: p.year, settimane: changes } });
+    if (done) return { record: await db.prepare('SELECT * FROM price_lists WHERE id = ?').bind(id).first() };
+  }
+  throw new OpError(409, 'conflict', 'Il listino è stato modificato nello stesso momento da un altro dispositivo. Riprova.');
+}
+
 async function remittanceAdd(db, user, opId, p) {
   const r = checkRemittance(p.remittance || {});
   if (!r.ok) throw bad(r.error, { errors: { [r.field]: r.error } });
@@ -949,6 +997,8 @@ async function bookingImport(db, user, opId, p) {
       guests: value.guests, check_in: value.check_in, check_out: value.check_out, total_cents: value.total_cents ?? 0,
       deposit_cents: 0, deposit_paid: 0, security_cents: 0, security_status: 'nessuna', stage,
       notes: 'Importata dal vecchio file',
+      // Data della prenotazione, se il file ce l'ha (serve al ritmo delle prenotazioni nel listino).
+      booked_on: isIsoDate(r.booked_on) && r.booked_on <= value.check_in ? r.booked_on : null,
     };
     const cols = Object.keys(row);
     ids.push({ id, index });
@@ -1234,6 +1284,7 @@ const HANDLERS = {
   'booking.meter': bookingMeter,
   'booking.money': bookingMoney,
   'remittance.add': remittanceAdd,
+  'price.set': priceSet,
   'remittance.delete': (db, user, opId, p) => softDelete(db, user, opId, p, 'remittances', 'remittance', 1),
   'remittance.restore': (db, user, opId, p) => softDelete(db, user, opId, p, 'remittances', 'remittance', 0),
   'booking.import': bookingImport,

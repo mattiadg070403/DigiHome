@@ -252,3 +252,18 @@ Migrazione 0017 (`guests.form_part`, `bookings.guest_form_leader_part`).
 - `GET /api/form/<codice>?part=…` restituisce anche `entered` (ospiti già inseriti), `mine` (quanti da questo telefono), `leaderTaken`, `iAmLeader`. Mai i dati già salvati.
 - Limiti: in tutto al massimo gli ospiti prenotati + 4 (massimo 30); 40 invii per link.
 - Il messaggio WhatsApp dice che il link si può girare agli altri ospiti.
+
+## Novità della 0.14 (23 novembre 2026): listino prezzi
+
+Migrazione 0018 (`houses.pricing`, tabella `price_lists`, `bookings.booked_on`). Logica: `public/shared/pricing.js`; pagina: `public/js/views/pricing.js` (Preventivo → scheda "Listino prezzi", `#/preventivo/listino`).
+
+- Scelte di Mattia: stagione giugno–settembre, prezzi diversi ogni settimana, prenotazioni da gennaio a maggio. Per ogni settimana si scrive il **netto in tasca**; il gestionale calcola il prezzo a notte da mettere in diretta, su Airbnb e su Booking: `prezzo = netto / (1 − commissione con IVA − cedolare)`, arrotondato all'euro in su (in tasca mai meno del netto scelto). Commissioni e cedolare sono quelle della Contabilità (regola valida nella data della settimana). Con uno sconto attivo sul portale (Genius ecc., in Impostazioni → Case → Listino) il prezzo da inserire è diviso per (1 − sconto).
+- Niente stati delle settimane né spunte "aggiornato sul portale" (richiesta di Mattia): solo la base per decidere.
+- Per ogni settimana: netto della stessa settimana dell'anno scorso e di due anni fa (52 settimane prima, stesso giorno; media sulle notti vendute riportata a 7 notti, con le commissioni valide allora), differenza in %, prezzi per canale.
+- Ritmo delle prenotazioni (per mese della stagione): notti vendute oggi in % contro le notti che alla stessa data dell'anno scorso erano già prenotate (`booked_on`, oppure il giorno di inserimento se prima dell'arrivo; le prenotazioni importate dopo il soggiorno non sono confrontabili). Avanti/in linea/indietro con la soglia in punti delle impostazioni.
+- Suggerimenti (mai applicati da soli; pulsante "Usa questo"): solo per settimane future senza notti vendute. Manca il prezzo → quello dell'anno scorso; oltre `hold_days` (90) dall'arrivo niente sconti; ultimo minuto a scaglioni (45/30/14 giorni: −5/−10/−15%); mese più lento −5% (solo vicino all'arrivo), più veloce +5%; mai sotto il netto minimo; arrotondati a 10 €.
+- Strumenti veloci: "Copia l'anno scorso" (+%; dal listino dell'anno prima, altrimenti dall'incassato, altrimenti due anni fa; solo settimane vuote salvo scelta) e "Correggi un periodo" (mese o stagione, ±%).
+- Operazione `price.set` (solo amministratore): unisce `{ settimana: centesimi | null }` al listino di casa e anno (riga `price_lists` con id `casa:anno`), riprova se due dispositivi scrivono insieme. Tutti vedono il listino (`prices` nello stato).
+- Preventivo: se tutte le notti sono nel listino, il prezzo proposto è quello del listino (diretto); lo storico resta come confronto.
+- Oggi: il lunedì, da gennaio ad agosto, per l'amministratore, "Lunedì dei prezzi: N settimane da valutare".
+- `booked_on`: si segna alla creazione (gestionale e calendari) e all'importazione se il file ha la colonna "Data della prenotazione".

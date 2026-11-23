@@ -49,7 +49,7 @@ function parseRoute() {
   const parts = (location.hash.replace(/^#\/?/, '') || 'oggi').split('/').map(decodeURIComponent);
   if (parts[0] === 'prenotazioni') return { name: 'bookings', params: {} };
   if (parts[0] === 'impostazioni') return { name: 'settings', params: {} };
-  if (parts[0] === 'preventivo') return { name: 'quote', params: {} };
+  if (parts[0] === 'preventivo') return { name: 'quote', params: { tab: parts[1] === 'listino' ? 'listino' : 'preventivo' } };
   if (parts[0] === 'contabilita') return { name: 'accounting', params: {} };
   if (parts[0] === 'archivio') return { name: 'archive', params: { tab: parts[1] || null, house: parts[2] || null } };
   if (parts[0] === 'p' && parts[1]) {

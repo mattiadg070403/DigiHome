@@ -9,6 +9,7 @@ import { taxSettings, MONTHS_SHORT } from '../../shared/tax.js';
 import { parseEuro, centsToInput } from '../../shared/money.js';
 import { ROLES, checkContractInfo, contractMissing, parseContractInfo } from '../../shared/contract.js';
 import { EXTRA_UNITS, checkQuoteSettings, quoteSettings } from '../../shared/quote.js';
+import { MONTHS_LONG, WEEKDAYS, checkPricingSettings, pricingSettings } from '../../shared/pricing.js';
 import { importBlock } from './import.js';
 import { accountingSettingsDialog } from './accounting.js';
 import { alloggiatiSettingsDialog, dmsSettingsDialog, alloggiatiSummary } from './questura.js';
@@ -341,6 +342,8 @@ function housesSection(ctx) {
             icon('edit', { size: 16 }), 'Dati del contratto'),
           h('button', { class: 'btn small', type: 'button', onClick: () => quoteSettingsDialog(ctx, x) },
             icon('edit', { size: 16 }), 'Preventivi'),
+          h('button', { class: 'btn small', type: 'button', onClick: () => pricingSettingsDialog(ctx, x) },
+            icon('edit', { size: 16 }), 'Listino'),
           h('button', { class: 'btn small', type: 'button', onClick: () => accountingSettingsDialog(ctx, x) },
             icon('edit', { size: 16 }), 'Contabilità'),
           h('button', { class: 'btn small', type: 'button', onClick: () => alloggiatiSettingsDialog(ctx, x) },
@@ -511,6 +514,74 @@ function contractInfoDialog(ctx, house) {
       dlg.close();
     } catch (e) {
       if (e.body?.errors) for (const [k, msg] of Object.entries(e.body.errors)) if (controls[k]) setFieldError(controls[k], msg);
+      dlg.setBanner(e.message);
+    }
+  }
+}
+
+/* --------------------------- Listino --------------------------- */
+
+/** Regole del listino: settimane, stagione, sconti attivi sui portali, netto minimo, suggerimenti. */
+function pricingSettingsDialog(ctx, house) {
+  const cur = pricingSettings(house);
+  const num = (value, label) => h('input', { class: 'input', inputmode: 'numeric', value: value ? String(value) : '', attrs: { 'aria-label': label }, placeholder: '0' });
+  const select = (options, value, label) => h('select', { class: 'input', attrs: { 'aria-label': label } },
+    options.map(([v, t]) => h('option', { value: String(v), text: t, selected: v === value })));
+  const weekStart = select(WEEKDAYS.map((t, i) => [i, t]), cur.week_start, 'Le settimane iniziano di');
+  const monthOpts = MONTHS_LONG.map((t, i) => [i + 1, t]);
+  const fromM = select(monthOpts, cur.months[0], 'Primo mese della stagione');
+  const toM = select(monthOpts, cur.months[1], 'Ultimo mese della stagione');
+  const discA = num(cur.discounts.airbnb, 'Sconto attivo su Airbnb in percentuale');
+  const discB = num(cur.discounts.booking, 'Sconto attivo su Booking in percentuale');
+  const floor = h('input', { class: 'input', inputmode: 'decimal', value: centsToInput(cur.floor_cents), placeholder: 'nessuno' });
+  const hold = num(cur.hold_days, 'Giorni prima dell’arrivo senza sconti');
+  const lm = [0, 1, 2].map((i) => ({ days: num(cur.last_minute[i]?.days, 'Entro giorni dall’arrivo'), pct: num(cur.last_minute[i]?.pct, 'Sconto in percentuale') }));
+  const gap = num(cur.pace.gap_pts, 'Differenza in punti');
+  const up = num(cur.pace.up_pct, 'Aumento in percentuale');
+  const down = num(cur.pace.down_pct, 'Sconto in percentuale');
+  const pair = (a, b, la, lb) => h('div', { class: 'form-grid' }, field(la, a), field(lb, b));
+  const dlg = openDialog({
+    title: `Listino · ${house.name}`,
+    content: h('div', { class: 'stack' },
+      h('div', { class: 'form-grid' },
+        field('Le settimane iniziano di', weekStart, { hint: 'Il prezzo a notte vale anche per soggiorni con altri giorni di arrivo' }),
+        field('Netto minimo a settimana (€)', floor, { hint: 'I suggerimenti non scendono mai sotto. Vuoto = nessuno' })),
+      pair(fromM, toM, 'Stagione: dal mese', 'al mese'),
+      h('h3', { text: 'Sconti attivi sui portali' }),
+      h('p', { class: 'muted small', text: 'Solo se ne hai attivati (es. Genius o tariffe mobile su Booking, promozioni su Airbnb): il prezzo da inserire diventa più alto, così dopo lo sconto in tasca resta lo stesso. Vuoto = nessuno.' }),
+      pair(discA, discB, 'Airbnb (%)', 'Booking (%)'),
+      h('h3', { text: 'Suggerimenti' }),
+      field('Niente sconti se mancano più di (giorni all’arrivo)', hold, { hint: 'Le prenotazioni arrivano presto: lontano dall’arrivo si tiene il prezzo' }),
+      h('p', { class: 'muted small', text: 'Ultimo minuto, solo per settimane ancora da vendere (vale lo scaglione più forte raggiunto):' }),
+      lm.map((x, i) => pair(x.days, x.pct, `Scaglione ${i + 1}: entro giorni`, 'sconto %')),
+      h('p', { class: 'muted small', text: 'Ritmo delle prenotazioni rispetto all’anno scorso:' }),
+      h('div', { class: 'form-grid' },
+        field('Differenza che conta (punti %)', gap, { hint: 'Es. 15: luglio venduto al 45% contro il 30% dell’anno scorso' }),
+        field('Se va più veloce: aumento %', up),
+        field('Se va più lento: sconto %', down, { hint: 'Solo vicino all’arrivo (entro i giorni sopra)' }))),
+    actions: [
+      h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
+      h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
+    ],
+  });
+
+  async function save() {
+    dlg.setBanner('');
+    const n = (el) => (String(el.value).trim() === '' ? 0 : Number(String(el.value).trim()));
+    const fl = parseEuro(floor.value);
+    if (fl === null) { setFieldError(floor, 'Importo non valido'); dlg.setBanner('Controlla il netto minimo.'); return; }
+    const input = {
+      week_start: Number(weekStart.value), months: [Number(fromM.value), Number(toM.value)],
+      discounts: { airbnb: n(discA), booking: n(discB) }, floor_cents: fl, hold_days: n(hold),
+      last_minute: lm.map((x) => ({ days: n(x.days), pct: n(x.pct) })).filter((x) => x.days || x.pct),
+      pace: { gap_pts: n(gap), up_pct: n(up), down_pct: n(down) },
+    };
+    const r = checkPricingSettings(input);
+    if (!r.ok) { dlg.setBanner(r.error); return; }
+    try {
+      await ctx.act('house.update', { id: house.id, version: house.version, changes: { pricing: r.value } }, { message: 'Impostazioni del listino salvate' });
+      dlg.close();
+    } catch (e) {
       dlg.setBanner(e.message);
     }
   }

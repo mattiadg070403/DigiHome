@@ -59,7 +59,19 @@ export function demoBookings(today = todayRome()) {
       costs: [{ category: 'pulizie', label: 'Pulizie finali', amount_cents: 9000, paid: 0, notes: 'Da pagare a Rosa con le prossime' }, { category: 'lavanderia', label: null, amount_cents: 4500, paid: 1 }],
       checkin_steps: steps(['ospiti', 'documenti', 'pagamenti', 'contratto', 'alloggiati', 'dms']), checkout_steps: steps(['controllo', 'chiavi', 'cauzione']) },
     ...demoHistory(today),
+    ...demoNextSeason(today),
   ];
+}
+
+/** Due prenotazioni già arrivate per la prossima stagione (per vedere il ritmo nel listino). */
+function demoNextSeason(today) {
+  const y = Number(today.slice(0, 4)) + (Number(today.slice(5, 7)) > 9 ? 1 : 0);
+  const list = [
+    { house_id: 'faro-blu', channel: 'airbnb', guest_name: 'Famiglia Greco (prova)', guests: 8, check_in: `${y}-08-07`, total_cents: 245000, booked_on: addDays(today, -12) },
+    { house_id: 'faro-blu', channel: 'diretto', guest_name: 'Luca Marino (prova)', guests: 6, check_in: `${y}-08-14`, total_cents: 238000, booked_on: addDays(today, -4), deposit_cents: 70000, deposit_paid: 1 },
+    { house_id: 'isola-bella', channel: 'booking', guest_name: 'Anna Schulz (prova)', guests: 3, check_in: `${y}-07-17`, total_cents: 154000, booked_on: addDays(today, -7) },
+  ];
+  return list.filter((b) => b.check_in > addDays(today, 30)).map((b) => ({ ...b, check_out: addDays(b.check_in, 7), security_cents: 0, security_status: 'nessuna', stage: 'confermata' }));
 }
 
 /**
@@ -83,7 +95,9 @@ function demoHistory(today) {
         const perNight = Math.round(eur * factor * (back === 2 ? 0.95 : back === 1 ? 1 : 1.05)) * 100;
         const b = { house_id: house, channel, guest_name: `${back ? 'Storico' : 'Ospite'} ${y} n. ${i + 1} (prova)`, guests,
           check_in: ci, check_out: addDays(ci, 7), total_cents: perNight * 7, security_cents: 0, security_status: 'nessuna', stage: 'chiusa', review_ok: 1,
-          checkin_steps: done, checkout_steps: out_ };
+          checkin_steps: done, checkout_steps: out_,
+          // Prenotata da 3 a 7 mesi prima (agosto prima di giugno, come succede davvero): serve al ritmo del listino.
+          booked_on: addDays(ci, -(220 - i * 12 - (house === 'faro-blu' ? 0 : 15))) };
         if (channel === 'diretto') Object.assign(b, { deposit_cents: Math.round((b.total_cents * 0.3) / 5000) * 5000, deposit_paid: 1, deposit_method: 'bonifico', balance_method: i % 2 ? 'contanti' : 'bonifico' });
         if (back === 0) {
           // Stagione in corso: tassa di soggiorno, pulizie e lavanderia di ogni soggiorno; qualche cosa lasciata da sistemare.

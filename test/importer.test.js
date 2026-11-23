@@ -36,11 +36,11 @@ test('foglio Excel vero (.xlsx): fogli, intestazioni, abbinamento colonne, antep
   const header = headerRow(rows);
   assert.equal(header, 1);
   const mapping = guessMapping(rows[header].map(String));
-  assert.deepEqual(mapping, { check_in: 1, check_out: 2, nights: null, house: 0, channel: 4, guests: 3, total: 5, guest_name: 6, phone: 7 });
+  assert.deepEqual(mapping, { check_in: 1, check_out: 2, nights: null, house: 0, channel: 4, guests: 3, total: 5, guest_name: 6, phone: 7, booked_on: null });
   const items = markDuplicates(buildImport(rows, { mapping, header, houses: HOUSES, withNames: false }), []);
   const ok = items.filter((x) => x.ok && !x.duplicate);
   assert.equal(ok.length, 3);
-  assert.deepEqual(ok[0].row, { house_id: 'faro-blu', channel: 'airbnb', guest_name: 'Ospite (importato)', phone: null, guests: 8, check_in: '2025-08-01', check_out: '2025-08-08', total_cents: 210000 });
+  assert.deepEqual(ok[0].row, { house_id: 'faro-blu', channel: 'airbnb', guest_name: 'Ospite (importato)', phone: null, guests: 8, check_in: '2025-08-01', check_out: '2025-08-08', total_cents: 210000, booked_on: null });
   assert.equal(ok[1].row.channel, 'diretto');
   assert.equal(ok[1].row.total_cents, 165000);
   assert.equal(ok[2].row.total_cents, 245050);

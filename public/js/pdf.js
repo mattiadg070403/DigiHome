@@ -273,6 +273,62 @@ export function buildPdf(c) {
   return assemble(pages, imgs.filter(Boolean), c);
 }
 
+/* ------------------------------ Ricevuta del saldo ------------------------------ */
+
+/**
+ * PDF della ricevuta del saldo (una pagina A4). blocks: da receiptBlocks(); stamp: true se serve la marca da bollo
+ * (in alto a destra resta un riquadro per incollarla sull'originale stampato). Restituisce i byte del file.
+ */
+export function buildReceiptPdf({ blocks, stamp = false, lang = 'it', title, issuedAt, houseName }) {
+  const ops = [];
+  let y = H - TOP;
+  const textLine = (str, x, yy, font, size) => ops.push(`BT /${font} ${num(size)} Tf ${num(x)} ${num(yy)} Td ${pdfString(encode(str))} Tj ET`);
+  if (stamp) {
+    // Riquadro per la marca da bollo (2,5 × 3 cm circa).
+    const bw = 72;
+    const bh = 86;
+    const bx = W - MR - bw;
+    ops.push(`0.6 G 0.6 w [3 3] 0 d ${num(bx)} ${num(y - bh)} ${num(bw)} ${num(bh)} re S [] 0 d 0 G`);
+    const lab = lang === 'en' ? ['Revenue', 'stamp'] : ['Marca', 'da bollo'];
+    lab.forEach((t, i) => textLine(t, bx + (bw - width(encode(t), 'F1', 8)) / 2, y - bh / 2 + 4 - i * 10, 'F1', 8));
+    y -= 16;
+  }
+  let signer = null;
+  for (const b of blocks) {
+    if (b.t === 'sign') { signer = b; continue; }
+    const st = STYLE[b.t] || STYLE.p;
+    const size = b.t === 'title' ? 15 : b.t === 'p' ? 11 : st.size;
+    const lead = b.t === 'title' ? 20 : b.t === 'p' ? 15.5 : st.lead;
+    const maxW = TEXT_W - (stamp && b.t !== 'p' ? 90 : 0);
+    const lines = wrapRich(b.text || '', st.font, size, maxW);
+    y -= st.before;
+    lines.forEach((words, i) => {
+      const base = y - size;
+      const runs = lineRuns(words);
+      const lw = piecesWidth(runs, size);
+      let x = ML;
+      let tw = 0;
+      if (b.t === 'title') x = ML;
+      else if (st.align === 'justify' && i < lines.length - 1 && words.length > 1) tw = Math.min((maxW - lw) / (words.length - 1), 6);
+      ops.push(`BT ${tw ? `${num(tw)} Tw ` : ''}${num(x)} ${num(base)} Td ${runs.map((r) => `/${r.f} ${num(size)} Tf ${pdfString(encode(r.t))} Tj`).join(' ')}${tw ? ' 0 Tw' : ''} ET`);
+      y -= lead;
+    });
+    y -= b.t === 'title' ? 14 : b.t === 'place' ? 18 : st.after + 4;
+  }
+  if (signer) {
+    y -= 34;
+    const sw = 220;
+    const sx = W - MR - sw;
+    textLine(signer.label, sx, y, 'F2', 10.5);
+    ops.push(`0.6 G 0.5 w ${num(sx)} ${num(y - 46)} m ${num(sx + sw)} ${num(y - 46)} l S 0 G`);
+    if (signer.name) textLine(wrap(signer.name, 'F1', 9.5, sw)[0], sx, y - 59, 'F1', 9.5);
+  }
+  ops.push('0.45 g');
+  textLine(`${title}${houseName ? ` · ${houseName}` : ''}`, ML, 40, 'F1', 7.5);
+  ops.push('0 g');
+  return assemble([ops], [], { lang, title, signed_at: issuedAt });
+}
+
 /* ------------------------------ Scrittura del file ------------------------------ */
 
 function latin1(s) {
@@ -314,7 +370,7 @@ function assemble(pages, imgs, c) {
   obj(2, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`);
   obj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   obj(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-  obj(5, `<< /Title ${pdfString(encode(labels(c).doc))} /Producer (DigiHome) /CreationDate (${pdfDate(c.signed_at)}) >>`);
+  obj(5, `<< /Title ${pdfString(encode(c.title || labels(c).doc))} /Producer (DigiHome) /CreationDate (${pdfDate(c.signed_at)}) >>`);
   imgs.forEach((im, i) => {
     const cs = im.info.components === 1 ? '/DeviceGray' : '/DeviceRGB';
     obj(imgStart + i, [`<< /Type /XObject /Subtype /Image /Width ${im.info.width} /Height ${im.info.height} /ColorSpace ${cs} /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`, im.bytes, '\nendstream']);

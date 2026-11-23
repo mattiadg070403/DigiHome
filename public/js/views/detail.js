@@ -17,6 +17,8 @@ import { fmtKwh } from '../../shared/meter.js';
 import { PAY_METHODS } from '../../shared/accounting.js';
 import { stayAccountPanel, addStayCosts, askPayMethod } from './accounting.js';
 import { guestsPanel, openGuests, alloggiatiReady } from './guests.js';
+import { STAMP_THRESHOLD_CENTS, euroIt, receiptBlocks, receiptFileName } from '../../shared/receipt.js';
+import { buildReceiptPdf } from '../pdf.js';
 
 function notFound(ctx) {
   return h('div', { class: 'card' }, h('div', { class: 'empty' },
@@ -110,7 +112,7 @@ export function renderDetail(ctx, id) {
     h('div', { class: 'page-head' }, backLink(ctx, b), ctx.syncChip()),
     head, next, alertBox, reminders,
     h('div', { class: 'grid-2' },
-      panel('Soldi', h('div', { class: 'stack' }, kv(money), extrasBlock(ctx, b))),
+      panel('Soldi', h('div', { class: 'stack' }, kv(money), extrasBlock(ctx, b), receiptBlock(ctx, b, house))),
       // Contatti e dettagli insieme (giro di semplificazione 23/11): una scheda in meno.
       panel('Contatti e dettagli', h('div', { class: 'stack' }, contacts, h('hr', { class: 'soft' }), details)),
       panel('Note', notesBlock(ctx, b)),
@@ -123,6 +125,62 @@ export function renderDetail(ctx, id) {
           ? h('button', { class: 'btn', type: 'button', text: 'Ripristina prenotazione', onClick: () => restoreBooking(ctx, b) })
           : b.stage !== 'chiusa' ? h('button', { class: 'btn danger', type: 'button', text: 'Cancella prenotazione', onClick: () => cancelBooking(ctx, b) }) : null)),
     historyBlock(ctx, b));
+}
+
+/* ------------------------------- Ricevuta del saldo ------------------------------- */
+
+/**
+ * Ricevuta del saldo (solo dirette, solo se attiva per la casa, solo l'amministratore).
+ * Si crea una volta (numero progressivo); poi si scarica o si condivide in italiano o in inglese.
+ */
+function receiptBlock(ctx, b, house) {
+  const { store } = ctx;
+  if (!house.receipts_enabled || store.data.me.role !== 'admin' || b.channel !== 'diretto' || b.stage === 'cancellata') return null;
+  const r = (store.data.payReceipts || []).find((x) => x.booking_id === b.id);
+  const due = balanceDue(b);
+  const out = h('div', { class: 'stack acc-tight receipt-block' }, h('hr', { class: 'soft' }), h('strong', { text: 'Ricevuta del saldo' }));
+  if (!r) {
+    if (!(due > 0)) return null;
+    const year = Number(ctx.ui.today.slice(0, 4));
+    const next = 1 + Math.max(0, ...(store.data.payReceipts || []).filter((x) => x.house_id === house.id && x.year === year).map((x) => x.number));
+    out.append(
+      h('p', { class: 'muted small', text: `Per ${euroIt(due)} (il saldo all’arrivo)${due > STAMP_THRESHOLD_CENTS ? ', con la nota della marca da bollo da 2 €' : ''}. Si crea una volta sola, con il numero successivo.` }),
+      h('div', null, h('button', { class: 'btn small', type: 'button', onClick: async () => {
+        if (!(await confirmDialog({ title: 'Creare la ricevuta?', text: `Ricevuta n. ${next}/${year} a ${b.guest_name} per ${euroIt(due)}. Il numero non si può più riusare.`, okLabel: 'Crea' }))) return;
+        ctx.act('payreceipt.issue', { booking_id: b.id }, { message: 'Ricevuta creata' }).catch(() => {});
+      } }, icon('plus', { size: 16 }), 'Crea la ricevuta')));
+    return out;
+  }
+  let data = {};
+  try { data = JSON.parse(r.data); } catch { data = {}; }
+  const rec = { ...r, data };
+  const make = async (lang) => {
+    const title = lang === 'en' ? `Receipt ${r.number}/${r.year}` : `Ricevuta ${r.number}/${r.year}`;
+    const bytes = buildReceiptPdf({ blocks: receiptBlocks(rec, lang), stamp: r.amount_cents > STAMP_THRESHOLD_CENTS, lang, title, issuedAt: r.issued_at, houseName: house.name });
+    const file = new File([bytes], receiptFileName(rec, house.name, lang), { type: 'application/pdf' });
+    let shared = false;
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); shared = true; }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+    if (!shared) {
+      const url = URL.createObjectURL(file);
+      const a = h('a', { href: url, download: file.name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  };
+  out.append(...[
+    h('p', { class: 'small', text: `N. ${r.number}/${r.year} · ${euroIt(r.amount_cents)} · del ${data.issued_on ? data.issued_on.split('-').reverse().join('/') : ''}` }),
+    due !== r.amount_cents ? h('p', { class: 'small warn-text', text: `Attenzione: dopo la ricevuta il saldo è cambiato (ora ${euroIt(due)}).` }) : null,
+    h('div', { class: 'btn-row' },
+      h('button', { class: 'btn small', type: 'button', onClick: () => make('it') }, icon('download', { size: 16 }), 'In italiano'),
+      h('button', { class: 'btn small', type: 'button', onClick: () => make('en') }, icon('download', { size: 16 }), 'In inglese')),
+    r.amount_cents > STAMP_THRESHOLD_CENTS ? h('p', { class: 'muted small', text: 'Stampa l’originale e incolla la marca da bollo da 2 € nel riquadro in alto.' }) : null].filter(Boolean));
+  return out;
 }
 
 /* ------------------------------- Extra ------------------------------- */

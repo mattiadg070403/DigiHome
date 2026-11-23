@@ -24,6 +24,7 @@ export async function readState(db, user) {
     db.prepare('SELECT * FROM remittances WHERE deleted = 0 ORDER BY date'),
     db.prepare('SELECT id, house_id, date, size, fetched_at, purge_after FROM alloggiati_receipts ORDER BY date DESC'),
     db.prepare('SELECT * FROM price_lists ORDER BY house_id, year'),
+    db.prepare('SELECT * FROM pay_receipts ORDER BY issued_at'),
   ]);
   const rows = (i) => results[i].results || [];
   return {
@@ -47,6 +48,8 @@ export async function readState(db, user) {
     receipts: rows(12),
     // Listino prezzi: netti per settimana (lo vedono tutti, lo cambia solo l'amministratore).
     prices: rows(13),
+    // Ricevute del saldo: contengono i dati del locatore, solo per l'amministratore.
+    payReceipts: isAdmin ? rows(14) : [],
   };
 }
 
@@ -83,12 +86,13 @@ export async function readExport(db) {
     q('SELECT * FROM contracts WHERE deleted = 0 ORDER BY signed_at'),
     q('SELECT * FROM remittances ORDER BY date'),
     q('SELECT * FROM price_lists ORDER BY house_id, year'),
+    q('SELECT * FROM pay_receipts ORDER BY issued_at'),
   ]);
   const rows = (i) => r[i].results || [];
   return {
     rev: rows(0)[0]?.rev ?? 0,
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
     calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
-    extras: rows(8), expenses: rows(9), deadlines: rows(10), contracts: rows(11), remittances: rows(12), price_lists: rows(13),
+    extras: rows(8), expenses: rows(9), deadlines: rows(10), contracts: rows(11), remittances: rows(12), price_lists: rows(13), pay_receipts: rows(14),
   };
 }

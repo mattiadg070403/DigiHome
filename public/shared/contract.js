@@ -2,6 +2,7 @@
 // Il testo vero di ogni contratto lo ricrea il server al momento della firma: l'app lo mostra soltanto.
 // Solo per le prenotazioni dirette (con Airbnb e Booking valgono le loro condizioni).
 
+import { isTaxCode } from './receipt.js';
 import { addDays, formatItDate, isIsoDate, todayRome, timeRome } from './dates.js';
 import { fmtEuro } from './money.js';
 import { buildContractEn, guestParagraphEn } from './contract-en.js';
@@ -92,6 +93,8 @@ const INFO_TEXT = [
   ['landlord_name', 'Nome e cognome del locatore', 120, true],
   ['landlord_birth_place', 'Luogo di nascita del locatore', 80, true],
   ['landlord_residence', 'Residenza del locatore', 200, true],
+  // Solo per la ricevuta del saldo (facoltativo, non serve al contratto).
+  ['landlord_cf', 'Codice fiscale del locatore', 16, false],
   ['city', 'Comune dell’immobile', 60, true],
   ['address', 'Indirizzo dell’immobile', 160, true],
   ['description', 'Descrizione dell’immobile', 300, true],
@@ -124,6 +127,10 @@ export function checkContractInfo(input) {
     if (s === null) return bad(`${label}: usa solo caratteri latini`, k);
     if (s.length > max) return bad(`${label}: testo troppo lungo`, k);
     if (s) v[k] = s;
+  }
+  if (v.landlord_cf) {
+    v.landlord_cf = v.landlord_cf.toUpperCase().replace(/\s+/g, '');
+    if (!isTaxCode(v.landlord_cf)) return bad('Codice fiscale del locatore non valido (16 caratteri)', 'landlord_cf');
   }
   if (v.cin) {
     v.cin = v.cin.toUpperCase().replace(/\s+/g, '');

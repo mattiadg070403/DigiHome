@@ -345,7 +345,7 @@ function housesSection(ctx) {
     try { dms = x.dms_settings ? JSON.parse(x.dms_settings) : {}; } catch { dms = {}; }
     const allo = alloggiatiSummary(x);
     return [
-      { label: 'Casa', sub: `Fino a ${x.max_guests} persone · check-in ${x.checkin_time} · check-out ${x.checkout_time} · tassa di soggiorno`, open: () => houseDialog(ctx, x) },
+      { label: 'Casa', sub: `Fino a ${x.max_guests} persone · check-in ${x.checkin_time} · check-out ${x.checkout_time} · tassa di soggiorno${x.receipts_enabled ? ' · ricevuta del saldo' : ''}`, open: () => houseDialog(ctx, x) },
       { label: 'Dati del contratto', sub: x.contract_ready ? 'Completi' : 'Mancano alcuni dati: completali per far firmare il contratto', tone: x.contract_ready ? null : 'warn', open: () => contractInfoDialog(ctx, x) },
       { label: 'Preventivi', sub: `Validità ${q.validity_days} giorni · cauzione ${fmtEuro(q.security_cents)} · extra: ${q.extras.length ? q.extras.map((e) => e.label.toLowerCase()).join(', ') : 'nessuno'}`, open: () => quoteSettingsDialog(ctx, x) },
       { label: 'Listino', sub: `Settimane da ${WEEKDAYS[pr.week_start]} · ${MONTHS_LONG[pr.months[0] - 1]}–${MONTHS_LONG[pr.months[1] - 1]}`, open: () => pricingSettingsDialog(ctx, x) },
@@ -370,7 +370,7 @@ function houseDialog(ctx, house) {
   const t = taxSettings(house);
   const v = { max_guests: house.max_guests, checkin_time: house.checkin_time, checkout_time: house.checkout_time,
     tourist_tax: { rates: [...t.rates], max_nights: t.max_nights },
-    default_linens: house.default_linens ?? 1, default_towels: house.default_towels ?? 0 };
+    default_linens: house.default_linens ?? 1, default_towels: house.default_towels ?? 0, receipts_enabled: house.receipts_enabled ?? 0 };
   let taxBad = false;
   const rateInputs = t.rates.map((r, i) => {
     const el = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: centsToInput(r),
@@ -404,7 +404,11 @@ function houseDialog(ctx, house) {
       h('div', { class: 'field full' },
         h('div', { class: 'label', text: 'Biancheria compresa (proposta nelle nuove prenotazioni)' }),
         switchRow('Lenzuola', { checked: Boolean(v.default_linens), onChange: (c) => { v.default_linens = c ? 1 : 0; } }),
-        switchRow('Asciugamani', { checked: Boolean(v.default_towels), onChange: (c) => { v.default_towels = c ? 1 : 0; } }))),
+        switchRow('Asciugamani', { checked: Boolean(v.default_towels), onChange: (c) => { v.default_towels = c ? 1 : 0; } })),
+      h('div', { class: 'field full' },
+        h('div', { class: 'label', text: 'Ricevuta del saldo (prenotazioni dirette)' }),
+        switchRow('Mostra il pulsante per la ricevuta in PDF', { checked: Boolean(v.receipts_enabled), onChange: (c) => { v.receipts_enabled = c ? 1 : 0; } }),
+        h('div', { class: 'hint', text: 'Solo l’importo del saldo all’arrivo, in italiano o in inglese. Usa i dati del contratto (aggiungi lì il codice fiscale, se vuoi che compaia).' }))),
     actions: [
       h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
       h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
@@ -429,6 +433,7 @@ const INFO_FIELDS = [
   ['landlord_birth_place', 'Luogo di nascita', {}],
   ['landlord_birth_date', 'Data di nascita', { type: 'date' }],
   ['landlord_residence', 'Residenza', { full: true, hint: 'Comune e indirizzo, come vanno scritti nel contratto' }],
+  ['landlord_cf', 'Codice fiscale', { hint: 'Facoltativo: compare solo sulla ricevuta del saldo' }],
   ['city', 'Comune dell’immobile', {}],
   ['cin', 'Codice CIN', { hint: 'Es. IT075031C2…' }],
   ['address', 'Indirizzo dell’immobile', { full: true, hint: 'Es. Via Antonio Rosmini n. 5' }],
@@ -486,7 +491,7 @@ function contractInfoDialog(ctx, house) {
       h('div', { class: 'form-grid' },
         field('Titolo', sal),
         field('In qualità di', role, { hint: 'Del diritto sull’immobile' }),
-        ['landlord_name', 'landlord_birth_place', 'landlord_birth_date', 'landlord_residence'].map((k) => mk(byKey[k]))),
+        ['landlord_name', 'landlord_birth_place', 'landlord_birth_date', 'landlord_residence', 'landlord_cf'].map((k) => mk(byKey[k]))),
       h('h3', { text: 'Immobile' }),
       h('div', { class: 'form-grid' }, ['city', 'cin', 'address', 'description'].map((k) => mk(byKey[k]))),
       h('h3', { text: 'Regole e condizioni' }),

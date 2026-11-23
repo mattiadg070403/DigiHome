@@ -1,7 +1,7 @@
 // Tutte le modifiche ai dati passano da qui.
 // Ogni operazione: controllo, scrittura, registro modifiche e contatore in un'unica transazione.
 
-import { CHANNELS, checkinSteps, checkoutSteps, missingRequired, parseSteps, validateBooking } from '../public/shared/booking.js';
+import { CHANNELS, balanceDue, checkinSteps, checkoutSteps, missingRequired, parseSteps, validateBooking } from '../public/shared/booking.js';
 import { daysBetween, fmtShort, isIsoDate, isTime } from '../public/shared/dates.js';
 import { checkCalendarUrl, maskCalendarUrl } from '../public/shared/calendar.js';
 import { checkTaxSettings } from '../public/shared/tax.js';
@@ -54,7 +54,7 @@ function isId(s) {
  * Il contatore si aumenta per ultimo, così il segno resta valido per tutte le istruzioni.
  * Restituisce true se la modifica è avvenuta.
  */
-const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances', guest: 'guests', price: 'price_lists' };
+const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances', guest: 'guests', price: 'price_lists', payreceipt: 'pay_receipts' };
 
 export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes }) {
   const table = TABLES[entity];
@@ -764,7 +764,7 @@ async function houseUpdate(db, user, opId, p) {
     if (!t.ok) throw bad(t.error);
     v.tourist_tax = JSON.stringify(t.value);
   }
-  for (const k of ['default_linens', 'default_towels']) {
+  for (const k of ['default_linens', 'default_towels', 'receipts_enabled']) {
     if (k in c) v[k] = c[k] ? 1 : 0;
   }
   if ('accounting' in c) {
@@ -908,6 +908,55 @@ async function bookingMoney(db, user, opId, p) {
 }
 
 /** Versamento della tassa di soggiorno al Comune o della cedolare. */
+/* ------------------------------- Ricevuta del saldo ------------------------------- */
+
+/**
+ * Ricevuta del saldo di una prenotazione diretta (solo l'amministratore: contiene i dati del locatore).
+ * Una sola per prenotazione: se c'è già si restituisce quella. Numero progressivo per casa e anno (della data di oggi),
+ * assegnato nella stessa istruzione che la salva: due ricevute non possono avere lo stesso numero.
+ */
+async function payReceiptIssue(db, user, opId, p) {
+  requireAdmin(user);
+  if (!isId(p.booking_id)) throw bad('Richiesta non valida');
+  const existing = await db.prepare('SELECT * FROM pay_receipts WHERE booking_id = ?').bind(p.booking_id).first();
+  if (existing) return { record: existing, unchanged: true };
+  const b = await getBooking(db, p.booking_id);
+  if (!b) throw notFound();
+  const house = await getHouse(db, b.house_id);
+  if (!house.receipts_enabled) throw bad('La ricevuta non è attiva per questa casa (Impostazioni → Case → Casa).');
+  if (b.channel !== 'diretto') throw bad('La ricevuta del saldo è solo per le prenotazioni dirette.');
+  if (b.stage === 'cancellata') throw bad('Prenotazione cancellata.');
+  const amount = balanceDue(b);
+  if (!(amount > 0)) throw bad('Non c’è un saldo da indicare nella ricevuta.');
+  const info = parseContractInfo(house);
+  const missing = ['landlord_name', 'city', 'address'].filter((k) => !info[k]);
+  if (missing.length) throw bad('Mancano i dati del locatore o dell’immobile: completa Impostazioni → Case → Dati del contratto.');
+  const today = todayRome();
+  const year = Number(today.slice(0, 4));
+  const data = {
+    landlord_name: info.landlord_name, landlord_sal: info.landlord_sal || 'M', landlord_cf: info.landlord_cf || null,
+    landlord_residence: info.landlord_residence || null, city: info.city, address: info.address, cin: info.cin || null,
+    guest_name: b.guest_name, check_in: b.check_in, check_out: b.check_out, method: b.balance_method || null, issued_on: today,
+  };
+  const id = crypto.randomUUID();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const main = db.prepare(`INSERT INTO pay_receipts (id, booking_id, house_id, year, number, amount_cents, data, issued_at, issued_by, rev)
+      SELECT ?, ?, ?, ?, (SELECT COALESCE(MAX(number), 0) + 1 FROM pay_receipts WHERE house_id = ? AND year = ?), ?, ?, ?, ?, ${REV_NEXT}
+      WHERE NOT EXISTS (SELECT 1 FROM pay_receipts WHERE booking_id = ?)`)
+      .bind(id, b.id, house.id, year, house.id, year, amount, JSON.stringify(data), nowIso(), user.email, b.id);
+    let done = false;
+    try {
+      done = await commit(db, { main, user, opId, entity: 'payreceipt', entityId: id, action: 'create', changes: { prenotazione: b.id, anno: year, importo: amount } });
+    } catch (e) {
+      if (!/UNIQUE/i.test(String(e && e.message))) throw e; // stesso numero preso nello stesso istante: si riprova
+      continue;
+    }
+    const rec = await db.prepare('SELECT * FROM pay_receipts WHERE booking_id = ?').bind(b.id).first();
+    if (rec) return { record: rec, unchanged: !done };
+  }
+  throw new OpError(409, 'conflict', 'Ricevuta non creata. Riprova.');
+}
+
 /* ------------------------------- Listino prezzi ------------------------------- */
 
 /**
@@ -1285,6 +1334,7 @@ const HANDLERS = {
   'booking.money': bookingMoney,
   'remittance.add': remittanceAdd,
   'price.set': priceSet,
+  'payreceipt.issue': payReceiptIssue,
   'remittance.delete': (db, user, opId, p) => softDelete(db, user, opId, p, 'remittances', 'remittance', 1),
   'remittance.restore': (db, user, opId, p) => softDelete(db, user, opId, p, 'remittances', 'remittance', 0),
   'booking.import': bookingImport,

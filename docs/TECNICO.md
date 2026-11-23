@@ -276,3 +276,14 @@ Migrazione 0018 (`houses.pricing`, tabella `price_lists`, `bookings.booked_on`).
 - Scheda della prenotazione: "Contatti" e "Dettagli" uniti in una sola scheda.
 - Contabilità: la scelta dell'anno non si allarga più su tutta la riga.
 - Controllate tutte le schermate su iPad e telefono: nessun errore. L'avviso rosso in cima a Oggi per il check-in in ritardo resta anche se la scheda della casa lo mostra (sul telefono la scheda può essere fuori schermo).
+
+## Novità della 0.15 (23 novembre 2026): ricevuta del saldo
+
+Migrazione 0019 (`houses.receipts_enabled`, tabella `pay_receipts`). Testo: `public/shared/receipt.js`; PDF: `buildReceiptPdf` in `public/js/pdf.js`.
+
+- Facoltativa per casa (Impostazioni → Case → Casa → "Ricevuta del saldo"), spenta di partenza. Solo prenotazioni dirette, solo l'amministratore (contiene i dati del locatore).
+- Scelte di Mattia: solo l'importo del **saldo all'arrivo** (`balanceDue`), nota della marca da bollo da 2 € sopra 77,47 € con il riquadro per incollarla sull'originale, in italiano e in inglese.
+- Operazione `payreceipt.issue`: una ricevuta per prenotazione, numero progressivo per casa e anno (data di oggi) assegnato nella stessa istruzione che la salva (`UNIQUE(house_id, year, number)`, si riprova in caso di scontro). `data` conserva il testo (locatore, CF facoltativo dai Dati del contratto, immobile, CIN, ospite, date, modo di pagamento): si riscarica identica. Se dopo il saldo cambia, la scheda lo segnala.
+- Diciture (da confermare con il commercialista): "Operazione fuori campo IVA. Locatore persona fisica in regime di cedolare secca."; "Imposta di bollo di 2,00 € assolta sull'originale".
+- Dati del contratto: nuovo campo facoltativo "Codice fiscale" del locatore (controllato), usato solo nella ricevuta.
+- Giro di semplificazione (0.14.3) già in definitiva.

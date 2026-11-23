@@ -1,4 +1,4 @@
-(node:981) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(node:2055) ExperimentalWarning: SQLite is an experimental feature and might change at any time
 (Use `node --trace-warnings ...` to show where the warning was created)
 Gestionale di prova su http://localhost:8787
 Modulo per gli ospiti su http://localhost:8788

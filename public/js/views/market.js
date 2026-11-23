@@ -27,6 +27,7 @@ export function marketSettingsDialog(ctx, house) {
   const cur = marketSettings(house);
   const coords = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', placeholder: 'es. 40.0558, 17.9925', value: cur.lat !== null ? `${cur.lat}, ${cur.lon}` : '' });
   const radius = h('input', { class: 'input', inputmode: 'decimal', value: String(cur.radius_km).replace('.', ',') });
+  const guests = h('input', { class: 'input', inputmode: 'numeric', value: cur.guests === null ? '' : String(cur.guests), placeholder: String(house.max_guests) });
   const bedrooms = h('input', { class: 'input', inputmode: 'numeric', value: cur.bedrooms === null ? '' : String(cur.bedrooms), placeholder: '–' });
   const query = h('input', { class: 'input', value: cur.query });
   const mine = new Set(cur.amenities);
@@ -47,6 +48,7 @@ export function marketSettingsDialog(ctx, house) {
       h('h3', { text: 'La casa' }),
       h('div', { class: 'form-grid' },
         field('Posizione (coordinate)', coords, { full: true, hint: 'Su Google Maps tieni premuto sulla casa e copia i due numeri che compaiono (es. 40.0558, 17.9925)' }),
+        field('Posti (ospiti)', guests, { hint: `Si confrontano case con al massimo 2 posti di differenza. Vuoto = ${house.max_guests}, il massimo della casa` }),
         field('Raggio della ricerca (km)', radius, { hint: 'Di solito 2–3 km' }),
         field('Camere da letto', bedrooms, { hint: 'Per trovare case della stessa grandezza' }),
         field('Dove cercare su Airbnb', query, { full: true })),
@@ -63,7 +65,7 @@ export function marketSettingsDialog(ctx, house) {
     dlg.setBanner('');
     const c = coords.value.trim() ? parseCoords(coords.value) : { lat: null, lon: null };
     if (!c) { setFieldError(coords, 'Scrivi le coordinate come le copia Google Maps'); dlg.setBanner('Controlla la posizione.'); return false; }
-    const input = { lat: c.lat, lon: c.lon, radius_km: Number(radius.value.replace(',', '.')), bedrooms: bedrooms.value.trim() === '' ? null : Number(bedrooms.value),
+    const input = { lat: c.lat, lon: c.lon, radius_km: Number(radius.value.replace(',', '.')), guests: guests.value.trim() === '' ? null : Number(guests.value), bedrooms: bedrooms.value.trim() === '' ? null : Number(bedrooms.value),
       amenities: [...mine], query: query.value };
     const r = checkMarketSettings(input);
     if (!r.ok) { dlg.setBanner(r.error); return false; }

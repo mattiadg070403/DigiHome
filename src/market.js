@@ -201,7 +201,8 @@ async function jobInput(db, job) {
   if (job.kind === 'search') {
     if (s.lat === null) return null;
     return {
-      locationQueries: [s.query], adults: Math.max(1, Math.min(16, house.max_guests - 2)),
+      // Airbnb mostra le case con almeno questi posti: uno in meno, per includere anche quelle appena più piccole.
+      locationQueries: [s.query], adults: Math.max(1, Math.min(16, (s.guests || house.max_guests) - 1)),
       ...(s.bedrooms ? { minBedrooms: Math.max(0, s.bedrooms - 1) } : {}),
       currency: 'EUR', locale: 'en-US', maxResults: 120,
     };
@@ -209,7 +210,8 @@ async function jobInput(db, job) {
   const comps = (await db.prepare('SELECT listing_id, capacity FROM market_comps WHERE house_id = ? AND selected = 1').bind(house.id).all()).results || [];
   if (!comps.length) return null;
   const caps = comps.map((c) => c.capacity).filter((x) => Number.isInteger(x) && x > 0);
-  const adults = Math.max(1, Math.min(house.max_guests, caps.length ? Math.min(...caps) : house.max_guests));
+  const guests = s.guests || house.max_guests;
+  const adults = Math.max(1, Math.min(guests, caps.length ? Math.min(...caps) : guests));
   return {
     startUrls: comps.map((c) => ({ url: `https://www.airbnb.com/rooms/${c.listing_id}` })),
     checkIn: job.week_start, checkOut: addDays(job.week_start, 7), adults, currency: 'EUR', locale: 'en-US',

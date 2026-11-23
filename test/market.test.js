@@ -32,7 +32,9 @@ test('somiglianza: distanza, ospiti, camere; fuori raggio esclusa', () => {
   const settings = { lat: 40.0558, lon: 17.9925, radius_km: 2, bedrooms: 3, amenities: ['aria_condizionata'] };
   const near = similarity({ coords: { lat: 40.056, lon: 17.993 }, capacity: 8, bedrooms: 3, amenities: ['aria_condizionata'], reviews: 50, rating: 4.9 }, { house, settings });
   const far = similarity({ coords: { lat: 40.2, lon: 18.2 }, capacity: 8, bedrooms: 3, amenities: [] }, { house, settings });
-  const small = similarity({ coords: { lat: 40.056, lon: 17.993 }, capacity: 2, bedrooms: 1, amenities: [] }, { house, settings });
+  const small = similarity({ coords: { lat: 40.056, lon: 17.993 }, capacity: 5, bedrooms: 3, amenities: [] }, { house, settings }); // 3 posti in meno
+  const sixGuests = similarity({ coords: { lat: 40.056, lon: 17.993 }, capacity: 6, bedrooms: 3, amenities: ['aria_condizionata'] }, { house, settings: { ...settings, guests: 6 } });
+  assert.ok(sixGuests && sixGuests.score < 1); // posti scelti nelle impostazioni
   assert.ok(near && near.score < 1);
   assert.equal(far, null);
   assert.equal(small, null);

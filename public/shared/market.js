@@ -25,7 +25,8 @@ export const AMENITIES = {
   tv: { label: 'TV', re: /^tv\b|hdtv|television/i },
 };
 
-export const DEFAULT_MARKET = { lat: null, lon: null, radius_km: 3, bedrooms: null, amenities: [], query: 'Gallipoli, Puglia, Italy' };
+// guests: posti (ospiti) della casa per il confronto; vuoto = il massimo di ospiti della casa. Criterio importante (Mattia, 23/11).
+export const DEFAULT_MARKET = { lat: null, lon: null, radius_km: 3, guests: null, bedrooms: null, amenities: [], query: 'Gallipoli, Puglia, Italy' };
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -63,6 +64,11 @@ export function checkMarketSettings(input) {
   const r = Number(input.radius_km ?? DEFAULT_MARKET.radius_km);
   if (!Number.isFinite(r) || r < 0.3 || r > 30) return bad('Raggio: da 0,3 a 30 km', 'radius_km');
   v.radius_km = Math.round(r * 10) / 10;
+  if (has('guests')) {
+    const g = Number(input.guests);
+    if (!Number.isInteger(g) || g < 1 || g > 30) return bad('Posti: da 1 a 30', 'guests');
+    v.guests = g;
+  } else v.guests = null;
   if (has('bedrooms')) {
     const b = Number(input.bedrooms);
     if (!Number.isInteger(b) || b < 0 || b > 20) return bad('Camere da letto: da 0 a 20', 'bedrooms');
@@ -190,8 +196,10 @@ export function similarity(l, { house, settings }) {
   const here = settings.lat !== null ? { lat: settings.lat, lon: settings.lon } : null;
   const dist = here && l.coords ? distanceM(here, l.coords) : null;
   if (dist !== null && dist > settings.radius_km * 1000) return null;
-  const capDiff = l.capacity !== null ? Math.abs(l.capacity - house.max_guests) : 3;
-  if (capDiff > 4) return null;
+  // Posti: il criterio più importante dopo la zona (al massimo 2 di differenza, e pesa più delle camere).
+  const guests = settings.guests || house.max_guests;
+  const capDiff = l.capacity !== null ? Math.abs(l.capacity - guests) : 2;
+  if (capDiff > 2) return null;
   const bedDiff = settings.bedrooms !== null && l.bedrooms !== null ? Math.abs(l.bedrooms - settings.bedrooms) : 1;
   if (bedDiff > 2) return null;
   const mine = new Set(settings.amenities);
@@ -199,7 +207,7 @@ export function similarity(l, { house, settings }) {
   const missing = settings.amenities.length - common;
   const km = dist === null ? settings.radius_km : dist / 1000;
   const trust = l.reviews ? Math.min(1, l.reviews / 50) * ((l.rating || 4) - 4) : 0;
-  const score = km * 1.5 + capDiff * 1.2 + bedDiff * 2 + missing * 0.4 - trust;
+  const score = km * 1.5 + capDiff * 2.5 + bedDiff * 1.5 + missing * 0.4 - trust;
   return { score: Math.round(score * 100) / 100, distance_m: dist };
 }
 

@@ -5,7 +5,7 @@ import { runOp } from '../src/ops.js';
 import { readState } from '../src/state.js';
 import { todayRome } from '../public/shared/dates.js';
 import { checkContractInfo } from '../public/shared/contract.js';
-import { STAMP_THRESHOLD_CENTS, euroIt, isTaxCode, receiptBlocks, receiptFileName } from '../public/shared/receipt.js';
+import { euroIt, isTaxCode, receiptBlocks, receiptFileName } from '../public/shared/receipt.js';
 import { buildReceiptPdf } from '../public/js/pdf.js';
 
 const op = (db, user, type, payload) => runOp(db, user, { opId: crypto.randomUUID(), type, payload });
@@ -56,7 +56,7 @@ test('ricevuta: rifiutata se spenta, non diretta, senza saldo o senza dati del l
   await assert.rejects(op(db, admin, 'payreceipt.issue', { booking_id: b.id }), /non è attiva/);
 });
 
-test('ricevuta: testo in italiano e inglese, marca da bollo solo sopra 77,47 €, PDF valido', () => {
+test('ricevuta: testo in italiano e inglese, nessun riferimento alla marca da bollo, PDF valido', () => {
   const data = { ...INFO, guest_name: 'Luca Verdi', check_in: '2030-07-06', check_out: '2030-07-13', method: 'contanti', issued_on: '2030-07-06' };
   const r = { number: 3, year: 2030, amount_cents: 160000, data };
   const it = receiptBlocks(r, 'it').map((x) => x.text || x.label).join('\n');
@@ -65,22 +65,20 @@ test('ricevuta: testo in italiano e inglese, marca da bollo solo sopra 77,47 €
   assert.match(it, /la somma di \*\*1\.600,00 €\*\* a saldo/);
   assert.match(it, /dal 06\/07\/2030 al 13\/07\/2030/);
   assert.match(it, /Pagamento: contanti\./);
-  assert.match(it, /Imposta di bollo di 2,00 €/);
+  assert.doesNotMatch(it, /bollo/i); // tolta su richiesta di Mattia
   assert.match(it, /CIN IT075031C2PROVA0001/);
   const en = receiptBlocks(r, 'en').map((x) => x.text || x.label).join('\n');
   assert.match(en, /RECEIPT No\. 3\/2030/);
   assert.match(en, /€1,600\.00/);
   assert.match(en, /from 6 July 2030 to 13 July 2030/);
-  assert.match(en, /Stamp duty of €2\.00/);
-  const small = receiptBlocks({ ...r, amount_cents: STAMP_THRESHOLD_CENTS }, 'it').map((x) => x.text || '').join('\n');
-  assert.doesNotMatch(small, /bollo/); // 77,47 € esatti: niente marca
+  assert.doesNotMatch(en, /stamp/i);
   assert.equal(euroIt(7747), '77,47 €');
   assert.equal(receiptFileName(r, 'Faro Blu', 'en'), 'Receipt 3-2030 Faro Blu - Verdi.pdf');
-  const pdf = buildReceiptPdf({ blocks: receiptBlocks(r, 'it'), stamp: true, lang: 'it', title: 'Ricevuta 3/2030', issuedAt: '2030-07-06T10:00:00Z', houseName: 'Faro Blu' });
+  const pdf = buildReceiptPdf({ blocks: receiptBlocks(r, 'it'), lang: 'it', title: 'Ricevuta 3/2030', issuedAt: '2030-07-06T10:00:00Z', houseName: 'Faro Blu' });
   const text = new TextDecoder('latin1').decode(pdf);
   assert.ok(text.startsWith('%PDF-1.4'));
   assert.ok(text.trimEnd().endsWith('%%EOF'));
-  assert.match(text, /Marca/);
+  assert.doesNotMatch(text, /Marca|bollo/);
 });
 
 test('codice fiscale del locatore: facoltativo, controllato', () => {

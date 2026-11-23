@@ -276,30 +276,19 @@ export function buildPdf(c) {
 /* ------------------------------ Ricevuta del saldo ------------------------------ */
 
 /**
- * PDF della ricevuta del saldo (una pagina A4). blocks: da receiptBlocks(); stamp: true se serve la marca da bollo
- * (in alto a destra resta un riquadro per incollarla sull'originale stampato). Restituisce i byte del file.
+ * PDF della ricevuta del saldo (una pagina A4). blocks: da receiptBlocks(). Restituisce i byte del file.
  */
-export function buildReceiptPdf({ blocks, stamp = false, lang = 'it', title, issuedAt, houseName }) {
+export function buildReceiptPdf({ blocks, lang = 'it', title, issuedAt, houseName }) {
   const ops = [];
   let y = H - TOP;
   const textLine = (str, x, yy, font, size) => ops.push(`BT /${font} ${num(size)} Tf ${num(x)} ${num(yy)} Td ${pdfString(encode(str))} Tj ET`);
-  if (stamp) {
-    // Riquadro per la marca da bollo (2,5 × 3 cm circa).
-    const bw = 72;
-    const bh = 86;
-    const bx = W - MR - bw;
-    ops.push(`0.6 G 0.6 w [3 3] 0 d ${num(bx)} ${num(y - bh)} ${num(bw)} ${num(bh)} re S [] 0 d 0 G`);
-    const lab = lang === 'en' ? ['Revenue', 'stamp'] : ['Marca', 'da bollo'];
-    lab.forEach((t, i) => textLine(t, bx + (bw - width(encode(t), 'F1', 8)) / 2, y - bh / 2 + 4 - i * 10, 'F1', 8));
-    y -= 16;
-  }
   let signer = null;
   for (const b of blocks) {
     if (b.t === 'sign') { signer = b; continue; }
     const st = STYLE[b.t] || STYLE.p;
     const size = b.t === 'title' ? 15 : b.t === 'p' ? 11 : st.size;
     const lead = b.t === 'title' ? 20 : b.t === 'p' ? 15.5 : st.lead;
-    const maxW = TEXT_W - (stamp && b.t !== 'p' ? 90 : 0);
+    const maxW = TEXT_W;
     const lines = wrapRich(b.text || '', st.font, size, maxW);
     y -= st.before;
     lines.forEach((words, i) => {

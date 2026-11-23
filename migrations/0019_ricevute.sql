@@ -1,6 +1,6 @@
 -- Ricevuta del saldo per le prenotazioni dirette (versione 0.15). Scelte di Mattia (23/11/2026):
--- facoltativa per casa (spenta di partenza), solo l'importo del saldo all'arrivo, nota della marca da bollo
--- sopra 77,47 €, in italiano e in inglese. Numerazione progressiva per casa e per anno, mai ripetuta.
+-- facoltativa per casa (spenta di partenza), solo l'importo del saldo all'arrivo, in italiano e in inglese
+-- (nessun riferimento alla marca da bollo). Numerazione progressiva per casa e per anno, mai ripetuta.
 ALTER TABLE houses ADD COLUMN receipts_enabled INTEGER NOT NULL DEFAULT 0 CHECK (receipts_enabled IN (0, 1));
 
 -- Una ricevuta per prenotazione. "data" conserva quello che c'è scritto (locatore, immobile, ospite, date, pagamento),

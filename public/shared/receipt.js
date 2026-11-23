@@ -1,12 +1,9 @@
 // Ricevuta del saldo per le prenotazioni dirette (versione 0.15).
-// Scelte di Mattia (23/11/2026): facoltativa per casa, solo l'importo del saldo all'arrivo, nota della marca da bollo,
+// Scelte di Mattia (23/11/2026): facoltativa per casa, solo l'importo del saldo all'arrivo, nessun riferimento alla marca da bollo,
 // in italiano e in inglese. Non è un consiglio fiscale: diciture da confermare con il commercialista.
 // Usato dall'app (testo del PDF) e dal server (controlli).
 
 import { formatItDate } from './dates.js';
-
-/** Sopra questo importo (77,47 €) sulla ricevuta senza IVA va la marca da bollo da 2 €. */
-export const STAMP_THRESHOLD_CENTS = 7747;
 
 /** "1.600,00 €" (sempre con i centesimi, come si usa sulle ricevute). */
 export function euroIt(cents) {
@@ -39,7 +36,6 @@ export function isTaxCode(s) {
 export function receiptBlocks(r, lang = 'it') {
   const d = r.data || {};
   r = { ...r, issued_on: r.issued_on || d.issued_on };
-  const stamp = r.amount_cents > STAMP_THRESHOLD_CENTS;
   if (lang === 'en') {
     const method = d.method === 'contanti' ? 'cash' : d.method === 'bonifico' ? 'bank transfer' : null;
     return [
@@ -50,7 +46,6 @@ export function receiptBlocks(r, lang = 'it') {
         + `of the property located at ${d.address}, ${d.city}${d.cin ? ` (CIN ${d.cin})` : ''}, for the stay from ${enDate(d.check_in)} to ${enDate(d.check_out)}.` },
       method ? { t: 'p', text: `Payment method: ${method}.` } : null,
       { t: 'p', text: 'Transaction outside the scope of VAT. Landlord: private individual under the "cedolare secca" flat-rate tax regime.' },
-      stamp ? { t: 'p', text: 'Stamp duty of €2.00 paid on the original (amount over €77.47).' } : null,
       { t: 'sign', label: 'The landlord', name: d.landlord_name },
     ].filter(Boolean);
   }
@@ -64,7 +59,6 @@ export function receiptBlocks(r, lang = 'it') {
       + `dell’immobile sito in ${d.city}, ${d.address}${d.cin ? ` (CIN ${d.cin})` : ''}, per il soggiorno dal ${formatItDate(d.check_in)} al ${formatItDate(d.check_out)}.` },
     method ? { t: 'p', text: `Pagamento: ${method}.` } : null,
     { t: 'p', text: 'Operazione fuori campo IVA. Locatore persona fisica in regime di cedolare secca.' },
-    stamp ? { t: 'p', text: 'Imposta di bollo di 2,00 € assolta sull’originale (importo superiore a 77,47 €).' } : null,
     { t: 'sign', label: f ? 'La locatrice' : 'Il locatore', name: d.landlord_name },
   ].filter(Boolean);
 }

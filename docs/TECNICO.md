@@ -282,8 +282,8 @@ Migrazione 0018 (`houses.pricing`, tabella `price_lists`, `bookings.booked_on`).
 Migrazione 0019 (`houses.receipts_enabled`, tabella `pay_receipts`). Testo: `public/shared/receipt.js`; PDF: `buildReceiptPdf` in `public/js/pdf.js`.
 
 - Facoltativa per casa (Impostazioni → Case → Casa → "Ricevuta del saldo"), spenta di partenza. Solo prenotazioni dirette, solo l'amministratore (contiene i dati del locatore).
-- Scelte di Mattia: solo l'importo del **saldo all'arrivo** (`balanceDue`), nota della marca da bollo da 2 € sopra 77,47 € con il riquadro per incollarla sull'originale, in italiano e in inglese.
+- Scelte di Mattia: solo l'importo del **saldo all'arrivo** (`balanceDue`), in italiano e in inglese, **nessun riferimento alla marca da bollo** (né frase né riquadro: richiesta di Mattia, 0.15.1).
 - Operazione `payreceipt.issue`: una ricevuta per prenotazione, numero progressivo per casa e anno (data di oggi) assegnato nella stessa istruzione che la salva (`UNIQUE(house_id, year, number)`, si riprova in caso di scontro). `data` conserva il testo (locatore, CF facoltativo dai Dati del contratto, immobile, CIN, ospite, date, modo di pagamento): si riscarica identica. Se dopo il saldo cambia, la scheda lo segnala.
-- Diciture (da confermare con il commercialista): "Operazione fuori campo IVA. Locatore persona fisica in regime di cedolare secca."; "Imposta di bollo di 2,00 € assolta sull'originale".
+- Dicitura (da confermare con il commercialista): "Operazione fuori campo IVA. Locatore persona fisica in regime di cedolare secca."
 - Dati del contratto: nuovo campo facoltativo "Codice fiscale" del locatore (controllato), usato solo nella ricevuta.
 - Giro di semplificazione (0.14.3) già in definitiva.

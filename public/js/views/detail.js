@@ -17,7 +17,7 @@ import { fmtKwh } from '../../shared/meter.js';
 import { PAY_METHODS } from '../../shared/accounting.js';
 import { stayAccountPanel, addStayCosts, askPayMethod } from './accounting.js';
 import { guestsPanel, openGuests, alloggiatiReady } from './guests.js';
-import { STAMP_THRESHOLD_CENTS, euroIt, receiptBlocks, receiptFileName } from '../../shared/receipt.js';
+import { euroIt, receiptBlocks, receiptFileName } from '../../shared/receipt.js';
 import { buildReceiptPdf } from '../pdf.js';
 
 function notFound(ctx) {
@@ -144,7 +144,7 @@ function receiptBlock(ctx, b, house) {
     const year = Number(ctx.ui.today.slice(0, 4));
     const next = 1 + Math.max(0, ...(store.data.payReceipts || []).filter((x) => x.house_id === house.id && x.year === year).map((x) => x.number));
     out.append(
-      h('p', { class: 'muted small', text: `Per ${euroIt(due)} (il saldo all’arrivo)${due > STAMP_THRESHOLD_CENTS ? ', con la nota della marca da bollo da 2 €' : ''}. Si crea una volta sola, con il numero successivo.` }),
+      h('p', { class: 'muted small', text: `Per ${euroIt(due)} (il saldo all’arrivo). Si crea una volta sola, con il numero successivo.` }),
       h('div', null, h('button', { class: 'btn small', type: 'button', onClick: async () => {
         if (!(await confirmDialog({ title: 'Creare la ricevuta?', text: `Ricevuta n. ${next}/${year} a ${b.guest_name} per ${euroIt(due)}. Il numero non si può più riusare.`, okLabel: 'Crea' }))) return;
         ctx.act('payreceipt.issue', { booking_id: b.id }, { message: 'Ricevuta creata' }).catch(() => {});
@@ -156,7 +156,7 @@ function receiptBlock(ctx, b, house) {
   const rec = { ...r, data };
   const make = async (lang) => {
     const title = lang === 'en' ? `Receipt ${r.number}/${r.year}` : `Ricevuta ${r.number}/${r.year}`;
-    const bytes = buildReceiptPdf({ blocks: receiptBlocks(rec, lang), stamp: r.amount_cents > STAMP_THRESHOLD_CENTS, lang, title, issuedAt: r.issued_at, houseName: house.name });
+    const bytes = buildReceiptPdf({ blocks: receiptBlocks(rec, lang), lang, title, issuedAt: r.issued_at, houseName: house.name });
     const file = new File([bytes], receiptFileName(rec, house.name, lang), { type: 'application/pdf' });
     let shared = false;
     try {
@@ -178,8 +178,7 @@ function receiptBlock(ctx, b, house) {
     due !== r.amount_cents ? h('p', { class: 'small warn-text', text: `Attenzione: dopo la ricevuta il saldo è cambiato (ora ${euroIt(due)}).` }) : null,
     h('div', { class: 'btn-row' },
       h('button', { class: 'btn small', type: 'button', onClick: () => make('it') }, icon('download', { size: 16 }), 'In italiano'),
-      h('button', { class: 'btn small', type: 'button', onClick: () => make('en') }, icon('download', { size: 16 }), 'In inglese')),
-    r.amount_cents > STAMP_THRESHOLD_CENTS ? h('p', { class: 'muted small', text: 'Stampa l’originale e incolla la marca da bollo da 2 € nel riquadro in alto.' }) : null].filter(Boolean));
+      h('button', { class: 'btn small', type: 'button', onClick: () => make('en') }, icon('download', { size: 16 }), 'In inglese'))].filter(Boolean));
   return out;
 }
 

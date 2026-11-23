@@ -580,3 +580,5 @@ select.input.acc-year { width: auto; }
 .copy-lead { align-self: flex-start; }
 /* Sui telefoni anche le finestre larghe occupano tutto lo schermo (prima restavano spostate a sinistra). */
 @media (max-width: 560px) { dialog.wide { width: 100vw; } }
+.transcript { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--line-soft); font-size: 14px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; }

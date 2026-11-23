@@ -304,3 +304,36 @@ test('DMS: un movimento per ogni giorno, arrivi con componenti, partenza del cap
   assert.ok((await dmsFile(db, 'faro-blu', addDays(T, -1), T)).xml);
   assert.throws(() => buildDmsXml({ house: { id: 'x', dms_settings: '{"rooms":1,"beds":2}' }, bookings: [], guestsByBooking: new Map(), from: T, to: addDays(T, 200) }), /92 giorni/);
 });
+
+test('trascrizione fedele: ogni campo della schedina si rilegge uguale ai dati salvati; niente si perde in silenzio', async () => {
+  const { nameTranscription, docDropped } = await import('../public/shared/alloggiati.js');
+  const { cleanGuest } = await import('../src/guests.js');
+  const people = [
+    { ...capo, last_name: "D'Àngelo De La Cruz", first_name: 'Maria José', doc_number: 'AB 123-456' },
+    { ...capo, last_name: 'Müller-Lüdenscheidt', first_name: 'Jürgen', birth_place: '100000216', citizenship: '100000216', doc_number: 'C01X00T47' },
+    { ...capo, last_name: 'Øster', first_name: 'Søren Æble', sex: 'F', birth_date: '2001-12-31' },
+  ];
+  for (const g of people) {
+    const clean = { ...g, ...cleanGuest(g) };
+    const row = schedina(clean, { type: '16', checkIn: '2026-08-01', checkOut: '2026-08-08', place });
+    const back = {
+      last: row.slice(14, 64).trimEnd(), first: row.slice(64, 94).trimEnd(), sex: row[94] === '1' ? 'M' : 'F',
+      birth: row.slice(95, 105).split('/').reverse().join('-'), cit: row.slice(125, 134), doc: row.slice(139, 159).trimEnd(), place: row.slice(159, 168),
+    };
+    assert.equal(back.last, nameTranscription(g.last_name).text);
+    assert.equal(back.first, nameTranscription(g.first_name).text);
+    assert.equal(back.sex, g.sex);
+    assert.equal(back.birth, g.birth_date);
+    assert.equal(back.cit, g.citizenship);
+    assert.equal(back.doc, clean.doc_number);
+    assert.equal(back.place, g.doc_place);
+    // Solo maiuscole e accenti tolti: le lettere restano tutte, nello stesso ordine.
+    const letters = (s) => s.normalize('NFD').toUpperCase().split('').filter((ch) => /[A-Z]/.test(ch)).join('');
+    assert.equal(letters(back.last).replace(/AE|O/g, ''), letters(g.last_name).replace(/AE|O/g, ''));
+  }
+  assert.equal(nameTranscription('Müller').text, 'MULLER');
+  assert.throws(() => cleanGuest({ ...capo, last_name: 'Иванов' }), /lettere latine/);
+  assert.throws(() => cleanGuest({ ...capo, first_name: 'Anna ☺' }), /non accetta/);
+  assert.throws(() => cleanGuest({ ...capo, doc_number: 'AB/123' }), /solo lettere e numeri/);
+  assert.deepEqual(docDropped('AB 12-3'), []);
+});

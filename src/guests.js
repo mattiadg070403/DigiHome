@@ -5,7 +5,7 @@
 // mai dalla coda delle modifiche offline. Nel registro delle modifiche finiscono i nomi dei campi, mai i valori.
 
 import { OpError, REV_NEXT, commit, registerOps } from './ops.js';
-import { guestMissing, plainDoc, plainName, MAX_GUESTS } from '../public/shared/alloggiati.js';
+import { docDropped, guestMissing, nameTranscription, plainDoc, plainName, MAX_GUESTS } from '../public/shared/alloggiati.js';
 import { isIsoDate, todayRome } from '../public/shared/dates.js';
 
 const FIELDS = ['last_name', 'first_name', 'sex', 'birth_date', 'birth_place', 'citizenship', 'residence', 'doc_type', 'doc_number', 'doc_place'];
@@ -26,8 +26,13 @@ export function cleanGuest(input) {
   };
   out.last_name = str(input.last_name, 50);
   out.first_name = str(input.first_name, 30);
-  if (!out.last_name || !plainName(out.last_name)) throw bad('Scrivi il cognome');
-  if (!out.first_name || !plainName(out.first_name)) throw bad('Scrivi il nome');
+  if (!out.last_name || !plainName(out.last_name)) throw bad('Scrivi il cognome (in lettere latine, come sul passaporto)');
+  if (!out.first_name || !plainName(out.first_name)) throw bad('Scrivi il nome (in lettere latine, come sul passaporto)');
+  // Nessun carattere si perde in silenzio: quelli che la Questura non accetta vanno riscritti da chi inserisce i dati.
+  for (const [k, label] of [['last_name', 'Il cognome'], ['first_name', 'Il nome']]) {
+    const lost = nameTranscription(out[k]).dropped;
+    if (lost.length) throw bad(`${label} contiene caratteri che la Questura non accetta (${[...new Set(lost)].join(' ')}): scrivilo in lettere latine, come sul passaporto`);
+  }
   out.sex = input.sex === 'M' || input.sex === 'F' ? input.sex : null;
   if (input.sex && !out.sex) throw bad('Sesso non valido');
   out.birth_date = str(input.birth_date, 10);
@@ -39,6 +44,7 @@ export function cleanGuest(input) {
   out.doc_type = str(input.doc_type, 5);
   if (out.doc_type && !/^[A-Z0-9]{1,5}$/.test(out.doc_type)) throw bad('Tipo di documento non valido');
   const doc = str(input.doc_number, 30);
+  if (doc && docDropped(doc).length) throw bad('Il numero del documento può contenere solo lettere e numeri');
   out.doc_number = doc ? plainDoc(doc).slice(0, 20) || null : null;
   if (doc && !out.doc_number) throw bad('Numero del documento non valido');
   return out;

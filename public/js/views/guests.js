@@ -4,7 +4,7 @@
 import { h, icon, newId } from '../dom.js';
 import { tag, field, setFieldError, openDialog, confirmDialog, segmented } from '../ui.js';
 import { dateField } from '../pickers.js';
-import { GROUPS, SEX, TYPE_LABEL, guestMissing, guestType, sendWindow } from '../../shared/alloggiati.js';
+import { GROUPS, SEX, TYPE_LABEL, docDropped, guestMissing, guestType, nameTranscription, plainDoc, plainName, sendWindow } from '../../shared/alloggiati.js';
 import { fmtShort, todayRome } from '../../shared/dates.js';
 
 const cache = new Map(); // id prenotazione → { guests, loading, error, at }
@@ -177,7 +177,7 @@ async function sendNow(ctx, b, guests, again, btn) {
     title: again ? 'Inviare di nuovo le schedine?' : `Inviare ${guests.length} schedine alla Questura?`,
     text: again
       ? 'Le schedine sono già state inviate: un nuovo invio crea un doppione sul portale. Fallo solo se te lo chiede la Questura o se il primo invio aveva errori.'
-      : `${guests.map(fullName).join(', ')}. Hai controllato i documenti di persona?`,
+      : `Sulle schedine: ${guests.map((g) => `${plainName(g.last_name)} ${plainName(g.first_name)}`).join(', ')}. Hai controllato i documenti di persona?`,
     okLabel: again ? 'Invia di nuovo' : 'Invia', danger: again,
   });
   if (!ok) return;
@@ -309,7 +309,22 @@ function guestDialog(ctx, b, existing, guests, after) {
     residence: existing?.residence_name ? placeLabel({ name: existing.residence_name, province: existing.residence_province, kind: existing.residence_kind }) : '',
     doc_place: existing?.doc_place_name || '',
   };
-  const text = (key, max, extra = {}) => h('input', { class: 'input', maxlength: String(max), autocomplete: 'off', value: v[key] || '', ...extra, onInput: (e) => { v[key] = e.target.value; setFieldError(e.target, ''); } });
+  // Anteprima di come i dati arrivano alla Questura (maiuscole, senza accenti): niente si perde in silenzio.
+  const preview = h('div', { class: 'transcript', attrs: { 'aria-live': 'polite' } });
+  const drawPreview = () => {
+    const ln = nameTranscription(v.last_name);
+    const fn = nameTranscription(v.first_name);
+    const lost = [...new Set([...ln.dropped, ...fn.dropped])];
+    const docLost = leader ? [...new Set(docDropped(v.doc_number))] : [];
+    preview.replaceChildren(...[
+      h('div', null, h('span', { class: 'muted', text: 'Sulla schedina: ' }), h('strong', { class: 'mono', text: `${ln.text || '…'} ${fn.text || '…'}` }),
+        leader && plainDoc(v.doc_number) ? h('span', null, h('span', { class: 'muted', text: ' · documento ' }), h('strong', { class: 'mono', text: plainDoc(v.doc_number) })) : null),
+      lost.length ? h('div', { class: 'warn-text', text: `La Questura non accetta: ${lost.join(' ')}. Scrivi il nome in lettere latine, come sul passaporto.` }) : null,
+      docLost.length ? h('div', { class: 'warn-text', text: `Nel numero del documento solo lettere e numeri (togli ${docLost.join(' ')}).` }) : null,
+    ].filter(Boolean));
+  };
+  const text = (key, max, extra = {}) => h('input', { class: 'input', maxlength: String(max), autocomplete: 'off', value: v[key] || '', ...extra,
+    onInput: (e) => { v[key] = e.target.value; setFieldError(e.target, ''); drawPreview(); } });
   const last = text('last_name', 50, { autocapitalize: 'words' });
   const first = text('first_name', 30, { autocapitalize: 'words' });
   const sexBox = h('div');
@@ -357,7 +372,9 @@ function guestDialog(ctx, b, existing, guests, after) {
     content: h('div', { class: 'stack' },
       h('p', { class: 'muted small', text: `${TYPE_LABEL[type]}. ${leader ? 'Per chi prenota serve anche il documento.' : 'Il documento serve solo a chi prenota.'} Scrivi come sul documento: accenti e simboli si sistemano da soli.` }),
       h('div', { class: 'form-grid' },
-        field('Cognome', last), field('Nome', first),
+        field('Cognome', last), field('Nome', first)),
+      preview,
+      h('div', { class: 'form-grid' },
         h('div', { class: 'field' }, h('div', { class: 'label', text: 'Sesso' }), sexBox), field('Data di nascita', birth),
         field('Luogo di nascita', mk('birth_place', null), { hint: 'Comune italiano oppure stato estero' }),
         field('Cittadinanza', mk('citizenship', 'S', 'Scrivi lo stato (es. Italia)…')),
@@ -370,11 +387,17 @@ function guestDialog(ctx, b, existing, guests, after) {
       existing && existing.doc_purged_at ? h('p', { class: 'hint', text: 'I dati del documento sono stati cancellati dopo la ricevuta della Questura.' }) : null),
     actions,
   });
+  drawPreview();
 
   async function save() {
     dlg.setBanner('');
     if (!v.last_name.trim()) { setFieldError(last, 'Scrivi il cognome'); last.focus(); return; }
     if (!v.first_name.trim()) { setFieldError(first, 'Scrivi il nome'); first.focus(); return; }
+    if (nameTranscription(v.last_name).dropped.length || nameTranscription(v.first_name).dropped.length) {
+      dlg.setBanner('Ci sono caratteri che la Questura non accetta: scrivi nome e cognome in lettere latine, come sul passaporto.');
+      return;
+    }
+    if (leader && docDropped(v.doc_number).length) { setFieldError(docNum, 'Solo lettere e numeri'); docNum.focus(); return; }
     for (const p of Object.values(places)) if (!p.isValid()) { p.input.focus(); dlg.setBanner('Scegli i luoghi dall’elenco che compare mentre scrivi.'); return; }
     const guest = { ...v, doc_number: (v.doc_number || '').trim() || null };
     if (!leader) { guest.doc_type = null; guest.doc_number = null; guest.doc_place = null; }

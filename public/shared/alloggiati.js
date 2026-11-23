@@ -24,26 +24,45 @@ const isIso = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
  * (Gli accenti e i simboli sono la prima causa di schedine rifiutate.)
  */
 export function plainName(s) {
+  return nameTranscription(s).text;
+}
+
+/**
+ * Come il nome verrà scritto sulla schedina, e quali caratteri il portale non accetta (tolti).
+ * Gli accenti si tolgono senza perdere la lettera (À → A); i caratteri di altri alfabeti o i simboli invece
+ * si perdono: in quel caso l'app avvisa di scrivere il nome in lettere latine, come sul passaporto.
+ */
+export function nameTranscription(s) {
   const out = [];
+  const dropped = [];
   for (const ch of String(s ?? '').normalize('NFD')) {
     const c = ch.codePointAt(0);
     if (c >= 0x300 && c <= 0x36f) continue; // segni degli accenti
     const up = ch.toUpperCase();
     const u = up.codePointAt(0);
     if ((u >= 65 && u <= 90) || up === ' ' || up === "'" || up === '-') out.push(up);
-    else if (ch === '’' || ch === '`') out.push("'");
-    else if (ch === 'ß') out.push('SS');
+    else if (ch === '’' || ch === '`' || ch === '‘') out.push("'");
     else if (ch === 'Ø' || ch === 'ø') out.push('O');
     else if (ch === 'Æ' || ch === 'æ') out.push('AE');
+    else if (ch === 'Œ' || ch === 'œ') out.push('OE');
     else if (ch === 'Ł' || ch === 'ł') out.push('L');
-    else out.push(' ');
+    else if (ch === 'Đ' || ch === 'đ') out.push('D');
+    else if (ch === 'Þ' || ch === 'þ') out.push('TH');
+    else if (ch === 'ı') out.push('I');
+    else if (/\s/.test(ch)) out.push(' ');
+    else { dropped.push(ch); out.push(' '); }
   }
-  return out.join('').replace(/ +/g, ' ').trim();
+  return { text: out.join('').replace(/ +/g, ' ').trim(), dropped };
 }
 
 /** Numero del documento: maiuscole, lettere e numeri. */
 export function plainDoc(s) {
   return String(s ?? '').toUpperCase().split('').filter((ch) => /[A-Z0-9]/.test(ch)).join('');
+}
+
+/** Caratteri del numero di documento che non arrivano alla Questura (diversi da spazi e trattini). */
+export function docDropped(s) {
+  return String(s ?? '').toUpperCase().split('').filter((ch) => !/[A-Z0-9\s-]/.test(ch));
 }
 
 /** Età compiuta in una data. */

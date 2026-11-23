@@ -111,7 +111,13 @@ export function marketSettingsDialog(ctx, house) {
       draw();
     } }, icon('refresh', { size: 16 }), comps.length ? 'Cerca di nuovo' : 'Cerca case simili');
     if (!comps.length) {
-      compsBox.replaceChildren(h('p', { class: 'muted small', text: 'Salva posizione e dotazioni, poi cerca: il gestionale propone le 15 case più simili e sceglie le prime 10 (puoi cambiarle).' }), h('div', null, searchBtn));
+      const lastSearch = jobs.find((j) => j.kind === 'search');
+      const searching = lastSearch && (lastSearch.status === 'queued' || lastSearch.status === 'running');
+      const text = searching ? 'Ricerca in corso: aspetta qualche minuto con la finestra aperta, le case compaiono qui da sole.'
+        : lastSearch && lastSearch.status === 'done' ? 'La ricerca è finita ma nessuna casa corrisponde ai criteri: prova ad allargare il raggio (es. 5 km) o a lasciare vuote le camere, salva e cerca di nuovo.'
+          : lastSearch && lastSearch.status === 'error' ? `La ricerca non è riuscita: ${lastSearch.error || 'errore di Apify'}.`
+            : 'Salva posizione e dotazioni, poi cerca: il gestionale propone le 15 case più simili e sceglie le prime 10 (puoi cambiarle).';
+      compsBox.replaceChildren(h('p', { class: ['small', lastSearch && lastSearch.status !== 'done' && !searching ? 'warn-text' : 'muted'], text }), searching ? null : h('div', null, searchBtn));
       return;
     }
     const count = h('strong', { text: `${picked.size} di ${MAX_SELECTED} scelte` });

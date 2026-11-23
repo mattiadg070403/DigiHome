@@ -8,6 +8,7 @@ import { extname, join, normalize } from 'node:path';
 import { FakeD1, freshDb } from '../test/d1.js';
 import worker from '../src/worker.js';
 import publicCalendar from '../src/public-calendar.js';
+import publicGuests from '../src/public-guests.js';
 import { loadDemo, DEMO_PLACES } from '../src/demo.js';
 
 const PORT = Number(process.env.PORT || 8787);
@@ -25,6 +26,19 @@ db.sqlite.prepare("INSERT INTO users (id, email, name, role, active, created_at)
 db.sqlite.prepare("INSERT INTO users (id, email, name, role, active, created_at) VALUES (?, 'giulia@example.invalid', 'Giulia (prova)', 'collaboratore', 1, ?)")
   .run(crypto.randomUUID(), new Date().toISOString());
 if (!process.env.EMPTY) await loadDemo(db, admin);
+
+function assetsFrom(root) {
+  return { async fetch(request) {
+    const url = new URL(request.url);
+    const file = normalize(join(root, decodeURIComponent(url.pathname)));
+    if (!file.startsWith(root)) return new Response('Non trovato', { status: 404 });
+    try {
+      return new Response(await readFile(file), { headers: { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' } });
+    } catch {
+      return new Response('Non trovato', { status: 404 });
+    }
+  } };
+}
 
 const ASSETS = {
   async fetch(request) {
@@ -90,7 +104,7 @@ function fakeAlloggiati(opts) {
 const env = {
   // Chiave delle credenziali solo per il server locale (in Cloudflare è un segreto vero).
   CHIAVE_CREDENZIALI: 'chiave-del-server-locale-solo-per-prove-0123456789',
-  DB: db, ASSETS, CALENDAR_PUBLIC_URL: `http://localhost:${PORT}`, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
+  DB: db, ASSETS, CALENDAR_PUBLIC_URL: `http://localhost:${PORT}`, OSPITI_PUBLIC_URL: `http://localhost:${Number(PORT) + 1}`, AUTH_MODE: 'dev', DEV_EMAIL: process.env.AS || admin.email, ALLOW_DEMO: 'true', APP_ENV: 'prova',
 };
 
 createServer(async (req, res) => {
@@ -106,3 +120,17 @@ createServer(async (req, res) => {
   res.writeHead(response.status, Object.fromEntries(response.headers));
   res.end(Buffer.from(await response.arrayBuffer()));
 }).listen(PORT, () => console.log(`Gestionale di prova su http://localhost:${PORT}`));
+
+// Modulo online per gli ospiti (in Cloudflare è un Worker pubblico a parte): porta successiva.
+const guestEnv = { DB: db, ASSETS: assetsFrom(normalize(join(ROOT, '..', 'public-ospiti'))) };
+createServer(async (req, res) => {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const body = chunks.length ? Buffer.concat(chunks) : undefined;
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
+  const request = new Request(`http://localhost:${Number(PORT) + 1}${req.url}`, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : body });
+  const response = await publicGuests.fetch(request, guestEnv);
+  res.writeHead(response.status, Object.fromEntries(response.headers));
+  res.end(Buffer.from(await response.arrayBuffer()));
+}).listen(Number(PORT) + 1, () => console.log(`Modulo per gli ospiti su http://localhost:${Number(PORT) + 1}`));

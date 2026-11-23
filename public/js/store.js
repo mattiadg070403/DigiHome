@@ -136,7 +136,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
       }
       return false;
     }
-    info = { version: res.version, env: res.env, demo: Boolean(res.demo), calendarBase: res.calendarBase || null, secretReady: Boolean(res.secretReady) };
+    info = { version: res.version, env: res.env, demo: Boolean(res.demo), calendarBase: res.calendarBase || null, secretReady: Boolean(res.secretReady), formBase: res.formBase || null, formBases: res.formBases || {} };
     lastSync = now();
     if (seq < appliedSeq) return false;
     appliedSeq = seq;

@@ -1,0 +1,29 @@
+// Modulo online per gli ospiti – VERSIONE DEFINITIVA (Worker pubblico, senza Cloudflare Access).
+// Si pubblica dal ramo "produzione" (Workers Builds, cartella ospiti/). Serve solo la pagina del modulo
+// per un link valido: niente gestionale, nessun dato già salvato. Usa lo stesso database della definitiva.
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "digihome-ospiti",
+  "main": "../src/public-guests.js",
+  "compatibility_date": "2025-09-01",
+
+  "workers_dev": true,
+  "preview_urls": false,
+
+  "assets": {
+    "directory": "../public-ospiti",
+    "binding": "ASSETS",
+    // Ogni richiesta passa dal Worker, che aggiunge le intestazioni di sicurezza.
+    "run_worker_first": true
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "digihome-ue",
+      "database_id": "1c78a49d-f157-4f7c-856e-0fa991261f17"
+    }
+  ],
+
+  "observability": { "enabled": true }
+}

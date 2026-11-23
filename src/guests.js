@@ -131,7 +131,10 @@ async function guestDelete(db, user, opId, p) {
   const cur = await db.prepare('SELECT id, booking_id FROM guests WHERE id = ? AND deleted = 0').bind(p.id).first();
   if (!cur) throw new OpError(404, 'not_found', 'Ospite non trovato.');
   editable(await getBookingRow(db, cur.booking_id));
-  const main = db.prepare(`UPDATE guests SET deleted = 1, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND deleted = 0`)
+  // Un ospite eliminato non conserva i suoi dati personali (resta solo la riga, per il registro).
+  const main = db.prepare(`UPDATE guests SET deleted = 1, last_name = '-', first_name = '-', sex = NULL, birth_date = NULL, birth_place = NULL,
+      citizenship = NULL, residence = NULL, doc_type = NULL, doc_number = NULL, doc_place = NULL, complete = 0,
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND deleted = 0`)
     .bind(nowIso(), user.email, p.id);
   await commit(db, { main, user, opId, entity: 'guest', entityId: p.id, action: 'delete', changes: { prenotazione: cur.booking_id } });
   // Le posizioni restano in ordine (0, 1, 2, …) senza buchi.

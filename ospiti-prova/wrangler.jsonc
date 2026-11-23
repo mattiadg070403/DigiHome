@@ -1,0 +1,27 @@
+// Modulo online per gli ospiti – VERSIONE DI PROVA (Worker pubblico, senza Cloudflare Access).
+// Si pubblica dal ramo "main" (Workers Builds, cartella ospiti-prova/). Usa il database di prova (dati inventati).
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "digihome-ospiti-prova",
+  "main": "../src/public-guests.js",
+  "compatibility_date": "2025-09-01",
+
+  "workers_dev": true,
+  "preview_urls": false,
+
+  "assets": {
+    "directory": "../public-ospiti",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "digihome-prova",
+      "database_id": "c9d67f09-e198-4f66-abfb-97211cfa0d41"
+    }
+  ],
+
+  "observability": { "enabled": true }
+}

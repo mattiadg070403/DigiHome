@@ -227,3 +227,16 @@ Migrazione 0015. Server: `src/guests.js` (ospiti), `src/questura.js` (credenzial
 - Server locale: il portale Alloggiati è simulato (password "sbagliata" per provare l'errore) e la chiave è fissa.
 - Sui telefoni le finestre larghe ora occupano tutto lo schermo.
 - 0.11.1: trascrizione fedele. Sulla schedina i nomi vanno solo in maiuscolo e senza accenti (À → A, ß → SS, Ø → O, Æ → AE); caratteri di altri alfabeti o simboli NON si tolgono in silenzio: il server rifiuta il salvataggio ("scrivilo in lettere latine, come sul passaporto"). Numero del documento: solo lettere e numeri (spazi e trattini tolti, altri simboli rifiutati). La finestra dell'ospite mostra in tempo reale "Sulla schedina: …" e la conferma d'invio elenca i nomi come verranno trasmessi. Test: ogni campo della schedina si rilegge uguale ai dati salvati.
+
+## Novità della 0.12 (23 novembre 2026): modulo online per gli ospiti
+
+Migrazione 0016. Logica: `src/guest-form.js`; Worker pubblico: `src/public-guests.js` con le pagine in `public-ospiti/` (italiano/inglese, nessuna libreria). Configurazioni: `ospiti/wrangler.jsonc` (definitiva, Worker `digihome-ospiti`, database digihome-ue) e `ospiti-prova/wrangler.jsonc` (prova, `digihome-ospiti-prova`, database digihome-prova).
+
+- Nella scheda (Ospiti e Questura → Modulo online per l'ospite): "Crea il link per l'ospite" (operazione `booking.guest_link`, anche `renew` e `revoke`), poi WhatsApp in italiano o in inglese con il messaggio pronto, oppure "Copia il messaggio".
+- Link corto: `<indirizzo>/<codice di 12 caratteri>` (alfabeto di 58 simboli senza 0/O/l/I, circa 70 bit). Indirizzo per casa dalla variabile `OSPITI_DOMINI` (JSON casa → https://…, es. `checkin.faroblugallipoli.it`), altrimenti `OSPITI_PUBLIC_URL`.
+- La pagina mostra solo casa, date e numero di ospiti; colore della casa. L'ospite compila tutti (luoghi con ricerca nelle tabelle ufficiali, stati anche in inglese), informativa privacy con il titolare (nome del locatore del contratto) e conferma. Tutti i campi obbligatori; stessi controlli del gestionale (`cleanGuest`, lettere latine) + luoghi esistenti e cittadinanza = stato.
+- Ogni invio sostituisce del tutto gli ospiti della prenotazione (i vecchi dati si cancellano davvero), segna `guest_form_at` e i conteggi. Massimo 20 invii per link. Il link vale finché le schedine non sono inviate e al massimo fino al giorno dopo l'arrivo; prenotazione cancellata = chiuso.
+- Worker pubblico: solo `GET /<codice>`, `GET /api/form/<codice>`, `GET /api/form/<codice>/places`, `POST /api/form/<codice>` (JSON, stessa origine, massimo 64 KB) e i file statici; intestazioni di sicurezza come il gestionale (CSP senza inline, Trusted Types, frame-ancestors none, noindex). Non restituisce mai dati già salvati.
+- Server locale: il modulo risponde sulla porta successiva (8788).
+- **Da attivare alla fine (collegamenti)**: creare in Cloudflare i Worker `digihome-ospiti-prova` (ramo main, cartella ospiti-prova/) e `digihome-ospiti` (ramo produzione, cartella ospiti/) con Workers Builds; collegare i domini personalizzati `checkin.faroblugallipoli.it` e `checkin.isolabellagallipoli.it` al Worker definitivo; aggiungere `OSPITI_DOMINI` in `produzione/wrangler.jsonc`.
+- Sui telefoni: anche le eliminazioni di un ospite cancellano i suoi dati (resta solo la riga per il registro).

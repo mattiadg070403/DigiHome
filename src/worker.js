@@ -6,7 +6,21 @@ import { OpError, PRIVATE_OPS, runOp, contractDraft, readContract, purgeContract
 import { GUEST_HANDLERS, listGuests, purgeGuests } from './guests.js';
 import { checkConnection, docTypes, fetchReceipt, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine } from './questura.js';
 import { dmsFile } from './dms.js';
+import './guest-form.js';
 import { hasSecret } from './secrets.js';
+
+/**
+ * Indirizzo del modulo per gli ospiti casa per casa (dominio della casa, es. checkin.faroblugallipoli.it):
+ * variabile OSPITI_DOMINI = {"faro-blu":"https://…","isola-bella":"https://…"}. Solo indirizzi https validi.
+ */
+function formDomains(env) {
+  try {
+    const map = JSON.parse(env.OSPITI_DOMINI || '{}');
+    return Object.fromEntries(Object.entries(map).filter(([k, v]) => /^[a-z0-9-]{2,40}$/.test(k) && /^https:\/\/[a-z0-9.-]+$/.test(String(v))));
+  } catch {
+    return {};
+  }
+}
 import { readExport, readHistory, readState } from './state.js';
 import { loadDemo } from './demo.js';
 import { syncAll } from './calendars.js';
@@ -45,7 +59,9 @@ async function handleApi(request, env, url) {
   if (request.method === 'GET') {
     if (path === '/api/state') {
       const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION, secretReady: hasSecret(env),
-        calendarBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.CALENDAR_PUBLIC_URL || '') ? env.CALENDAR_PUBLIC_URL : null };
+        calendarBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.CALENDAR_PUBLIC_URL || '') ? env.CALENDAR_PUBLIC_URL : null,
+        formBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.OSPITI_PUBLIC_URL || '') ? env.OSPITI_PUBLIC_URL : null,
+        formBases: formDomains(env) };
       // Controllo veloce: se l'app ha già l'ultima versione dei dati, non li rimanda.
       const known = url.searchParams.get('rev');
       if (known !== null && /^\d{1,12}$/.test(known)) {

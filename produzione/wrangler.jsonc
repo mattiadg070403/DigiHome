@@ -34,7 +34,9 @@
     // Mai dati di prova nella versione definitiva: il pulsante "Carica dati di prova" non esiste qui.
     "ALLOW_DEMO": "false",
     // Indirizzo del calendario pubblico (cartella calendario/): serve a mostrare il link da dare ad Airbnb e Booking.
-    "CALENDAR_PUBLIC_URL": "https://digihome-calendario.mattia-digirolamo03.workers.dev"
+    "CALENDAR_PUBLIC_URL": "https://digihome-calendario.mattia-digirolamo03.workers.dev",
+    // Indirizzo del modulo online per gli ospiti (cartella ospiti/): serve a creare i link da mandare.
+    "OSPITI_PUBLIC_URL": "https://digihome-ospiti.mattia-digirolamo03.workers.dev"
   },
   "keep_vars": true,
 

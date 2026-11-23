@@ -5,7 +5,8 @@ import { h, icon, newId } from '../dom.js';
 import { tag, field, setFieldError, openDialog, confirmDialog, segmented } from '../ui.js';
 import { dateField } from '../pickers.js';
 import { GROUPS, SEX, TYPE_LABEL, docDropped, guestMissing, guestType, nameTranscription, plainDoc, plainName, sendWindow } from '../../shared/alloggiati.js';
-import { fmtShort, todayRome } from '../../shared/dates.js';
+import { addDays, fmtShort, todayRome } from '../../shared/dates.js';
+import { waNumber } from './contact.js';
 
 const cache = new Map(); // id prenotazione → { guests, loading, error, at }
 let docTypesCache = null;
@@ -126,7 +127,70 @@ function panelContent(ctx, bookingId, redraw) {
   return [head,
     guests.length ? h('div', { class: 'stack extras' }, rows) : h('p', { class: 'hint', text: `Nome, data e luogo di nascita, cittadinanza e residenza di tutti (${b.guests}); per chi prenota anche il documento. Servono per la Questura e per il DMS Puglia.` }),
     count, group, add ? h('div', { class: 'btn-row' }, add) : null,
+    formBlock(ctx, b, house),
     questuraBlock(ctx, b, house, guests, after)];
+}
+
+/* ------------------------------ Modulo online per l'ospite ------------------------------ */
+
+const firstName = (b) => String(b.guest_name || '').replace(/\s*\(prova\)$/, '').trim().split(/\s+/)[0] || '';
+
+/** Messaggio con il link (italiano o inglese). */
+export function formMessage(b, house, link, lang) {
+  const name = firstName(b);
+  if (lang === 'en') {
+    return `Hi${name ? ` ${name}` : ''}, to speed up check-in at ${house.name}, could you please fill in the details of all guests here before you arrive? `
+      + `The lead guest's ID document is needed.\n${link}\nIt takes a couple of minutes. Thank you!`;
+  }
+  return `Ciao${name ? ` ${name}` : ''}, per velocizzare il check-in a ${house.name} ti chiedo di inserire qui, prima dell’arrivo, i dati di tutti gli ospiti `
+    + `(serve il documento di chi ha prenotato):\n${link}\nCi vogliono un paio di minuti. Grazie!`;
+}
+
+function formBlock(ctx, b, house) {
+  const { store, ui } = ctx;
+  const base = (store.info.formBases || {})[b.house_id] || store.info.formBase;
+  const out = h('div', { class: 'stack questura' }, h('strong', { text: 'Modulo online per l’ospite' }));
+  if (b.alloggiati_at || b.stage === 'cancellata') return null;
+  if (!base) {
+    out.append(h('p', { class: 'hint', text: 'Il modulo online non è ancora attivo: va collegato in Cloudflare (è nella lista dei collegamenti da fare alla fine).' }));
+    return out;
+  }
+  const lastDay = addDays(b.check_in, 1);
+  if (ui.today > lastDay) return null;
+  const act = (action, message, extra = {}) => ctx.act('booking.guest_link', { id: b.id, action, ...extra }, { message }).catch((e) => ctx.toast(e.message, { bad: true }));
+  if (b.guest_form_at) {
+    out.append(h('div', null, tag({ text: `Dati inviati dall’ospite il ${fmtShort(todayRome(new Date(b.guest_form_at)))}: controllali all’arrivo`, tone: 'ok' })));
+  }
+  if (!b.guest_form_token) {
+    out.append(h('p', { class: 'hint', text: 'Un link da mandare su WhatsApp: l’ospite inserisce i dati di tutti (anche in inglese) e arrivano qui da soli. All’arrivo controlli i documenti e invii.' }),
+      h('div', { class: 'btn-row' }, h('button', { class: 'btn small primary', type: 'button', onClick: () => act('create', 'Link creato') }, icon('plus', { size: 16 }), 'Crea il link per l’ospite')));
+    return out;
+  }
+  const link = `${base}/${b.guest_form_token}`;
+  const send = (lang) => {
+    const text = formMessage(b, house, link, lang);
+    const n = waNumber(b.phone);
+    // Nel tocco: le app aprono WhatsApp solo se la finestra si apre subito.
+    window.open(`https://wa.me/${n || ''}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(formMessage(b, house, link, 'it')); ctx.toast('Messaggio con il link copiato'); } catch { ctx.toast('Non riesco a copiare: tieni premuto sul link', { bad: true }); }
+  };
+  out.append(
+    h('p', { class: 'small' }, 'Link: ', h('a', { href: link, target: '_blank', rel: 'noopener noreferrer', class: 'break', text: link })),
+    h('div', { class: 'btn-row' },
+      h('button', { class: 'btn small', type: 'button', onClick: () => send('it') }, icon('chat', { size: 16 }), 'WhatsApp in italiano'),
+      h('button', { class: 'btn small', type: 'button', onClick: () => send('en') }, icon('chat', { size: 16 }), 'WhatsApp in inglese'),
+      h('button', { class: 'btn small ghost', type: 'button', text: 'Copia il messaggio', onClick: copy })),
+    h('p', { class: 'hint', text: `Funziona fino al ${fmtShort(lastDay)} o finché non invii le schedine. Ogni nuovo invio dell’ospite sostituisce il precedente.` }),
+    h('div', { class: 'btn-row' },
+      h('button', { class: 'btn small ghost', type: 'button', text: 'Crea un link nuovo', onClick: async () => {
+        if (await confirmDialog({ title: 'Creare un link nuovo?', text: 'Quello vecchio smette di funzionare.', okLabel: 'Crea' })) act('create', 'Nuovo link creato', { renew: true });
+      } }),
+      h('button', { class: 'btn small ghost danger', type: 'button', text: 'Disattiva il link', onClick: async () => {
+        if (await confirmDialog({ title: 'Disattivare il link?', text: 'L’ospite non potrà più inviare i dati.', okLabel: 'Disattiva', danger: true })) act('revoke', 'Link disattivato');
+      } })));
+  return out;
 }
 
 /* ------------------------------ Questura ------------------------------ */

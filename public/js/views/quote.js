@@ -13,7 +13,8 @@ import { waNumber } from './contact.js';
 import { dateRangeField } from '../pickers.js';
 import { occupiedNights } from '../../shared/booking.js';
 import { accountingSettings } from '../../shared/accounting.js';
-import { directPriceFromList, listWeeks } from '../../shared/pricing.js';
+import { directPriceFromList, listWeeks, pricingSettings, seasonWeeks } from '../../shared/pricing.js';
+import { quoteMarket } from '../../shared/market.js';
 import { renderPricing } from './pricing.js';
 
 // Bozza del preventivo in memoria (si perde chiudendo l'app: è voluto).
@@ -103,11 +104,13 @@ export function renderQuote(ctx) {
     onChange();
   } });
   const taxLine = h('p', { class: 'muted small' });
+  const marketBox = h('div', { class: 'stack acc-tight' });
   const useSuggested = h('button', { class: 'btn ghost small', type: 'button', text: 'Usa il prezzo consigliato', hidden: true, onClick: () => { q.priceTouched = false; q.depositTouched = false; refresh(); } });
 
   const priceCard = h('section', { class: 'card card-pad stack' },
     h('h2', { text: 'Prezzo consigliato' }),
     suggestBox,
+    marketBox,
     h('div', { class: 'form-grid' },
       field('Prezzo del soggiorno (€)', priceIn),
       field(`Acconto (€) · circa ${pct}%`, depositIn, { hint: 'Arrotondato a 50 €; puoi cambiarlo' }),
@@ -189,6 +192,29 @@ export function renderQuote(ctx) {
 
     const tax = ok ? touristTax(q.checkIn, q.checkOut, q.guests, taxSet) : null;
     taxLine.textContent = tax ? `Tassa di soggiorno (a parte): ${explainTax(tax, q.guests)}` : '';
+
+    // Mercato: case simili su Airbnb nelle settimane del soggiorno (se il confronto è impostato).
+    marketBox.replaceChildren();
+    if (ok) {
+      const ps = pricingSettings(house);
+      const yearWeeks = seasonWeeks(Number(q.checkIn.slice(0, 4)), ps).filter((ws) => ws < q.checkOut && addDays(ws, 7) > q.checkIn);
+      const qm = quoteMarket(d.marketPrices || [], d.marketComps || [], house.id, yearWeeks);
+      if (qm) {
+        const mine = priceC && n ? Math.round(priceC / n) : null;
+        const diff = mine && qm.perNight ? Math.round(((mine - qm.perNight) / qm.perNight) * 100) : null;
+        const takenPct = qm.checked ? Math.round((qm.taken / qm.checked) * 100) : 0;
+        const tip = takenPct >= 70 ? 'Date molto richieste: puoi tenere il prezzo pieno, senza sconti.'
+          : takenPct <= 30 ? 'Molte case simili ancora libere: se l’ospite tratta, hai margine per un piccolo sconto.' : null;
+        marketBox.append(h('div', { class: 'quote-market' },
+          h('strong', { text: 'Mercato su Airbnb' }),
+          h('p', { class: 'small', text: [
+            qm.perNight ? `Case simili libere in quelle settimane: circa ${fmtEuro(Math.round(qm.perNight / 100) * 100)} a notte per l’ospite (pulizie comprese).` : 'Quasi tutte le case simili sono già occupate in quelle settimane.',
+            `Già prenotate: ${qm.taken} su ${qm.checked}.`,
+            diff !== null ? `Il tuo prezzo diretto: ${fmtEuro(Math.round(mine / 100) * 100)} a notte (${diff === 0 ? 'uguale' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)}%`} rispetto a loro).` : null,
+          ].filter(Boolean).join(' ') }),
+          tip ? h('p', { class: 'small ok-text', text: tip }) : null));
+      }
+    }
 
     // Messaggio
     if (!q.messageTouched) {

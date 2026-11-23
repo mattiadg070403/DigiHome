@@ -5,10 +5,12 @@
 
 import { h, icon } from '../dom.js';
 import { houseVars, segmented, confirmDialog, setFieldError } from '../ui.js';
-import { addDays, fmtShort } from '../../shared/dates.js';
+import { addDays, daysBetween, fmtShort } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import { channelRule, effectiveBp } from '../../shared/accounting.js';
 import { MONTHS_LONG, WEEKDAYS, buildList, listWeeks, seasonYear, pricingSettings, weekMonth } from '../../shared/pricing.js';
+import { marketAdvice, weekMarket } from '../../shared/market.js';
+import { marketCard } from './market.js';
 
 // Scelte della pagina che restano finché l'app è aperta.
 const view = { year: null, house: null, toolsOpen: false };
@@ -19,6 +21,8 @@ const CH_LABEL = { diretto: 'Diretto', airbnb: 'Airbnb', booking: 'Booking' };
 const pctText = (bp) => `${(bp / 100).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%`;
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 const round10 = (c) => Math.round(c / 1000) * 1000;
+/** "+8%" / "−12%" / "in linea": il tuo prezzo Airbnb rispetto alla mediana delle case simili libere. */
+const mkDiff = (mine, med) => { const p = Math.round(((mine - med) / med) * 100); return Math.abs(p) < 3 ? 'in linea' : `${p > 0 ? '+' : '−'}${Math.abs(p)}%`; };
 
 /** "sab 5 → sab 12 giu" */
 function weekLabel(ws) {
@@ -36,6 +40,16 @@ export function renderPricing(ctx, { tabs } = {}) {
   if (view.house !== house.id || !view.year) { view.house = house.id; view.year = seasonYear(ui.today, settings); }
   const year = view.year;
   const list = buildList({ bookings: d.bookings, prices: d.prices, extras: d.extras, house, year, today: ui.today });
+  // Mercato (case simili su Airbnb): sintesi della settimana e consiglio, uniti ai suggerimenti del listino.
+  for (const w of list.weeks) {
+    w.market = weekMarket(d.marketPrices || [], d.marketComps || [], house.id, w.ws);
+    if (!w.market || w.ws <= ui.today || w.sold > 0) continue;
+    const adv = marketAdvice(w.market, { myAirbnbWeek: w.prices && w.prices.airbnb ? w.prices.airbnb.week : null, net: w.net, daysToArrival: daysBetween(ui.today, w.ws) });
+    if (!adv) continue;
+    const reason = { text: `Mercato: ${adv.text}`, pct: adv.target ? adv.pct : 0 };
+    if (w.suggestion && !w.suggestion.missing) w.suggestion = { ...w.suggestion, reasons: [...w.suggestion.reasons, { ...reason, pct: 0 }] };
+    else if (!w.suggestion) w.suggestion = adv.target ? { target: adv.target, pct: adv.pct, reasons: [reason], missing: false } : { target: null, pct: 0, reasons: [reason], missing: false };
+  }
 
   async function save(changes, message) {
     try {
@@ -91,12 +105,12 @@ export function renderPricing(ctx, { tabs } = {}) {
     return h('div', { class: 'pl-sug' },
       h('div', { class: 'pl-sug-main' },
         h('a', { class: 'pl-sug-week', href: `#pl-${w.ws}`, text: weekLabel(w.ws), onClick: (e) => { e.preventDefault(); focusWeek(w.ws); } }),
-        h('div', { class: 'pl-sug-price' },
+        s.target === null ? null : h('div', { class: 'pl-sug-price' },
           s.missing ? h('span', { text: `Proposto ${fmtEuro(s.target)} in tasca` })
             : [h('span', { class: 'muted', text: fmtEuro(w.net) }), h('span', { text: ' → ' }), h('strong', { text: fmtEuro(s.target) }),
               h('span', { class: ['tag', s.pct > 0 ? 'ok' : 'warn'], text: `${s.pct > 0 ? '+' : '−'}${Math.abs(s.pct)}%` })]),
         h('ul', { class: 'pl-why' }, s.reasons.map((r) => h('li', { text: r.pct ? `${r.text}: ${r.pct > 0 ? '+' : '−'}${Math.abs(r.pct)}%` : r.text })))),
-      isAdmin ? h('button', { class: 'btn small', type: 'button', text: 'Usa questo', onClick: () => save({ [w.ws]: s.target }, `${weekLabel(w.ws)}: ${fmtEuro(s.target)} in tasca`) }) : null);
+      isAdmin && s.target !== null ? h('button', { class: 'btn small', type: 'button', text: 'Usa questo', onClick: () => save({ [w.ws]: s.target }, `${weekLabel(w.ws)}: ${fmtEuro(s.target)} in tasca`) }) : null);
   }
 
   function focusWeek(ws) {
@@ -214,7 +228,11 @@ export function renderPricing(ctx, { tabs } = {}) {
     return h('div', { class: ['pl-row', s && 'has-sug'], id: `pl-${w.ws}` },
       h('div', { class: 'pl-when' }, h('strong', { text: weekLabel(w.ws) }),
         s ? h('span', { class: ['tag', s.missing ? 'neutral' : s.pct > 0 ? 'ok' : 'warn'], text: s.missing ? 'Manca il prezzo' : `Suggerito ${fmtEuro(s.target)}` }) : null),
-      h('div', { class: 'pl-ly' }, h('span', { class: 'pl-cap', text: 'Anno scorso' }), h('span', { class: 'pl-ly-val', text: lyText }), lySub ? h('span', { class: 'muted small', text: lySub }) : null),
+      h('div', { class: 'pl-ly' }, h('span', { class: 'pl-cap', text: 'Anno scorso' }), h('span', { class: 'pl-ly-val', text: lyText }), lySub ? h('span', { class: 'muted small', text: lySub }) : null,
+        w.market ? h('span', { class: 'pl-mk small' }, h('span', { class: 'pl-mk-label', text: 'Mercato ' }),
+          w.market.median ? `${fmtEuro(Math.round(w.market.median / 1000) * 1000)} · ` : '',
+          h('span', { class: w.market.takenPct >= 70 ? 'ok-text' : w.market.takenPct <= 30 ? 'warn-text' : null, text: `${w.market.taken}/${w.market.checked} prenotate` }),
+          w.market.median && w.prices && w.prices.airbnb ? h('span', { class: 'muted', text: ` · tu ${mkDiff(w.prices.airbnb.week, w.market.median)}` }) : null) : null),
       h('div', { class: 'pl-mine field' }, h('span', { class: 'pl-cap', text: 'In tasca (settimana)' }),
         isAdmin ? h('div', { class: 'pl-net-wrap' }, input, h('span', { class: 'pl-eur', text: '€' })) : h('strong', { text: w.net ? fmtEuro(w.net) : '—' }),
         vsLy !== null ? h('span', { class: ['small', vsLy > 0 ? 'ok-text' : vsLy < 0 ? 'warn-text' : 'muted'], text: vsLy === 0 ? 'come l’anno scorso' : `${vsLy > 0 ? '+' : '−'}${Math.abs(vsLy)}% sull’anno scorso` }) : null,
@@ -236,7 +254,7 @@ export function renderPricing(ctx, { tabs } = {}) {
     h('p', { class: 'muted small', text: `Le percentuali sono quelle di Impostazioni → Case → Contabilità: se le cambi lì, cambia anche il listino. Settimane da ${WEEKDAYS[settings.week_start]}; regole dei suggerimenti in Impostazioni → Case → Listino.` }));
 
   const page = h('div', { vars: houseVars(house) }, head, tabs || null, switches,
-    h('div', { class: 'stack pl-top' }, paceCard, sugCard, tools),
+    h('div', { class: 'stack pl-top' }, paceCard, sugCard, marketCard(ctx, house), tools),
     h('section', { class: 'card pl-list', attrs: { 'aria-label': `Settimane della stagione ${year}` } },
       h('div', { class: 'pl-row pl-head', attrs: { 'aria-hidden': 'true' } },
         h('span', { text: 'Settimana' }), h('span', { text: 'Anno scorso (in tasca)' }), h('span', { text: 'In tasca' }), h('span', { text: 'Prezzo da mettere, a notte' })),

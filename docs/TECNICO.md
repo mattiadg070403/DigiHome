@@ -296,3 +296,17 @@ Migrazione 0019 (`houses.receipts_enabled`, tabella `pay_receipts`). Testo: `pub
 - Testo più grande su iPad e computer (≥ 761 px): corpo 17 px, interlinea 1,55; il telefono resta com'era.
 - Nuova icona dell'app e logo: casa piena con sfumatura verde Isola Bella → blu Faro Blu e "DG" in color carta (`public/icons/`: icon.svg, logo.svg, apple-touch-icon.png, icon-192/512.png, icon-maskable-512.png). Logo anche nella barra laterale.
 - 0.16.1: icona definitiva = opzione A scelta da Mattia (fondo con sfumatura verde → blu, casa a contorno color carta, "DG" centrato in orizzontale e otticamente in verticale nella casa). "Prossimi 7 giorni" confermata e spostata sopra le schede delle case; tolto "· tutte e due le case" sotto la data di Oggi.
+
+## Novità della 0.17 (23 novembre 2026): mercato con Apify
+
+Migrazione 0020 (`houses.market_settings`, tabelle `market_comps`, `market_prices`, `market_jobs`). Regole: `public/shared/market.js`; lavori su Apify: `src/market.js`; interfaccia: `public/js/views/market.js` (finestra Impostazioni → Case → Mercato, scheda "Mercato" del listino), più colonna nel listino e riga nel preventivo.
+
+- Scelte di Mattia: tutte e due le case, separate; 10 case simili per casa; confronto di prezzi, disponibilità, dotazioni (aria condizionata ecc.) e spese a parte; sintesi E consigli sui prezzi.
+- Chiave: segreto Cloudflare `APIFY_TOKEN` (solo server, intestazione `Authorization: Bearer`, mai nel database, nei log o nello stato). L'app sa solo `apifyReady`.
+- Attori Apify: `tri_angle~airbnb-scraper` (ricerca: luogo, ospiti, camere minime; in inglese, EUR) e `tri_angle~airbnb-rooms-urls-scraper` (per ogni settimana: le 10 case scelte con checkIn/checkOut). Senza prezzo = "non disponibile" (prenotata o chiusa).
+- Ricerca → punteggio di somiglianza (distanza entro il raggio, ospiti, camere, dotazioni in comune, recensioni) → 15 candidate, le prime 10 scelte in automatico se non c'era una scelta (`market.select`, al massimo 10, solo amministratore).
+- Prezzi: un lavoro per settimana futura della stagione del listino; in automatico una volta a settimana; al massimo 3 lavori insieme (memoria 1 GB, timeout 15 min), letti a ogni giro dell'orologio (30 min) o con "Controlla" dalla finestra; 2 tentativi. Costo stimato ~0,7 $ a settimana per le due case (5 $ gratuiti al mese, il piano gratuito si ferma da solo).
+- Salvati solo dati pubblici: titolo, link, ospiti, camere, distanza, valutazione, numero di recensioni, dotazioni (chiavi nostre), prezzo per l'ospite di 7 notti senza tasse e costi del servizio (pulizie comprese) e pulizie a parte. Niente host, niente testo delle recensioni.
+- Listino: riga "Mercato" per settimana (mediana delle libere · prenotate/controllate · tu rispetto a loro, confrontando il tuo prezzo Airbnb); consigli in "Da valutare" (≥ 70% prenotate e tu sotto → alza fino a +15%; ≤ 40% prenotate entro 60 giorni e tu sopra di oltre 10% → scendi fino a −15%; scarto oltre 20% → segnalazione); scheda "Mercato" con consigli sulle dotazioni e tabella "Dotazioni a confronto".
+- Preventivo: "Mercato su Airbnb" con prezzo a notte delle case simili libere, prenotate su controllate, confronto con il prezzo diretto e un consiglio (tenere il prezzo pieno / margine per uno sconto).
+- Server locale: Apify finto (40 annunci inventati intorno a Gallipoli, prezzi più alti e più occupazione ad agosto).

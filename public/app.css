@@ -715,3 +715,21 @@ hr.soft { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; widt
 .brand-title { display: flex; align-items: center; gap: 9px; }
 .brand-logo { width: 26px; height: 26px; flex-shrink: 0; }
 .wk-section { margin-top: 0; margin-bottom: 24px; }
+
+/* Mercato (Apify) */
+.mk-amen { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 14px; }
+.mk-comp-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.mk-comps { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.mk-comp { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; cursor: pointer; }
+.mk-comp + .mk-comp { border-top: 1px solid var(--line-soft); }
+.mk-comp input { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; }
+.mk-comp-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mk-comp-main a { font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
+.mk-tips li + li { margin-top: 6px; }
+.mk-amen-table { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.mk-amen-row { display: grid; grid-template-columns: minmax(0, 1.4fr) 70px minmax(60px, 1fr) 60px; gap: 10px; align-items: center; font-size: 15px; }
+.mk-bar { height: 8px; border-radius: 4px; background: var(--line-soft); overflow: hidden; }
+.mk-bar-fill { display: block; height: 100%; width: var(--w, 0%); background: #2F5FBF; border-radius: 4px; }
+.pl-mk { display: flex; flex-wrap: wrap; gap: 0 2px; margin-top: 2px; }
+.pl-mk-label { font-weight: 650; color: var(--ink-2); }
+.quote-market { padding: 10px 12px; border-radius: 10px; background: var(--card-soft); border: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 4px; }

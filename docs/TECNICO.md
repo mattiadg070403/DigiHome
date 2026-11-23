@@ -240,3 +240,15 @@ Migrazione 0016. Logica: `src/guest-form.js`; Worker pubblico: `src/public-guest
 - Server locale: il modulo risponde sulla porta successiva (8788).
 - **Da attivare alla fine (collegamenti)**: creare in Cloudflare i Worker `digihome-ospiti-prova` (ramo main, cartella ospiti-prova/) e `digihome-ospiti` (ramo produzione, cartella ospiti/) con Workers Builds; collegare i domini personalizzati `checkin.faroblugallipoli.it` e `checkin.isolabellagallipoli.it` al Worker definitivo; aggiungere `OSPITI_DOMINI` in `produzione/wrangler.jsonc`.
 - Sui telefoni: anche le eliminazioni di un ospite cancellano i suoi dati (resta solo la riga per il registro).
+
+## Novità della 0.13 (23 novembre 2026): modulo da più telefoni
+
+Migrazione 0017 (`guests.form_part`, `bookings.guest_form_leader_part`).
+
+- Lo stesso link si può girare a tutto il gruppo: ognuno inserisce i suoi dati (ed eventualmente quelli di chi viaggia con lui) dal proprio telefono, oppure una persona li inserisce per tutti.
+- Ogni telefono ha un codice casuale ("parte", 24 caratteri) salvato solo nel suo browser (`localStorage`, chiave `digihome-modulo-<codice del link>`; nessun dato personale). Gli invii di una parte sostituiscono solo i suoi dati precedenti; quelli degli altri telefoni restano.
+- Prima domanda: "Ho prenotato io" / "Sono un altro ospite". Il documento serve solo a chi ha prenotato (primo ospite della sua parte); il tipo di gruppo (famiglia/amici) lo sceglie solo lui. Un solo telefono può essere "chi ha prenotato": il segno è atomico nella WHERE dell'invio (`leader_taken`, 409); gli altri vedono il pulsante disattivato.
+- Ordine degli ospiti dopo ogni invio: parte di chi ha prenotato (capo), poi quelli inseriti nel gestionale, poi gli altri telefoni in ordine di primo invio (chi corregge mantiene il suo posto).
+- `GET /api/form/<codice>?part=…` restituisce anche `entered` (ospiti già inseriti), `mine` (quanti da questo telefono), `leaderTaken`, `iAmLeader`. Mai i dati già salvati.
+- Limiti: in tutto al massimo gli ospiti prenotati + 4 (massimo 30); 40 invii per link.
+- Il messaggio WhatsApp dice che il link si può girare agli altri ospiti.

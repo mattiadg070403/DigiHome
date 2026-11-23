@@ -5,18 +5,21 @@
 //    tanto più che vale pochi giorni; senza caratteri che si confondono (0/O, l/I);
 //  * il modulo può solo SCRIVERE i dati degli ospiti: non restituisce mai dati già salvati (né nomi, né documenti);
 //  * funziona solo per prenotazioni attive, finché le schedine non sono inviate e al massimo fino al giorno dopo l'arrivo;
-//  * al massimo 20 invii per link; ogni invio sostituisce il precedente (l'ospite può correggere);
+//  * più persone possono compilarlo, ognuna dal suo telefono: ogni telefono ha un codice suo ("parte"), i suoi invii
+//    si sommano a quelli degli altri e un nuovo invio dallo stesso telefono sostituisce solo i suoi dati;
+//  * chi ha prenotato (con il documento) è uno solo; al massimo 40 invii per link;
 //  * gli stessi controlli dei dati inseriti nel gestionale (cleanGuest) e in più tutti i campi obbligatori.
 
 import { OpError, REV_NEXT, commit, registerOps } from './ops.js';
-import { cleanGuest } from './guests.js';
+import { cleanGuest, refreshComplete } from './guests.js';
 import { searchPlaces, docTypes } from './questura.js';
 import { MAX_GUESTS, guestMissing } from '../public/shared/alloggiati.js';
 import { addDays, todayRome } from '../public/shared/dates.js';
 
 export const TOKEN_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 export const TOKEN_RE = /^[1-9A-HJ-NP-Za-km-z]{12}$/;
-const MAX_SUBMITS = 20;
+const MAX_SUBMITS = 40;
+export const PART_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const FORM_USER = { id: 'modulo-ospiti', email: 'modulo-ospiti@digihome.invalid', name: 'Modulo online (ospite)', role: 'ospite' };
 const bad = (m) => new OpError(400, 'validation', m);
 
@@ -52,7 +55,7 @@ async function bookingByToken(db, token) {
 }
 
 /** Informazioni minime per la pagina: casa, date, numero di ospiti. Nessun dato personale. */
-export async function formInfo(db, token, today = todayRome()) {
+export async function formInfo(db, token, today = todayRome(), part = null) {
   const b = await bookingByToken(db, token);
   const reason = formClosedReason(b, today);
   if (reason === 'not_found') throw new OpError(404, 'not_found', 'Link non valido.');
@@ -69,6 +72,12 @@ export async function formInfo(db, token, today = todayRome()) {
     check_out: b.check_out,
     guests: b.guests,
     submitted: Boolean(b.guest_form_at),
+    // Solo numeri: quanti ospiti sono già stati inseriti (da tutti) e quanti da questo telefono. Mai i nomi.
+    entered: reason ? 0 : (await db.prepare('SELECT COUNT(*) AS n FROM guests WHERE booking_id = ? AND deleted = 0').bind(b.id).first()).n,
+    mine: reason || !PART_RE.test(String(part || '')) ? 0
+      : (await db.prepare('SELECT COUNT(*) AS n FROM guests WHERE booking_id = ? AND deleted = 0 AND form_part = ?').bind(b.id, part).first()).n,
+    leaderTaken: Boolean(b.guest_form_leader_part) && b.guest_form_leader_part !== part,
+    iAmLeader: Boolean(b.guest_form_leader_part) && b.guest_form_leader_part === part,
     last_day: formLastDay(b),
     docTypes: reason ? [] : await docTypes(db),
   };
@@ -113,8 +122,10 @@ export async function formPlaces(db, token, q, kind, today = todayRome()) {
 }
 
 /**
- * Invio dei dati da parte dell'ospite: sostituisce tutti gli ospiti della prenotazione con quelli del modulo.
- * Tutti i campi sono obbligatori (per chi prenota anche il documento): così all'arrivo basta un controllo.
+ * Invio dei dati da parte di un ospite (da un telefono = una "parte").
+ * leader: true se chi compila è chi ha prenotato (il primo ospite dell'invio porta il documento).
+ * I dati di questa parte sostituiscono i suoi invii precedenti; quelli degli altri telefoni restano.
+ * Tutti i campi sono obbligatori: così all'arrivo basta un controllo.
  */
 export async function submitForm(db, token, body, today = todayRome()) {
   const b = await bookingByToken(db, token);
@@ -122,8 +133,18 @@ export async function submitForm(db, token, body, today = todayRome()) {
   if (reason === 'not_found') throw new OpError(404, 'not_found', 'Link non valido.');
   if (reason) throw new OpError(409, reason, 'Il modulo non è più disponibile.');
   if (!body || typeof body !== 'object' || !Array.isArray(body.guests)) throw bad('Richiesta non valida');
+  const part = String(body.part || '');
+  if (!PART_RE.test(part)) throw bad('Richiesta non valida');
+  const leader = body.leader === true;
+  if (leader && b.guest_form_leader_part && b.guest_form_leader_part !== part) {
+    throw new OpError(409, 'leader_taken', 'Chi ha prenotato ha già inserito i suoi dati da un altro telefono: inserisci i tuoi come altro ospite.');
+  }
   const list = body.guests;
-  if (list.length < 1 || list.length > Math.min(MAX_GUESTS, b.guests + 4)) throw bad('Numero di ospiti non valido');
+  const others = (await db.prepare('SELECT COUNT(*) AS n FROM guests WHERE booking_id = ? AND deleted = 0 AND (form_part IS NULL OR form_part <> ?)')
+    .bind(b.id, part).first()).n;
+  const max = Math.min(MAX_GUESTS, b.guests + 4);
+  if (list.length < 1 || list.length > MAX_GUESTS) throw bad('Numero di ospiti non valido');
+  if (others + list.length > max) throw bad(`Sono già stati inseriti ${others} ospiti su ${b.guests}: controlla di non averli inseriti due volte.`);
   const group = body.group === 'gruppo' ? 'gruppo' : 'famiglia';
   const clean = [];
   const codes = new Set();
@@ -134,8 +155,9 @@ export async function submitForm(db, token, body, today = todayRome()) {
     } catch (e) {
       throw new OpError(400, 'validation', `Ospite ${i + 1}: ${e.message}`, { index: i });
     }
-    if (i > 0) { g.doc_type = null; g.doc_number = null; g.doc_place = null; }
-    const miss = guestMissing(g, i === 0, { today });
+    const withDoc = leader && i === 0;
+    if (!withDoc) { g.doc_type = null; g.doc_number = null; g.doc_place = null; }
+    const miss = guestMissing(g, withDoc, { today });
     if (miss.length) throw new OpError(400, 'validation', `Ospite ${i + 1}: manca ${miss.join(', ')}`, { index: i, missing: miss });
     for (const k of ['birth_place', 'citizenship', 'residence', 'doc_place']) if (g[k]) codes.add(g[k]);
     clean.push(g);
@@ -150,32 +172,67 @@ export async function submitForm(db, token, body, today = todayRome()) {
     }
     if (found.get(g.citizenship) !== 'S') throw new OpError(400, 'validation', `Ospite ${i + 1}: la cittadinanza deve essere uno stato`, { index: i });
   }
-  if (clean[0].doc_type && !(await db.prepare('SELECT 1 FROM doc_types WHERE code = ?').bind(clean[0].doc_type).first())) {
+  if (leader && !(await db.prepare('SELECT 1 FROM doc_types WHERE code = ?').bind(clean[0].doc_type).first())) {
     throw new OpError(400, 'validation', 'Ospite 1: tipo di documento non valido', { index: 0 });
   }
 
   const at = new Date().toISOString();
+  // Chi corregge i suoi dati mantiene il suo posto nell'elenco: conta il momento del suo primo invio.
+  const first = await db.prepare('SELECT MIN(created_at) AS t FROM guests WHERE booking_id = ? AND form_part = ?').bind(b.id, part).first();
+  const since = (first && first.t) || at;
   const FIELDS = ['last_name', 'first_name', 'sex', 'birth_date', 'birth_place', 'citizenship', 'residence', 'doc_type', 'doc_number', 'doc_place'];
-  // Tutto in un colpo: il conteggio degli invii (con controllo del limite) è l'istruzione principale.
-  const main = db.prepare(`UPDATE bookings SET guest_form_at = ?, guest_form_submits = guest_form_submits + 1, guest_group = ?,
-      guests_entered = ?, guests_done = ?, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
-    WHERE id = ? AND guest_form_token = ? AND alloggiati_at IS NULL AND stage <> 'cancellata' AND guest_form_submits < ?`)
-    .bind(at, group, clean.length, clean.length, at, FORM_USER.email, b.id, token, MAX_SUBMITS);
-  // Le istruzioni collegate controllano da sole il segno della principale (vedi commit): se l'invio è rifiutato
-  // (link disattivato nel frattempo, schedine già inviate, troppi invii) non cambia niente.
+  // Istruzione principale: conteggio degli invii (con il limite) e chi ha prenotato. Se nel frattempo un altro
+  // telefono si è segnato come chi ha prenotato, l'invio non passa.
+  const main = db.prepare(`UPDATE bookings SET guest_form_at = ?, guest_form_submits = guest_form_submits + 1,
+      guest_group = CASE WHEN ? = 1 THEN ? ELSE guest_group END,
+      guest_form_leader_part = CASE WHEN ? = 1 THEN ? WHEN guest_form_leader_part = ? THEN NULL ELSE guest_form_leader_part END,
+      version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
+    WHERE id = ? AND guest_form_token = ? AND alloggiati_at IS NULL AND stage <> 'cancellata' AND guest_form_submits < ?
+      AND (? = 0 OR guest_form_leader_part IS NULL OR guest_form_leader_part = ?)`)
+    .bind(at, leader ? 1 : 0, group, leader ? 1 : 0, part, part, at, FORM_USER.email, b.id, token, MAX_SUBMITS, leader ? 1 : 0, part);
+  // Le istruzioni collegate controllano da sole il segno della principale (vedi commit).
   const marked = `EXISTS (SELECT 1 FROM bookings WHERE id = ? AND rev = (SELECT value FROM meta WHERE key = 'rev') + 1)`;
   const also = [
-    // I dati sostituiti si cancellano davvero (non restano copie dei vecchi dati personali).
-    db.prepare(`DELETE FROM guests WHERE booking_id = ? AND ${marked}`).bind(b.id, b.id),
-    ...clean.map((g, i) => db.prepare(`INSERT INTO guests (id, booking_id, position, code, ${FIELDS.join(', ')}, complete, source, created_at, created_by, rev)
-      SELECT ?, ?, ?, (SELECT COALESCE(MAX(code), 100000) + 1 FROM guests), ${FIELDS.map(() => '?').join(', ')}, 1, 'ospite', ?, ?, ${REV_NEXT}
+    // I dati che questo telefono aveva già inviato si cancellano davvero (niente copie dei vecchi dati personali).
+    db.prepare(`DELETE FROM guests WHERE booking_id = ? AND form_part = ? AND ${marked}`).bind(b.id, part, b.id),
+    ...clean.map((g, i) => db.prepare(`INSERT INTO guests (id, booking_id, position, code, ${FIELDS.join(', ')}, complete, source, form_part, created_at, created_by, rev)
+      SELECT ?, ?, ?, (SELECT COALESCE(MAX(code), 100000) + 1 FROM guests), ${FIELDS.map(() => '?').join(', ')}, 0, 'ospite', ?, ?, ?, ${REV_NEXT}
       WHERE ${marked}`)
-      .bind(crypto.randomUUID(), b.id, i, ...FIELDS.map((f) => g[f]), at, FORM_USER.email, b.id)),
+      .bind(crypto.randomUUID(), b.id, i, ...FIELDS.map((f) => g[f]), part, since, FORM_USER.email, b.id)),
   ];
   const done = await commit(db, { main, also, user: FORM_USER, opId: crypto.randomUUID(), entity: 'booking', entityId: b.id, action: 'dati_ospiti',
-    changes: { modulo: `dati di ${clean.length} ospiti inviati dall’ospite` } });
-  if (!done) throw new OpError(409, 'closed', 'Il modulo non è più disponibile.');
+    changes: { modulo: `dati di ${clean.length} ospiti inviati da un ospite${leader ? ' (chi ha prenotato)' : ''}` } });
+  if (!done) {
+    const now = await db.prepare('SELECT guest_form_leader_part FROM bookings WHERE id = ?').bind(b.id).first();
+    if (leader && now && now.guest_form_leader_part && now.guest_form_leader_part !== part) {
+      throw new OpError(409, 'leader_taken', 'Chi ha prenotato ha già inserito i suoi dati da un altro telefono: inserisci i tuoi come altro ospite.');
+    }
+    throw new OpError(409, 'closed', 'Il modulo non è più disponibile.');
+  }
+  await reorder(db, b.id);
+  await refreshComplete(db, b.id);
   return { ok: true, count: clean.length };
+}
+
+/**
+ * Ordine degli ospiti: prima chi ha prenotato (e chi ha inserito con lui), poi quelli inseriti nel gestionale,
+ * poi gli altri telefoni in ordine di invio.
+ */
+async function reorder(db, bookingId) {
+  const b = await db.prepare('SELECT guest_form_leader_part FROM bookings WHERE id = ?').bind(bookingId).first();
+  const rows = (await db.prepare('SELECT id, form_part, position, created_at FROM guests WHERE booking_id = ? AND deleted = 0').bind(bookingId).all()).results || [];
+  const firstAt = new Map();
+  for (const r of rows) if (r.form_part && (!firstAt.has(r.form_part) || r.created_at < firstAt.get(r.form_part))) firstAt.set(r.form_part, r.created_at);
+  const rank = (r) => (r.form_part && r.form_part === b.guest_form_leader_part ? 0 : r.form_part ? 2 : 1);
+  rows.sort((x, y) => rank(x) - rank(y)
+    || String(firstAt.get(x.form_part) || '').localeCompare(String(firstAt.get(y.form_part) || ''))
+    || String(x.form_part || '').localeCompare(String(y.form_part || ''))
+    || x.position - y.position);
+  // Prima posizioni provvisorie (per non scontrarsi), poi quelle definitive 0, 1, 2…
+  await db.batch([
+    ...rows.map((r, i) => db.prepare('UPDATE guests SET position = ? WHERE id = ?').bind(49 - i, r.id)),
+    ...rows.map((r, i) => db.prepare('UPDATE guests SET position = ? WHERE id = ?').bind(i, r.id)),
+  ]);
 }
 
 /* ------------------------------ Gestionale: crea o disattiva il link ------------------------------ */

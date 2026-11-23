@@ -14,8 +14,12 @@
       stay: (from, to) => `Dal ${from} al ${to}`,
       guestsN: (n) => `${n} ${n === 1 ? 'ospite' : 'ospiti'}`,
       intro: 'La legge italiana ci chiede di comunicare alla Polizia di Stato i dati di tutti gli ospiti entro 24 ore dall’arrivo. Compilando qui prima di arrivare, al check-in ci basterà vedere i documenti: più veloce per tutti.',
-      already: 'Abbiamo già ricevuto i vostri dati. Se serve correggere qualcosa, compila di nuovo il modulo: sostituirà quello precedente.',
-      guest: (i) => (i === 0 ? 'Chi ha prenotato' : `Ospite ${i + 1}`),
+      mineAlready: (n) => `Da questo telefono hai già inviato i dati di ${n === 1 ? '1 persona' : `${n} persone`}: se li invii di nuovo, sostituiscono quelli di prima.`,
+      othersAlready: (n, tot) => `Altri ospiti hanno già inserito i loro dati (${n} di ${tot}). Inserisci solo i tuoi e di chi non l’ha ancora fatto.`,
+      who: 'Chi sta compilando?', whoHint: 'Ognuno può inserire i propri dati dal suo telefono con questo stesso link, oppure una persona può inserirli per tutti.',
+      iBooked: 'Ho prenotato io', iOther: 'Sono un altro ospite', leaderTaken: 'Chi ha prenotato ha già inserito i suoi dati.', change: 'Cambia',
+      progress: (n, tot) => `Già inseriti: ${n} di ${tot} ospiti`,
+      guest: (i, leader) => (leader ? (i === 0 ? 'Tu (chi ha prenotato)' : `Ospite ${i + 1}`) : (i === 0 ? 'I tuoi dati' : `Chi viaggia con te (${i})`)),
       leaderTag: 'con documento',
       last: 'Cognome', first: 'Nome', sex: 'Sesso', male: 'Maschio', female: 'Femmina',
       birth: 'Data di nascita', birthHint: 'gg/mm/aaaa',
@@ -24,7 +28,7 @@
       comune: 'Scrivi il comune…', country: 'Scrivi lo stato…',
       docTitle: 'Documento', docType: 'Tipo di documento', docNumber: 'Numero del documento', docPlace: 'Rilasciato in', choose: 'Scegli…',
       docNote: 'Serve solo per chi ha prenotato. All’arrivo ti chiederemo di vederlo.',
-      sameAs: 'Cittadinanza e residenza come chi ha prenotato',
+      sameAs: (leader) => (leader ? 'Cittadinanza e residenza come chi ha prenotato' : 'Cittadinanza e residenza come te'),
       add: 'Aggiungi un ospite', remove: 'Togli',
       group: 'Viaggiate come', family: 'Famiglia', friends: 'Gruppo di amici',
       privacyTitle: 'Privacy',
@@ -33,13 +37,15 @@
       send: 'Invia i dati', sending: 'Invio in corso…',
       doneTitle: 'Grazie, dati ricevuti!',
       doneText: 'All’arrivo ti chiederemo solo di mostrare i documenti. A presto!',
-      again: 'Correggi i dati',
+      doneShare: 'Se qualcuno del gruppo non ha ancora inserito i suoi dati, giragli questo stesso link.',
+      again: 'Correggi i miei dati',
       closed: {
         done: 'I dati di questo soggiorno sono già stati registrati. Per qualsiasi cosa scrivici.',
         expired: 'Questo link è scaduto. Per qualsiasi cosa scrivici.',
         cancelled: 'Questo soggiorno è stato cancellato.',
         too_many: 'Il modulo è stato inviato troppe volte. Per correggere i dati scrivici.',
         not_found: 'Link non valido. Controlla di averlo copiato per intero.',
+        leader_taken: 'Chi ha prenotato ha già inserito i suoi dati.',
       },
       required: 'Campo obbligatorio', badDate: 'Data non valida (gg/mm/aaaa)', pickList: 'Scrivi e sceglilo dall’elenco che compare', pickWhere: 'Scegli se in Italia o all’estero',
       noPlace: 'Nessun risultato', fixErrors: 'Controlla i campi segnati in rosso.', agreeFirst: 'Conferma di aver letto l’informativa.',
@@ -51,8 +57,12 @@
       stay: (from, to) => `From ${from} to ${to}`,
       guestsN: (n) => `${n} ${n === 1 ? 'guest' : 'guests'}`,
       intro: 'Italian law requires us to send the details of every guest to the State Police within 24 hours of arrival. If you fill in this form before you arrive, at check-in we only need to see your IDs: quicker for everyone.',
-      already: 'We have already received your details. If something needs correcting, just fill in the form again: it will replace the previous one.',
-      guest: (i) => (i === 0 ? 'Lead guest (who booked)' : `Guest ${i + 1}`),
+      mineAlready: (n) => `From this phone you have already sent the details of ${n === 1 ? '1 person' : `${n} people`}: sending them again replaces them.`,
+      othersAlready: (n, tot) => `Other guests have already entered their details (${n} of ${tot}). Just add yours and those of anyone who hasn't yet.`,
+      who: 'Who is filling in the form?', whoHint: 'Everyone can enter their own details from their phone with this same link, or one person can enter them for everybody.',
+      iBooked: 'I made the booking', iOther: 'I am another guest', leaderTaken: 'The person who booked has already entered their details.', change: 'Change',
+      progress: (n, tot) => `Already entered: ${n} of ${tot} guests`,
+      guest: (i, leader) => (leader ? (i === 0 ? 'You (who booked)' : `Guest ${i + 1}`) : (i === 0 ? 'Your details' : `Travelling with you (${i})`)),
       leaderTag: 'with ID',
       last: 'Surname', first: 'First name', sex: 'Sex', male: 'Male', female: 'Female',
       birth: 'Date of birth', birthHint: 'dd/mm/yyyy',
@@ -61,7 +71,7 @@
       comune: 'Type the Italian town…', country: 'Type the country (English or Italian)…',
       docTitle: 'ID document', docType: 'Type of document', docNumber: 'Document number', docPlace: 'Issued in', choose: 'Choose…',
       docNote: 'Only for the lead guest. We will ask to see it on arrival.',
-      sameAs: 'Same citizenship and residence as the lead guest',
+      sameAs: (leader) => (leader ? 'Same citizenship and residence as the lead guest' : 'Same citizenship and residence as you'),
       add: 'Add a guest', remove: 'Remove',
       group: 'You are travelling as', family: 'Family', friends: 'Group of friends',
       privacyTitle: 'Privacy',
@@ -70,13 +80,15 @@
       send: 'Send details', sending: 'Sending…',
       doneTitle: 'Thank you, details received!',
       doneText: 'On arrival we will only ask to see your IDs. See you soon!',
-      again: 'Correct the details',
+      doneShare: 'If someone in your group has not entered their details yet, just send them this same link.',
+      again: 'Correct my details',
       closed: {
         done: 'The details for this stay have already been registered. Please contact us for anything else.',
         expired: 'This link has expired. Please contact us for anything else.',
         cancelled: 'This stay has been cancelled.',
         too_many: 'This form has been sent too many times. Please contact us to correct the details.',
         not_found: 'Invalid link. Please check that you copied all of it.',
+        leader_taken: 'The person who booked has already entered their details.',
       },
       required: 'Required', badDate: 'Invalid date (dd/mm/yyyy)', pickList: 'Type and pick it from the list that appears', pickWhere: 'Choose Italy or abroad',
       noPlace: 'No results', fixErrors: 'Please check the fields marked in red.', agreeFirst: 'Please confirm you have read the privacy notice.',
@@ -131,6 +143,20 @@
   /* ------------------------------ Stato ------------------------------ */
 
   let info = null;
+  let role = null; // 'leader' (ha prenotato: con documento) oppure 'other'
+
+  // Codice casuale di questo telefono: i suoi invii si sommano a quelli degli altri e si possono correggere.
+  // Resta solo su questo telefono (nessun dato personale), e solo per questo link.
+  const part = (() => {
+    const fresh = () => [...crypto.getRandomValues(new Uint8Array(18))].map((b) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'[b % 64]).join('');
+    const key = `digihome-modulo-${token}`;
+    try {
+      let v = localStorage.getItem(key);
+      if (!v || !/^[A-Za-z0-9_-]{16,64}$/.test(v)) { v = fresh(); localStorage.setItem(key, v); }
+      return v;
+    } catch { return fresh(); }
+  })();
+  const isLeader = () => role === 'leader';
   let guests = [];
   let group = 'famiglia';
   let agreed = false;
@@ -247,7 +273,7 @@
       if (!g.birth_place) e.birth_place = g.birth_it === null ? t().pickWhere : t().pickList;
       if (!g.citizenship) e.citizenship = t().pickList;
       if (!g.residence) e.residence = g.res_it === null ? t().pickWhere : t().pickList;
-      if (i === 0) {
+      if (i === 0 && isLeader()) {
         if (!g.doc_type) e.doc_type = t().required;
         if (!g.doc_number.trim()) e.doc_number = t().required;
         else if (!/^[A-Za-z0-9\s-]+$/.test(g.doc_number)) e.doc_number = t().docChars;
@@ -302,11 +328,11 @@
       placeInput('S', g.citizenship, g.citizenship_name, (p) => { g.citizenship = p ? p.code : null; g.citizenship_name = p ? p.name : ''; }),
       e.citizenship ? h('span', { class: 'err', text: e.citizenship }) : null);
     const lead = guests[0];
-    const copy = i > 0 && lead.citizenship && lead.residence ? h('button', { class: 'btn', type: 'button', text: t().sameAs, onClick: () => {
+    const copy = i > 0 && lead.citizenship && lead.residence ? h('button', { class: 'btn', type: 'button', text: t().sameAs(isLeader()), onClick: () => {
       Object.assign(g, { citizenship: lead.citizenship, citizenship_name: lead.citizenship_name, residence: lead.residence, residence_name: lead.residence_name, res_it: lead.res_it });
       render();
     } }) : null;
-    const doc = i === 0 ? [
+    const doc = i === 0 && isLeader() ? [
       h('h3', { text: t().docTitle }),
       h('p', { class: 'hint', text: t().docNote }),
       h('div', { class: 'grid' },
@@ -316,9 +342,9 @@
         text('doc_number', t().docNumber, { autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' })),
       placeWithCountry(g, 'doc_place', 'doc_place_name', 'doc_it', t().docPlace, e.doc_place),
     ] : [];
-    return h('section', { class: ['card', has && 'error'], 'aria-label': t().guest(i) },
-      h('div', { class: 'card-head' }, h('h2', { text: t().guest(i) }),
-        i === 0 ? h('span', { class: 'tag', text: t().leaderTag })
+    return h('section', { class: ['card', has && 'error'], 'aria-label': t().guest(i, isLeader()) },
+      h('div', { class: 'card-head' }, h('h2', { text: t().guest(i, isLeader()) }),
+        i === 0 ? (isLeader() ? h('span', { class: 'tag', text: t().leaderTag }) : null)
           : h('button', { class: 'btn ghost', type: 'button', text: t().remove, onClick: () => { guests.splice(i, 1); errors.splice(i, 1); render(); } })),
       h('div', { class: 'grid' },
         text('last_name', t().last, { autocomplete: i === 0 ? 'family-name' : 'off', autocapitalize: 'words' }),
@@ -344,6 +370,31 @@
     return [...common.map(opt), common.length && rest.length ? h('option', { disabled: 'disabled', text: '──────────' }) : null, ...rest.map(opt)].filter(Boolean);
   }
 
+  /** Prima domanda: ha prenotato chi compila? (Da lì dipende se serve il documento.) */
+  function roleChooser() {
+    const choose = (r) => {
+      role = r;
+      const othersEntered = Math.max(0, (info.entered || 0) - (info.mine || 0));
+      const n = r === 'leader' ? Math.max(1, (info.guests || 1) - othersEntered) : 1;
+      if (!guests.length || guests.length !== n) guests = Array.from({ length: n }, blankGuest);
+      errors = [];
+      tried = false;
+      banner = null;
+      render();
+    };
+    return h('div', { class: 'card' },
+      h('h2', { text: t().who }),
+      h('p', { class: 'hint', text: t().whoHint }),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', type: 'button', text: t().iBooked, disabled: info.leaderTaken ? 'disabled' : null, onClick: () => choose('leader') }),
+        h('button', { class: 'btn', type: 'button', text: t().iOther, onClick: () => choose('other') })),
+      info.leaderTaken ? h('p', { class: 'hint', text: t().leaderTaken }) : null);
+  }
+  function roleLine() {
+    return [h('p', { class: 'row hint' }, h('span', { text: `${t().who} ${isLeader() ? t().iBooked : t().iOther}.` }),
+      h('button', { class: 'btn ghost', type: 'button', text: t().change, onClick: () => { role = null; render(); } }))];
+  }
+
   function render() {
     if (!info) return;
     document.title = `${t().title} · ${info.house}`;
@@ -362,13 +413,16 @@
         h('span', null, h('strong', { text: t().stay(itDate(info.check_in), itDate(info.check_out)) })),
         h('span', { text: t().guestsN(info.guests) })),
       h('p', { class: 'intro', text: t().intro }),
-      info.submitted ? h('div', { class: 'banner ok', text: t().already }) : null,
-      ...guests.map(guestCard),
-      h('div', { class: 'row', 'data-gap': '1' },
-        guests.length < Math.min(30, info.guests + 4) ? h('button', { class: 'btn', type: 'button', text: `+ ${t().add}`, onClick: () => { guests.push(blankGuest()); render(); } }) : null),
-      guests.length > 1 ? h('div', { class: 'card' }, h('span', { class: 'label', text: t().group }),
+      info.mine && info.entered > info.mine ? h('p', { class: 'hint', text: t().progress(info.entered, info.guests) }) : null,
+      ...(role ? roleLine() : [roleChooser()]),
+      info.mine ? h('div', { class: 'banner ok', text: t().mineAlready(info.mine) })
+        : info.entered ? h('div', { class: 'banner ok', text: t().othersAlready(info.entered, info.guests) }) : null,
+      ...(role ? guests.map(guestCard) : []),
+      role ? h('div', { class: 'row', 'data-gap': '1' },
+        guests.length < Math.min(30, info.guests + 4) ? h('button', { class: 'btn', type: 'button', text: `+ ${t().add}`, onClick: () => { guests.push(blankGuest()); render(); } }) : null) : null,
+      role && isLeader() && info.guests > 1 ? h('div', { class: 'card' }, h('span', { class: 'label', text: t().group }),
         seg([['famiglia', t().family], ['gruppo', t().friends]], group, (v) => { group = v; render(); }, t().group)) : null,
-      h('div', { class: 'card' },
+      !role ? null : h('div', { class: 'card' },
         h('div', { class: 'privacy' }, h('strong', { text: t().privacyTitle }), h('p', { text: t().privacy(info.controller || info.house) })),
         h('label', { class: 'check' }, agree, h('span', { text: t().agree })),
         banner ? h('div', { class: 'banner bad', role: 'alert', text: banner }) : null,
@@ -388,19 +442,21 @@
     btn.disabled = true;
     btn.textContent = t().sending;
     try {
-      await api('', { method: 'POST', body: { group, guests: guests.map((g, i) => ({
+      await api('', { method: 'POST', body: { part, leader: isLeader(), group, guests: guests.map((g, i) => ({
         last_name: g.last_name.trim(), first_name: g.first_name.trim(), sex: g.sex, birth_date: g.birth_date,
         birth_place: g.birth_place, citizenship: g.citizenship, residence: g.residence,
-        doc_type: i === 0 ? g.doc_type : null, doc_number: i === 0 ? g.doc_number.trim() : null, doc_place: i === 0 ? g.doc_place : null,
+        doc_type: i === 0 && isLeader() ? g.doc_type : null, doc_number: i === 0 && isLeader() ? g.doc_number.trim() : null, doc_place: i === 0 && isLeader() ? g.doc_place : null,
       })) } });
       guests = []; // nessuna copia dei dati resta nella pagina
       app.replaceChildren(...header(), h('div', { class: 'card done' },
-        h('div', { class: 'big', text: '✓' }), h('h2', { text: t().doneTitle }), h('p', { text: t().doneText })));
+        h('div', { class: 'big', text: '✓' }), h('h2', { text: t().doneTitle }), h('p', { text: t().doneText }), h('p', { class: 'hint', text: t().doneShare }),
+        h('button', { class: 'btn', type: 'button', text: t().again, onClick: () => location.reload() })));
       window.scrollTo(0, 0);
     } catch (e) {
       banner = e.message === 'Failed to fetch' ? t().network : e.message;
       if (e.extra && Number.isInteger(e.extra.index)) errors[e.extra.index] = { ...(errors[e.extra.index] || {}), server: true };
-      if (e.code && !['validation', 'server', 'forbidden'].includes(e.code)) info = { ...info, open: false, reason: T.it.closed[e.code] ? e.code : 'expired' };
+      if (e.code === 'leader_taken') { info = { ...info, leaderTaken: true }; role = null; }
+      else if (e.code && !['validation', 'server', 'forbidden'].includes(e.code)) info = { ...info, open: false, reason: T.it.closed[e.code] ? e.code : 'expired' };
       render();
       if (e.extra && Number.isInteger(e.extra.index)) scrollToCard(e.extra.index);
     }
@@ -420,11 +476,13 @@
       return;
     }
     try {
-      const r = await api('');
+      const r = await api(`?part=${encodeURIComponent(part)}`);
       info = r.form;
+      if (info.iAmLeader) role = 'leader';
+      else if (info.mine) role = 'other';
       // Il colore della casa (come sul sito): un tocco di riconoscibilità.
       if (info.color) document.documentElement.style.setProperty('--accent', info.color);
-      guests = Array.from({ length: Math.max(1, info.guests || 1) }, blankGuest);
+      guests = role ? Array.from({ length: Math.max(1, info.mine || 1) }, blankGuest) : [];
       document.documentElement.lang = lang;
       render();
     } catch (e) {

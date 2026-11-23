@@ -63,7 +63,7 @@ function editable(b) {
  * Ricalcola "completo" per tutti gli ospiti della prenotazione (il capo deve avere anche il documento)
  * e i conteggi sulla prenotazione (con un nuovo numero di revisione, così gli altri dispositivi li vedono).
  */
-async function refreshComplete(db, bookingId) {
+export async function refreshComplete(db, bookingId) {
   const list = (await db.prepare(`SELECT id, position, ${FIELDS.join(', ')} FROM guests WHERE booking_id = ? AND deleted = 0 ORDER BY position`).bind(bookingId).all()).results || [];
   const flags = list.map((g, i) => (guestMissing(g, i === 0).length ? 0 : 1));
   const done = flags.filter(Boolean).length;

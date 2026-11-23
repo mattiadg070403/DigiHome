@@ -34,7 +34,7 @@ export async function handle(request, env) {
   if (!m) return fail(404, 'not_found', 'Pagina non trovata.');
   const token = m[1];
   try {
-    if (request.method === 'GET' && !m[2]) return json({ ok: true, form: await formInfo(env.DB, token) });
+    if (request.method === 'GET' && !m[2]) return json({ ok: true, form: await formInfo(env.DB, token, undefined, url.searchParams.get('part')) });
     if (request.method === 'GET' && m[2]) {
       return json({ ok: true, places: await formPlaces(env.DB, token, url.searchParams.get('q'), url.searchParams.get('kind')) });
     }

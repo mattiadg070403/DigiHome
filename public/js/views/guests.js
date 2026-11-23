@@ -140,10 +140,12 @@ export function formMessage(b, house, link, lang) {
   const name = firstName(b);
   if (lang === 'en') {
     return `Hi${name ? ` ${name}` : ''}, to speed up check-in at ${house.name}, could you please fill in the details of all guests here before you arrive? `
-      + `The lead guest's ID document is needed.\n${link}\nIt takes a couple of minutes. Thank you!`;
+      + `The lead guest's ID document is needed.\n${link}\nYou can also forward the link to the other guests, so everyone enters their own details from their phone. `
+      + `It takes a couple of minutes. Thank you!`;
   }
   return `Ciao${name ? ` ${name}` : ''}, per velocizzare il check-in a ${house.name} ti chiedo di inserire qui, prima dell’arrivo, i dati di tutti gli ospiti `
-    + `(serve il documento di chi ha prenotato):\n${link}\nCi vogliono un paio di minuti. Grazie!`;
+    + `(serve il documento di chi ha prenotato):\n${link}\nPuoi anche girare il link agli altri ospiti, così ognuno inserisce i suoi dati dal proprio telefono. `
+    + `Ci vogliono un paio di minuti. Grazie!`;
 }
 
 function formBlock(ctx, b, house) {
@@ -162,7 +164,7 @@ function formBlock(ctx, b, house) {
     out.append(h('div', null, tag({ text: `Dati inviati dall’ospite il ${fmtShort(todayRome(new Date(b.guest_form_at)))}: controllali all’arrivo`, tone: 'ok' })));
   }
   if (!b.guest_form_token) {
-    out.append(h('p', { class: 'hint', text: 'Un link da mandare su WhatsApp: l’ospite inserisce i dati di tutti (anche in inglese) e arrivano qui da soli. All’arrivo controlli i documenti e invii.' }),
+    out.append(h('p', { class: 'hint', text: 'Un link da mandare su WhatsApp: l’ospite inserisce i dati di tutti (anche in inglese), oppure ognuno i suoi dal proprio telefono, e arrivano qui da soli. All’arrivo controlli i documenti e invii.' }),
       h('div', { class: 'btn-row' }, h('button', { class: 'btn small primary', type: 'button', onClick: () => act('create', 'Link creato') }, icon('plus', { size: 16 }), 'Crea il link per l’ospite')));
     return out;
   }

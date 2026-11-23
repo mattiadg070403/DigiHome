@@ -56,37 +56,74 @@ test('pagina: solo casa, date e numero di ospiti (niente nomi, telefono o dati g
   assert.deepEqual((await formPlaces(db, token, 'lec', 'C')).map((p) => p.name), ['LECCE']);
 });
 
+const P1 = 'telefono-di-chi-ha-prenotato';
+const P2 = 'telefono-del-secondo-ospite';
+const P3 = 'telefono-del-terzo-ospite_';
+const asLead = (guests, extra = {}) => ({ part: P1, leader: true, group: 'famiglia', guests, ...extra });
+const names = async (db, id) => (await db.prepare('SELECT first_name FROM guests WHERE booking_id = ? AND deleted = 0 ORDER BY position').bind(id).all()).results.map((x) => x.first_name);
+
 test('invio: dati salvati nella scheda, controlli come nel gestionale, nessun dato personale nel registro', async () => {
   const { db, admin, b, token } = await setup();
-  await assert.rejects(submitForm(db, token, { guests: [{ ...lead, doc_number: null }, second] }), /Ospite 1: manca numero del documento/);
-  await assert.rejects(submitForm(db, token, { guests: [lead, { ...second, first_name: 'Анна' }] }), /Ospite 2: .*lettere latine/);
-  await assert.rejects(submitForm(db, token, { guests: [lead, { ...second, birth_place: '999999999' }] }), /Ospite 2: luogo non valido/);
-  await assert.rejects(submitForm(db, token, { guests: [{ ...lead, citizenship: '403075031' }, second] }), /cittadinanza deve essere uno stato/);
-  await assert.rejects(submitForm(db, token, { guests: [] }), /Numero di ospiti/);
-  const r = await submitForm(db, token, { group: 'famiglia', guests: [lead, { ...second, doc_number: 'NON-SALVARE' }] });
+  await assert.rejects(submitForm(db, token, { leader: true, guests: [lead, second] }), /Richiesta non valida/); // manca il codice del telefono
+  await assert.rejects(submitForm(db, token, asLead([{ ...lead, doc_number: null }, second])), /Ospite 1: manca numero del documento/);
+  await assert.rejects(submitForm(db, token, asLead([lead, { ...second, first_name: 'Анна' }])), /Ospite 2: .*lettere latine/);
+  await assert.rejects(submitForm(db, token, asLead([lead, { ...second, birth_place: '999999999' }])), /Ospite 2: luogo non valido/);
+  await assert.rejects(submitForm(db, token, asLead([{ ...lead, citizenship: '403075031' }, second])), /cittadinanza deve essere uno stato/);
+  await assert.rejects(submitForm(db, token, asLead([])), /Numero di ospiti/);
+  const r = await submitForm(db, token, asLead([lead, { ...second, doc_number: 'NON-SALVARE' }]));
   assert.equal(r.count, 2);
   const rows = (await db.prepare('SELECT * FROM guests WHERE booking_id = ? ORDER BY position').bind(b.id).all()).results;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].source, 'ospite');
   assert.equal(rows[0].doc_number, 'C01X00T47');
   assert.equal(rows[1].doc_number, null); // il documento serve solo a chi ha prenotato
-  const bk = await db.prepare('SELECT guests_entered, guests_done, guest_form_at, guest_form_submits FROM bookings WHERE id = ?').bind(b.id).first();
-  assert.deepEqual([bk.guests_entered, bk.guests_done, bk.guest_form_submits], [2, 2, 1]);
+  const bk = await db.prepare('SELECT guests_entered, guests_done, guest_form_at, guest_form_submits, guest_group FROM bookings WHERE id = ?').bind(b.id).first();
+  assert.deepEqual([bk.guests_entered, bk.guests_done, bk.guest_form_submits, bk.guest_group], [2, 2, 1, 'famiglia']);
   assert.ok(bk.guest_form_at);
   const log = JSON.stringify((await db.prepare('SELECT * FROM audit_log').all()).results);
   assert.ok(!log.includes('Jürgen') && !log.includes('C01X00T47'));
   assert.ok(!JSON.stringify(await readState(db, admin)).includes('C01X00T47'));
-  // Un nuovo invio sostituisce il precedente (e i vecchi dati spariscono davvero).
-  await submitForm(db, token, { guests: [{ ...lead, first_name: 'Hans' }] });
+  // Un nuovo invio dallo stesso telefono sostituisce il precedente (e i vecchi dati spariscono davvero).
+  await submitForm(db, token, asLead([{ ...lead, first_name: 'Hans' }]));
   const all = (await db.prepare('SELECT first_name FROM guests WHERE booking_id = ?').bind(b.id).all()).results;
   assert.deepEqual(all.map((x) => x.first_name), ['Hans']);
+});
+
+test('più telefoni: ognuno inserisce i suoi, i dati si sommano e chi ha prenotato resta primo', async () => {
+  const { db, b, token } = await setup({ guests: 3 });
+  // Prima arriva un altro ospite (senza documento), poi chi ha prenotato.
+  await submitForm(db, token, { part: P2, leader: false, guests: [second] });
+  let info = await formInfo(db, token, T, P2);
+  assert.deepEqual([info.entered, info.mine, info.leaderTaken, info.iAmLeader], [1, 1, false, false]);
+  await submitForm(db, token, asLead([lead]));
+  assert.deepEqual(await names(db, b.id), ['Jürgen', 'Anna']); // chi ha prenotato (con documento) diventa il capo
+  // Il terzo inserisce sé e un accompagnatore; non può dichiararsi "chi ha prenotato".
+  info = await formInfo(db, token, T, P3);
+  assert.deepEqual([info.entered, info.mine, info.leaderTaken], [2, 0, true]);
+  await assert.rejects(submitForm(db, token, { part: P3, leader: true, guests: [lead] }), (e) => e.code === 'leader_taken');
+  await submitForm(db, token, { part: P3, leader: false, guests: [{ ...second, first_name: 'Karl', sex: 'M' }, { ...second, first_name: 'Lena' }] });
+  assert.deepEqual(await names(db, b.id), ['Jürgen', 'Anna', 'Karl', 'Lena']);
+  // Il secondo corregge i suoi dati: cambiano solo i suoi, l'ordine resta.
+  await submitForm(db, token, { part: P2, leader: false, guests: [{ ...second, first_name: 'Annette' }] });
+  assert.deepEqual(await names(db, b.id), ['Jürgen', 'Annette', 'Karl', 'Lena']);
+  const pos = (await db.prepare('SELECT position FROM guests WHERE booking_id = ? AND deleted = 0 ORDER BY position').bind(b.id).all()).results.map((x) => x.position);
+  assert.deepEqual(pos, [0, 1, 2, 3]);
+  const bk = await db.prepare('SELECT guests_entered, guest_form_submits, guest_group FROM bookings WHERE id = ?').bind(b.id).first();
+  assert.deepEqual([bk.guests_entered, bk.guest_form_submits, bk.guest_group], [4, 4, 'famiglia']); // il tipo di gruppo lo sceglie solo chi ha prenotato
+  // Chi ha prenotato può ricompilare dal suo telefono (resta il capo).
+  assert.equal((await formInfo(db, token, T, P1)).iAmLeader, true);
+  await submitForm(db, token, asLead([{ ...lead, first_name: 'Hans' }], { group: 'gruppo' }));
+  assert.deepEqual(await names(db, b.id), ['Hans', 'Annette', 'Karl', 'Lena']);
+  // Limite: in tutto al massimo gli ospiti prenotati + 4.
+  const many = Array.from({ length: 4 }, (_, i) => ({ ...second, first_name: `Extra${'abcd'[i]}` }));
+  await assert.rejects(submitForm(db, token, { part: 'telefono-di-troppo-1234', leader: false, guests: many }), /già stati inseriti 4 ospiti su 3/);
 });
 
 test('il modulo si chiude: schedine inviate, link scaduto, prenotazione cancellata, troppi invii', async () => {
   const s1 = await setup();
   await s1.db.prepare('UPDATE bookings SET alloggiati_at = ? WHERE id = ?').bind(new Date().toISOString(), s1.b.id).run();
   assert.equal((await formInfo(s1.db, s1.token)).reason, 'done');
-  await assert.rejects(submitForm(s1.db, s1.token, { guests: [lead] }), /non è più disponibile/);
+  await assert.rejects(submitForm(s1.db, s1.token, asLead([lead])), /non è più disponibile/);
   const s2 = await setup({ checkIn: T });
   assert.equal((await formInfo(s2.db, s2.token, addDays(T, 1))).open, true); // anche il giorno dopo l'arrivo
   assert.equal((await formInfo(s2.db, s2.token, addDays(T, 2))).reason, 'expired');
@@ -94,8 +131,8 @@ test('il modulo si chiude: schedine inviate, link scaduto, prenotazione cancella
   await s3.db.prepare("UPDATE bookings SET stage = 'cancellata' WHERE id = ?").bind(s3.b.id).run();
   assert.equal((await formInfo(s3.db, s3.token)).reason, 'cancelled');
   const s4 = await setup();
-  await s4.db.prepare('UPDATE bookings SET guest_form_submits = 20 WHERE id = ?').bind(s4.b.id).run();
-  await assert.rejects(submitForm(s4.db, s4.token, { guests: [lead] }), /non è più disponibile/);
+  await s4.db.prepare('UPDATE bookings SET guest_form_submits = 40 WHERE id = ?').bind(s4.b.id).run();
+  await assert.rejects(submitForm(s4.db, s4.token, asLead([lead])), /non è più disponibile/);
 });
 
 test('Worker pubblico: solo le sue pagine, intestazioni di sicurezza, POST solo dalla stessa origine', async () => {
@@ -112,13 +149,14 @@ test('Worker pubblico: solo le sue pagine, intestazioni di sicurezza, POST solo 
   assert.equal((await handle(new Request(`${base}/api/form/${'1'.repeat(12)}`), env)).status, 404);
   assert.equal((await handle(new Request(`${base}/api/form/${'1'.repeat(12)}/places?q=ger`), env)).status, 404);
   assert.equal((await handle(new Request(`${base}/${'0'.repeat(12)}`), env)).status, 404); // 0 non è nell'alfabeto
-  const info = await (await handle(new Request(`${base}/api/form/${token}`), env)).json();
+  const info = await (await handle(new Request(`${base}/api/form/${token}?part=${P1}`), env)).json();
   assert.equal(info.form.open, true);
+  assert.equal(info.form.mine, 0);
   const post = (headers, body) => handle(new Request(`${base}/api/form/${token}`, { method: 'POST', headers, body }), env);
   assert.equal((await post({ 'Content-Type': 'application/json', Origin: 'https://evil.example' }, '{}')).status, 403);
   assert.equal((await post({ 'Content-Type': 'text/plain' }, '{}')).status, 415);
   assert.equal((await post({ 'Content-Type': 'application/json' }, 'x'.repeat(70000))).status, 413);
-  const ok = await post({ 'Content-Type': 'application/json', Origin: base }, JSON.stringify({ guests: [lead, second] }));
+  const ok = await post({ 'Content-Type': 'application/json', Origin: base }, JSON.stringify(asLead([lead, second])));
   assert.equal(ok.status, 200);
   assert.equal((await handle(new Request(`${base}/robots.txt`), env)).status, 200);
 });

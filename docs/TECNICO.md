@@ -311,3 +311,4 @@ Migrazione 0020 (`houses.market_settings`, tabelle `market_comps`, `market_price
 - Preventivo: "Mercato su Airbnb" con prezzo a notte delle case simili libere, prenotate su controllate, confronto con il prezzo diretto e un consiglio (tenere il prezzo pieno / margine per uno sconto).
 - Server locale: Apify finto (40 annunci inventati intorno a Gallipoli, prezzi più alti e più occupazione ad agosto).
 - 0.17.1: "Posti (ospiti)" tra i criteri della ricerca (richiesta di Mattia): la ricerca chiede ad Airbnb case con almeno posti − 1, si scartano quelle con più di 2 posti di differenza, e nel punteggio i posti pesano più delle camere. Vuoto = massimo di ospiti della casa.
+- 0.17.2: le coordinate si possono incollare anche da Mappe di Apple ("40,0558° N, 17,9925° E").

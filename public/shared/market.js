@@ -40,13 +40,19 @@ export function marketSettings(house) {
   return r.ok ? r.value : clone(DEFAULT_MARKET);
 }
 
-/** "40.0558, 17.9925" (copiato da Google Maps) → { lat, lon }, oppure null. */
+/**
+ * Coordinate copiate da Google Maps ("40.0558, 17.9925") o da Mappe di Apple ("40,0558° N, 17,9925° E")
+ * → { lat, lon }, oppure null.
+ */
 export function parseCoords(text) {
-  const m = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(String(text || ''));
+  const t = String(text || '').trim();
+  const m = /^(-?\d{1,3}(?:[.,]\d+)?)\s*°?\s*([NS])?\s*[,;\s]\s*(-?\d{1,3}(?:[.,]\d+)?)\s*°?\s*([EWO])?$/i.exec(t);
   if (!m) return null;
-  const lat = Number(m[1]);
-  const lon = Number(m[2]);
-  return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : null;
+  let lat = Number(m[1].replace(',', '.'));
+  let lon = Number(m[3].replace(',', '.'));
+  if (m[2] && m[2].toUpperCase() === 'S') lat = -Math.abs(lat);
+  if (m[4] && /[WO]/i.test(m[4])) lon = -Math.abs(lon);
+  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : null;
 }
 
 export function checkMarketSettings(input) {

@@ -24,6 +24,7 @@ test('lettura dei risultati: importi, prezzo per l’ospite, pulizie, dotazioni,
   assert.ok(!JSON.stringify(l).includes('Nome Persona')); // niente dati dell'host
   assert.deepEqual(parseCoords('40.0558, 17.9925'), { lat: 40.0558, lon: 17.9925 });
   assert.equal(parseCoords('via Roma'), null);
+  assert.deepEqual(parseCoords('40,0558° N, 17,9925° E'), { lat: 40.0558, lon: 17.9925 }); // Mappe di Apple
   assert.equal(checkMarketSettings({ lat: 40, lon: 18, amenities: ['jacuzzi'] }).ok, false);
 });
 

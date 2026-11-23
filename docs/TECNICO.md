@@ -267,3 +267,4 @@ Migrazione 0018 (`houses.pricing`, tabella `price_lists`, `bookings.booked_on`).
 - Preventivo: se tutte le notti sono nel listino, il prezzo proposto è quello del listino (diretto); lo storico resta come confronto.
 - Oggi: il lunedì, da gennaio ad agosto, per l'amministratore, "Lunedì dei prezzi: N settimane da valutare".
 - `booked_on`: si segna alla creazione (gestionale e calendari) e all'importazione se il file ha la colonna "Data della prenotazione".
+- 0.14.1: nella scheda "Copia solo il link" (oltre a "Copia il messaggio"); nella definitiva il modulo ospiti resta spento (niente `OSPITI_PUBLIC_URL` in produzione/wrangler.jsonc) finché il Worker `digihome-ospiti` non è creato e collegato ai domini: così non si possono creare link che non funzionano.

@@ -175,16 +175,17 @@ function formBlock(ctx, b, house) {
     // Nel tocco: le app aprono WhatsApp solo se la finestra si apre subito.
     window.open(`https://wa.me/${n || ''}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(formMessage(b, house, link, 'it')); ctx.toast('Messaggio con il link copiato'); } catch { ctx.toast('Non riesco a copiare: tieni premuto sul link', { bad: true }); }
+  const copy = async (text, done) => {
+    try { await navigator.clipboard.writeText(text); ctx.toast(done); } catch { ctx.toast('Non riesco a copiare: tieni premuto sul link', { bad: true }); }
   };
   out.append(
     h('p', { class: 'small' }, 'Link: ', h('a', { href: link, target: '_blank', rel: 'noopener noreferrer', class: 'break', text: link })),
     h('div', { class: 'btn-row' },
       h('button', { class: 'btn small', type: 'button', onClick: () => send('it') }, icon('chat', { size: 16 }), 'WhatsApp in italiano'),
       h('button', { class: 'btn small', type: 'button', onClick: () => send('en') }, icon('chat', { size: 16 }), 'WhatsApp in inglese'),
-      h('button', { class: 'btn small ghost', type: 'button', text: 'Copia il messaggio', onClick: copy })),
-    h('p', { class: 'hint', text: `Funziona fino al ${fmtShort(lastDay)} o finché non invii le schedine. Ogni nuovo invio dell’ospite sostituisce il precedente.` }),
+      h('button', { class: 'btn small ghost', type: 'button', text: 'Copia solo il link', onClick: () => copy(link, 'Link copiato') }),
+      h('button', { class: 'btn small ghost', type: 'button', text: 'Copia il messaggio', onClick: () => copy(formMessage(b, house, link, 'it'), 'Messaggio con il link copiato') })),
+    h('p', { class: 'hint', text: `Funziona fino al ${fmtShort(lastDay)} o finché non invii le schedine. Se un ospite reinvia dallo stesso telefono, i suoi dati vengono sostituiti; quelli degli altri restano.` }),
     h('div', { class: 'btn-row' },
       h('button', { class: 'btn small ghost', type: 'button', text: 'Crea un link nuovo', onClick: async () => {
         if (await confirmDialog({ title: 'Creare un link nuovo?', text: 'Quello vecchio smette di funzionare.', okLabel: 'Crea' })) act('create', 'Nuovo link creato', { renew: true });

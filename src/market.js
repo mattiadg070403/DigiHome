@@ -5,7 +5,7 @@
 import { OpError, REV_NEXT, registerOps } from './ops.js';
 import { addDays, todayRome } from '../public/shared/dates.js';
 import { pricingSettings, seasonWeeks, seasonYear } from '../public/shared/pricing.js';
-import { MAX_CANDIDATES, MAX_SELECTED, checkMarketSettings, marketSettings, readListing, similarity } from '../public/shared/market.js';
+import { MAX_CANDIDATES, MAX_SELECTED, checkMarketSettings, distanceM, listingIdFromUrl, marketSettings, readListing, similarity } from '../public/shared/market.js';
 
 const API = 'https://api.apify.com/v2';
 export const ACTOR_SEARCH = 'tri_angle~airbnb-scraper';
@@ -238,7 +238,8 @@ export async function saveSearch(db, job, items) {
   const keep = JSON.stringify(top.map((l) => l.listing_id));
   const stmts = [
     // Si tolgono i vecchi candidati non scelti che non sono più tra i più simili (quelli scelti restano).
-    db.prepare(`DELETE FROM market_comps WHERE house_id = ? AND selected = 0 AND listing_id NOT IN (SELECT value FROM json_each(?))`).bind(house.id, keep),
+    // (Le case aggiunte da Mattia con il link restano sempre.)
+    db.prepare(`DELETE FROM market_comps WHERE house_id = ? AND selected = 0 AND source = 'ricerca' AND listing_id NOT IN (SELECT value FROM json_each(?))`).bind(house.id, keep),
     ...top.map((l, i) => db.prepare(`INSERT INTO market_comps (id, house_id, listing_id, url, title, capacity, bedrooms, distance_m, rating, reviews, amenities, score, selected, found_at, updated_at, rev)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})
         ON CONFLICT (house_id, listing_id) DO UPDATE SET title = excluded.title, capacity = excluded.capacity, bedrooms = excluded.bedrooms,
@@ -255,6 +256,9 @@ export async function saveSearch(db, job, items) {
 /** Risultati di una settimana → prezzo o "non disponibile" per ogni casa scelta che Apify ha restituito. */
 export async function savePrices(db, job, items) {
   const chosen = new Set(((await db.prepare('SELECT listing_id FROM market_comps WHERE house_id = ? AND selected = 1').bind(job.house_id).all()).results || []).map((r) => r.listing_id));
+  const house = await db.prepare('SELECT * FROM houses WHERE id = ?').bind(job.house_id).first();
+  const s = marketSettings(house);
+  const here = s.lat !== null ? { lat: s.lat, lon: s.lon } : null;
   const at = nowIso();
   const stmts = [];
   let n = 0;
@@ -267,11 +271,14 @@ export async function savePrices(db, job, items) {
         ON CONFLICT (house_id, listing_id, week_start) DO UPDATE SET status = excluded.status, week_cents = excluded.week_cents,
           cleaning_cents = excluded.cleaning_cents, checked_at = excluded.checked_at, rev = excluded.rev`)
       .bind(job.house_id, l.listing_id, job.week_start, l.available ? 'libera' : 'non_disponibile', l.available ? l.total_cents : null, l.cleaning_cents, at));
-    // Dotazioni aggiornate dalla pagina dell'annuncio (più complete di quelle della ricerca).
-    if (l.amenities.length) {
-      stmts.push(db.prepare(`UPDATE market_comps SET amenities = ?, rating = COALESCE(?, rating), reviews = COALESCE(?, reviews), updated_at = ?, rev = ${REV_NEXT}
-          WHERE house_id = ? AND listing_id = ?`).bind(JSON.stringify(l.amenities), l.rating, l.reviews, at, job.house_id, l.listing_id));
-    }
+    // Dati dell'annuncio aggiornati dalla sua pagina (più completi di quelli della ricerca; per le case aggiunte con
+    // il link sono i primi che arrivano): titolo, posti, camere, distanza, dotazioni, valutazione.
+    const dist = here && l.coords ? distanceM(here, l.coords) : null;
+    stmts.push(db.prepare(`UPDATE market_comps SET title = COALESCE(?, title), capacity = COALESCE(?, capacity), bedrooms = COALESCE(?, bedrooms),
+        distance_m = COALESCE(?, distance_m), amenities = CASE WHEN ? = '[]' THEN amenities ELSE ? END,
+        rating = COALESCE(?, rating), reviews = COALESCE(?, reviews), updated_at = ?, rev = ${REV_NEXT}
+        WHERE house_id = ? AND listing_id = ?`).bind(l.title, l.capacity, l.bedrooms, dist, JSON.stringify(l.amenities), JSON.stringify(l.amenities),
+      l.rating, l.reviews, at, job.house_id, l.listing_id));
   }
   if (stmts.length) await db.batch([...stmts, db.prepare("UPDATE meta SET value = value + 1 WHERE key = 'rev'")]);
   return n;
@@ -299,6 +306,61 @@ async function marketSelect(db, user, opId, p) {
   return { selected: ids.length };
 }
 
-registerOps({ 'market.select': marketSelect });
+/**
+ * Casa simile aggiunta da Mattia con il link di Airbnb. Si sceglie subito (se ci sono meno di 10 case scelte) e si
+ * mette in coda il controllo della prima settimana della stagione, che porta anche titolo, posti e dotazioni.
+ */
+async function marketAdd(db, user, opId, p) {
+  requireAdmin(user);
+  const house = await houseOf(db, p.house_id);
+  const listingId = listingIdFromUrl(p.url);
+  if (!listingId) throw new OpError(400, 'validation', 'Link non riconosciuto: apri l’annuncio su Airbnb e copia l’indirizzo completo (contiene /rooms/ e un numero).');
+  const at = nowIso();
+  const id = `${house.id}:${listingId}`;
+  const selected = (await db.prepare('SELECT COUNT(*) AS n FROM market_comps WHERE house_id = ? AND selected = 1').bind(house.id).first()).n;
+  const exists = await db.prepare('SELECT selected FROM market_comps WHERE id = ?').bind(id).first();
+  // Le case scelte da Mattia vengono prima di quelle trovate dalla ricerca: se le 10 sono piene, lascia il posto
+  // la meno simile tra quelle della ricerca.
+  let bump = null;
+  if (!(exists && exists.selected) && selected >= MAX_SELECTED) {
+    bump = await db.prepare("SELECT id FROM market_comps WHERE house_id = ? AND selected = 1 AND source = 'ricerca' ORDER BY score DESC LIMIT 1").bind(house.id).first();
+  }
+  const pick = (exists && exists.selected) || selected < MAX_SELECTED || bump ? 1 : 0;
+  const today = todayRome();
+  const first = weeksToCheck(house, today)[0];
+  const pending = first ? await db.prepare("SELECT 1 FROM market_jobs WHERE house_id = ? AND kind = 'prices' AND week_start = ? AND status IN ('queued', 'running')").bind(house.id, first).first() : null;
+  await db.batch([
+    ...(bump ? [db.prepare(`UPDATE market_comps SET selected = 0, updated_at = ?, rev = ${REV_NEXT} WHERE id = ?`).bind(at, bump.id)] : []),
+    db.prepare(`INSERT INTO market_comps (id, house_id, listing_id, url, source, selected, found_at, updated_at, rev)
+        VALUES (?, ?, ?, ?, 'manuale', ?, ?, ?, ${REV_NEXT})
+        ON CONFLICT (house_id, listing_id) DO UPDATE SET source = 'manuale', selected = excluded.selected, updated_at = excluded.updated_at, rev = excluded.rev`)
+      .bind(id, house.id, listingId, `https://www.airbnb.it/rooms/${listingId}`, pick, at, at),
+    ...(first && !pending ? [db.prepare("INSERT INTO market_jobs (id, house_id, kind, week_start, status, created_at) VALUES (?, ?, 'prices', ?, 'queued', ?)")
+      .bind(crypto.randomUUID(), house.id, first, at)] : []),
+    db.prepare(`INSERT INTO audit_log (at, user_email, entity, entity_id, action, changes) VALUES (?, ?, 'house', ?, 'mercato', ?)`)
+      .bind(at, user.email, house.id, JSON.stringify({ casa_simile_aggiunta: listingId })),
+    db.prepare('INSERT INTO ops (op_id, at, user_email, result) VALUES (?, ?, ?, ?)').bind(opId, at, user.email, JSON.stringify({ added: listingId, selected: pick })),
+    db.prepare("UPDATE meta SET value = value + 1 WHERE key = 'rev'"),
+  ]);
+  return { added: listingId, selected: pick };
+}
+
+/** Toglie una casa simile aggiunta con il link (e i suoi prezzi). */
+async function marketRemove(db, user, opId, p) {
+  requireAdmin(user);
+  const house = await houseOf(db, p.house_id);
+  const listingId = String(p.listing_id || '');
+  if (!/^\d{1,30}$/.test(listingId)) throw new OpError(400, 'validation', 'Richiesta non valida');
+  const at = nowIso();
+  await db.batch([
+    db.prepare('DELETE FROM market_prices WHERE house_id = ? AND listing_id = ?').bind(house.id, listingId),
+    db.prepare('DELETE FROM market_comps WHERE house_id = ? AND listing_id = ?').bind(house.id, listingId),
+    db.prepare('INSERT INTO ops (op_id, at, user_email, result) VALUES (?, ?, ?, ?)').bind(opId, at, user.email, JSON.stringify({ removed: listingId })),
+    db.prepare("UPDATE meta SET value = value + 1 WHERE key = 'rev'"),
+  ]);
+  return { removed: listingId };
+}
+
+registerOps({ 'market.select': marketSelect, 'market.add': marketAdd, 'market.remove': marketRemove });
 
 export { checkMarketSettings };

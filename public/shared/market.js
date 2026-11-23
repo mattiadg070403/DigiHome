@@ -114,6 +114,20 @@ function countFrom(items, re) {
   return null;
 }
 
+/**
+ * Numero dell'annuncio da un link di Airbnb (sito o app: www.airbnb.it/rooms/123…, airbnb.com/rooms/plus/123,
+ * m.airbnb.de/rooms/123?…). null se non è un link di un annuncio.
+ */
+export function listingIdFromUrl(text) {
+  const t = String(text || '').trim();
+  if (t.length > 600) return null;
+  let u;
+  try { u = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`); } catch { return null; }
+  if (!/^([a-z0-9-]+\.)?airbnb\.[a-z.]{2,10}$/i.test(u.hostname)) return null;
+  const m = /^\/rooms\/(?:plus\/)?(\d{4,25})(?:\/|$)/.exec(u.pathname);
+  return m ? m[1] : null;
+}
+
 const listingIdFrom = (x) => {
   const id = String(x.id ?? '').replace(/\D/g, '');
   if (id) return id.slice(0, 30);

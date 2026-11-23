@@ -733,3 +733,5 @@ hr.soft { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; widt
 .pl-mk { display: flex; flex-wrap: wrap; gap: 0 2px; margin-top: 2px; }
 .pl-mk-label { font-weight: 650; color: var(--ink-2); }
 .quote-market { padding: 10px 12px; border-radius: 10px; background: var(--card-soft); border: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 4px; }
+.mk-add .btn-row > .input { flex: 1 1 260px; }
+.mk-comp-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }

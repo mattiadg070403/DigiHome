@@ -4,7 +4,7 @@
 import { h, icon } from '../dom.js';
 import { field, openDialog, setFieldError } from '../ui.js';
 import { fmtEuro } from '../../shared/money.js';
-import { AMENITIES, MAX_SELECTED, amenityReport, checkMarketSettings, marketSettings, parseCoords } from '../../shared/market.js';
+import { AMENITIES, MAX_SELECTED, amenityReport, checkMarketSettings, listingIdFromUrl, marketSettings, parseCoords } from '../../shared/market.js';
 
 const fmtKm = (m) => (m === null || m === undefined ? '' : m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toLocaleString('it-IT', { maximumFractionDigits: 1 })} km`);
 const when = (iso) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }) : '—');
@@ -34,6 +34,26 @@ export function marketSettingsDialog(ctx, house) {
   const amenBox = h('div', { class: 'mk-amen' }, Object.entries(AMENITIES).map(([k, a]) => h('label', { class: 'pl-check' },
     h('input', { type: 'checkbox', checked: mine.has(k), onChange: (e) => { if (e.target.checked) mine.add(k); else mine.delete(k); } }), h('span', { text: a.label }))));
   const compsBox = h('div', { class: 'stack acc-tight' });
+  // Case scelte da Mattia: si incolla il link dell'annuncio (dal sito o dall'app di Airbnb, "Condividi → Copia link").
+  const linkIn = h('input', { class: 'input', type: 'url', inputmode: 'url', autocomplete: 'off', placeholder: 'https://www.airbnb.it/rooms/…', attrs: { 'aria-label': 'Link dell’annuncio su Airbnb' },
+    onKeydown: (e) => { if (e.key === 'Enter') addLink(); } });
+  async function addLink() {
+    const id = listingIdFromUrl(linkIn.value);
+    if (!id) { setFieldError(linkIn, 'Link non riconosciuto: deve contenere /rooms/ e un numero'); return; }
+    setFieldError(linkIn, '');
+    try {
+      const r = await ctx.act('market.add', { house_id: house.id, url: linkIn.value.trim() }, { message: 'Casa aggiunta: titolo e dotazioni arrivano tra qualche minuto' });
+      linkIn.value = '';
+      touched = false;
+      await store.load({ force: true });
+      if (r && !r.selected) ctx.toast(`Aggiunta all’elenco ma non scelta: hai già ${MAX_SELECTED} case. Togline una e metti la spunta a questa.`, { bad: true });
+      draw();
+    } catch { /* messaggio già mostrato */ }
+  }
+  const addBox = h('div', { class: 'stack acc-tight' },
+    h('div', { class: 'label', text: 'Aggiungi una casa che conosci, con il link di Airbnb' }),
+    h('div', { class: 'field mk-add' }, h('div', { class: 'btn-row' }, linkIn, h('button', { class: 'btn small primary', type: 'button', text: 'Aggiungi', onClick: addLink })), h('div', { class: 'err', hidden: true })),
+    h('p', { class: 'muted small', text: 'Sul telefono: apri l’annuncio nell’app di Airbnb → Condividi → Copia link, poi incollalo qui. Le case che aggiungi tu vengono prima di quelle trovate dalla ricerca.' }));
   const jobsLine = h('p', { class: 'muted small', attrs: { 'aria-live': 'polite' } });
   let picked = new Set(); // scelta in corso (insieme di annunci)
   let touched = false; // finché non si tocca niente, la scelta segue quella salvata
@@ -55,6 +75,7 @@ export function marketSettingsDialog(ctx, house) {
       h('div', { class: 'field' }, h('div', { class: 'label', text: 'Dotazioni della casa (per il confronto)' }), amenBox),
       h('div', { class: 'btn-row' }, h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: () => save() })),
       h('h3', { text: 'Case simili' }),
+      addBox,
       jobsLine,
       compsBox),
     actions: [h('button', { class: 'btn', type: 'button', text: 'Chiudi', onClick: () => dlg.close() })],
@@ -116,7 +137,7 @@ export function marketSettingsDialog(ctx, house) {
       const text = searching ? 'Ricerca in corso: aspetta qualche minuto con la finestra aperta, le case compaiono qui da sole.'
         : lastSearch && lastSearch.status === 'done' ? 'La ricerca è finita ma nessuna casa corrisponde ai criteri: prova ad allargare il raggio (es. 5 km) o a lasciare vuote le camere, salva e cerca di nuovo.'
           : lastSearch && lastSearch.status === 'error' ? `La ricerca non è riuscita: ${lastSearch.error || 'errore di Apify'}.`
-            : 'Salva posizione e dotazioni, poi cerca: il gestionale propone le 15 case più simili e sceglie le prime 10 (puoi cambiarle).';
+            : 'Aggiungi le tue case con il link qui sopra (fino a 10), oppure salva posizione e dotazioni e tocca "Cerca case simili": il gestionale propone le 15 più simili e sceglie le prime 10.';
       compsBox.replaceChildren(h('p', { class: ['small', lastSearch && lastSearch.status !== 'done' && !searching ? 'warn-text' : 'muted'], text }), searching ? null : h('div', null, searchBtn));
       return;
     }
@@ -130,9 +151,17 @@ export function marketSettingsDialog(ctx, house) {
       } });
       let am = [];
       try { am = JSON.parse(c.amenities || '[]'); } catch { am = []; }
+      const manual = c.source === 'manuale';
       return h('label', { class: 'mk-comp' }, box,
         h('span', { class: 'mk-comp-main' },
-          h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', text: c.title || `Annuncio ${c.listing_id}` }),
+          h('span', { class: 'mk-comp-title' },
+            h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', text: c.title || `Annuncio ${c.listing_id}` }),
+            manual ? h('span', { class: 'tag ok', text: 'scelta da te' }) : null,
+            !c.title ? h('span', { class: 'muted small', text: 'dati in arrivo' }) : null,
+            manual ? h('button', { class: 'btn ghost small danger', type: 'button', text: 'Togli', onClick: async (e) => {
+              e.preventDefault();
+              try { await ctx.act('market.remove', { house_id: house.id, listing_id: c.listing_id }, { message: 'Casa tolta' }); touched = false; await store.load({ force: true }); draw(); } catch { /* già mostrato */ }
+            } }) : null),
           h('span', { class: 'muted small', text: [c.capacity ? `${c.capacity} ospiti` : null, c.bedrooms !== null && c.bedrooms !== undefined ? `${c.bedrooms} camere` : null, fmtKm(c.distance_m),
             c.rating ? `★ ${Number(c.rating).toLocaleString('it-IT', { maximumFractionDigits: 2 })}${c.reviews ? ` (${c.reviews})` : ''}` : null].filter(Boolean).join(' · ') }),
           am.length ? h('span', { class: 'muted small', text: am.map((k) => (AMENITIES[k] ? AMENITIES[k].label : k)).join(', ') }) : null));

@@ -4,7 +4,7 @@ import { freshDb, addUser } from './d1.js';
 import { runOp } from '../src/ops.js';
 import { readState } from '../src/state.js';
 import { marketTick, requestRefresh, startDiscovery } from '../src/market.js';
-import { amenityKeys, amenityReport, checkMarketSettings, marketAdvice, moneyToCents, parseCoords, readListing, readPrice, similarity, weekMarket } from '../public/shared/market.js';
+import { amenityKeys, amenityReport, checkMarketSettings, listingIdFromUrl, marketAdvice, moneyToCents, parseCoords, readListing, readPrice, similarity, weekMarket } from '../public/shared/market.js';
 
 const ENV = { APIFY_TOKEN: 'apify_api_test_token_0000000000' };
 
@@ -131,4 +131,39 @@ test('flusso completo: ricerca → 10 scelte → prezzi per settimana; solo l’
   assert.ok(!JSON.stringify(st).includes(ENV.APIFY_TOKEN));
   assert.equal(st.marketJobs.length, 0); // i lavori li vede solo l'amministratore
   assert.equal(st.marketPrices.length, 72);
+});
+
+test('case scelte da Mattia con il link: riconoscimento, priorità sulla ricerca, al massimo 10, si possono togliere', async () => {
+  assert.equal(listingIdFromUrl('https://www.airbnb.it/rooms/12345678?adults=2&check_in=2027-07-03'), '12345678');
+  assert.equal(listingIdFromUrl('airbnb.com/rooms/plus/987654'), '987654');
+  assert.equal(listingIdFromUrl('https://m.airbnb.de/rooms/55555/'), '55555');
+  assert.equal(listingIdFromUrl('https://www.booking.com/rooms/12345'), null);
+  assert.equal(listingIdFromUrl('https://www.airbnb.it/s/Gallipoli/homes'), null);
+  assert.equal(listingIdFromUrl('https://airbnb.it.evil.example/rooms/12345'), null);
+  const db = freshDb();
+  const admin = await addUser(db, { email: 'admin@example.invalid', role: 'admin' });
+  const collab = await addUser(db, { email: 'c@example.invalid', role: 'collaboratore' });
+  const add = (user, url) => runOp(db, user, { opId: crypto.randomUUID(), type: 'market.add', payload: { house_id: 'isola-bella', url } });
+  await assert.rejects(add(collab, 'https://www.airbnb.it/rooms/11111'), /amministratore/);
+  await assert.rejects(add(admin, 'https://www.airbnb.it/wishlists/1'), /Link non riconosciuto/);
+  // 9 trovate dalla ricerca e già scelte, poi 2 aggiunte a mano: la seconda prende il posto della meno simile della ricerca.
+  for (let i = 0; i < 9; i++) {
+    await db.prepare(`INSERT INTO market_comps (id, house_id, listing_id, url, score, selected, found_at) VALUES (?, 'isola-bella', ?, ?, ?, 1, '2026-11-23')`)
+      .bind(`isola-bella:${7000 + i}`, String(7000 + i), `https://www.airbnb.it/rooms/${7000 + i}`, i).run();
+  }
+  const a1 = await add(admin, 'https://www.airbnb.it/rooms/11111?x=1');
+  assert.equal(a1.selected, 1);
+  const a2 = await add(admin, 'https://www.airbnb.it/rooms/22222');
+  assert.equal(a2.selected, 1);
+  const sel = (await db.prepare("SELECT listing_id, source FROM market_comps WHERE house_id = 'isola-bella' AND selected = 1").all()).results;
+  assert.equal(sel.length, 10);
+  assert.ok(sel.some((r) => r.listing_id === '22222') && !sel.some((r) => r.listing_id === '7008')); // tolta la meno simile
+  // Il controllo della prima settimana è in coda (porta titolo, posti e dotazioni).
+  const jobs = (await db.prepare("SELECT * FROM market_jobs WHERE house_id = 'isola-bella' AND kind = 'prices'").all()).results;
+  assert.equal(jobs.length, 1);
+  // Togliere una casa aggiunta a mano cancella anche i suoi prezzi.
+  await db.prepare("INSERT INTO market_prices (house_id, listing_id, week_start, status, checked_at) VALUES ('isola-bella', '11111', '2027-07-03', 'non_disponibile', 'x')").run();
+  await runOp(db, admin, { opId: crypto.randomUUID(), type: 'market.remove', payload: { house_id: 'isola-bella', listing_id: '11111' } });
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM market_prices WHERE listing_id = '11111'").first()).n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM market_comps WHERE listing_id = '11111'").first()).n, 0);
 });

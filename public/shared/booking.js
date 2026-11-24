@@ -1,7 +1,7 @@
 // Regole delle prenotazioni: fasi, prossimo passo, avvisi, validazione.
 // Usato sia dall'app sia dal server, così le regole sono scritte una volta sola.
 
-import { addDays, daysBetween, fmtShort, isIsoDate, isTime, overlaps } from './dates.js';
+import { addDays, daysBetween, fmtShort, isIsoDate, isTime, overlaps, todayRome } from './dates.js';
 import { taxSettings, touristTax } from './tax.js';
 import { fmtEuro } from './money.js';
 
@@ -269,6 +269,16 @@ export function guestsLabel(b) {
   return `${b.guests} ${b.guests === 1 ? 'persona' : 'persone'}`;
 }
 
+/**
+ * Soggiorno inserito quando era già finito (a mano per gli anni passati, o importato dal vecchio file):
+ * fa parte dello storico. Niente check-in, ospiti, Questura, DMS, contratto o promemoria; conta per bilanci e listino.
+ */
+export function enteredAfterStay(b) {
+  if (typeof b.created_at !== 'string' || !isIsoDate(b.check_out)) return false;
+  const t = new Date(b.created_at);
+  return !Number.isNaN(t.getTime()) && todayRome(t) > b.check_out;
+}
+
 /** Etichette di stato brevi per le schede. tone: ok | warn | neutral */
 export function statusTags(b, today) {
   const tags = [];
@@ -466,6 +476,11 @@ export function validateBooking(input, { house, partial = false } = {}) {
   }
   for (const k of ['deposit_paid', 'linens', 'towels']) {
     if (has(k)) v[k] = input[k] ? 1 : 0;
+  }
+  if (has('booked_on')) {
+    const s = input.booked_on == null ? '' : String(input.booked_on).trim();
+    if (s && !isIsoDate(s)) errors.booked_on = 'Data non valida';
+    else v.booked_on = s || null;
   }
   if (has('minors_delegation')) {
     if (!MINORS[input.minors_delegation]) errors.minors_delegation = 'Valore non valido';

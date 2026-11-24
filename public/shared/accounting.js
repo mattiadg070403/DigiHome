@@ -10,7 +10,7 @@
 // Calcoli in centesimi, arrotondati al centesimo per ogni soggiorno.
 
 import { daysBetween, isIsoDate, addDays } from './dates.js';
-import { parseSteps } from './booking.js';
+import { enteredAfterStay, parseSteps } from './booking.js';
 
 export const VAT_BP = 2200; // IVA sulle commissioni: 22%
 
@@ -214,6 +214,8 @@ export function accountingTodo(data, house, today, { years } = {}) {
   for (const b of data.bookings) {
     if (b.house_id !== house.id || b.stage === 'cancellata') continue;
     const a = stayAccount(b, { extras: data.extras, expenses: data.expenses, settings });
+    // Storico (inserito a soggiorno finito): i soldi sono già stati sistemati allora, non si chiede di segnarli.
+    if (enteredAfterStay(b)) continue;
     const arrived = b.check_in <= today;
     if (b.channel === 'diretto' && arrived && b.total_cents > 0 && !parseSteps(b.checkin_steps).pagamenti && b.stage !== 'confermata') {
       out.push({ level: 'attenzione', kind: 'saldo', bookingId: b.id, text: `${name(b)}: saldo non segnato come incassato` });
@@ -232,8 +234,11 @@ export function accountingTodo(data, house, today, { years } = {}) {
     }
   }
   const yearsList = years || [...new Set(data.bookings.filter((b) => b.house_id === house.id).map((b) => Number(b.check_in.slice(0, 4))))];
+  // Cedolare e tassa da versare: solo per gli anni con soggiorni gestiti nell'app (non per gli anni solo di storico).
+  const live = new Set(data.bookings.filter((b) => b.house_id === house.id && b.stage !== 'cancellata' && !enteredAfterStay(b))
+    .map((b) => Number(b.check_in.slice(0, 4))));
   for (const y of yearsList.sort()) {
-    if (y > Number(today.slice(0, 4))) continue;
+    if (y > Number(today.slice(0, 4)) || !live.has(y)) continue;
     const r = yearReport(data, house, y, today);
     if (r.totals.cedolareToPay > 0) out.push({ level: 'attenzione', kind: 'cedolare', year: y, amount: r.totals.cedolareToPay, text: `Cedolare ${y} da versare` });
     if (r.tourist.toRemit > 0) out.push({ level: 'attenzione', kind: 'tassa', year: y, amount: r.tourist.toRemit, text: `Tassa di soggiorno ${y} da versare al Comune` });

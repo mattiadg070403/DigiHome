@@ -253,6 +253,67 @@ function contractView(blocks, guestEl) {
   return h('div', { class: 'contract-text', tabindex: '0', attrs: { 'aria-label': 'Testo del contratto' } }, nodes);
 }
 
+/* ---------------- Lettura a schermo intero (24/11: "troppo piccolo" per l'ospite) ---------------- */
+
+const READ_SIZES = [17, 19, 21, 23, 26, 29];
+const READ_KEY = 'digihome-lettura-contratto';
+function readSize() {
+  try {
+    const n = Number(localStorage.getItem(READ_KEY));
+    return READ_SIZES.includes(n) ? n : 21;
+  } catch { return 21; }
+}
+function saveSize(n) {
+  try { localStorage.setItem(READ_KEY, String(n)); } catch { /* niente: resta solo per questa volta */ }
+}
+
+/**
+ * Il contratto a tutto schermo, a caratteri grandi (regolabili con A− / A+), per farlo leggere all'ospite.
+ * Si apre sopra la finestra della firma e si chiude con "Ho letto" (o Esc): i dati scritti restano lì.
+ */
+function openReader({ blocks, guestText, title, lang }) {
+  const en = lang === 'en';
+  let size = readSize();
+  const text = contractView(blocks, h('p', { class: 'ct-guest' }, rich(guestText)));
+  text.classList.add('reader-text');
+  const apply = () => {
+    text.style.setProperty('--rd-size', `${size}px`);
+    minus.disabled = size === READ_SIZES[0];
+    plus.disabled = size === READ_SIZES[READ_SIZES.length - 1];
+  };
+  const step = (d) => {
+    const i = Math.min(READ_SIZES.length - 1, Math.max(0, READ_SIZES.indexOf(size) + d));
+    size = READ_SIZES[i];
+    saveSize(size);
+    apply();
+  };
+  const minus = h('button', { class: 'btn reader-size', type: 'button', text: 'A−', attrs: { 'aria-label': en ? 'Smaller text' : 'Testo più piccolo' }, onClick: () => step(-1) });
+  const plus = h('button', { class: 'btn reader-size big', type: 'button', text: 'A+', attrs: { 'aria-label': en ? 'Larger text' : 'Testo più grande' }, onClick: () => step(1) });
+  const doneLabel = en ? 'I have read it · back to signing' : 'Ho letto · torna alla firma';
+  const titleId = newId();
+  const body = h('div', { class: 'reader-body' }, text);
+  const dlg = h('dialog', { class: 'reader', attrs: { 'aria-labelledby': titleId } },
+    h('div', { class: 'reader-in' },
+      h('div', { class: 'reader-head' },
+        h('h2', { id: titleId, text: title }),
+        h('div', { class: 'reader-tools' }, minus, plus,
+          h('button', { class: 'btn ghost icon-only', type: 'button', attrs: { 'aria-label': en ? 'Close' : 'Chiudi' }, onClick: () => close() }, icon('close')))),
+      body,
+      h('div', { class: 'reader-foot' },
+        h('button', { class: 'btn house', type: 'button', onClick: () => close() }, icon('check', { size: 18 }), doneLabel))));
+  function close() {
+    if (dlg.open) dlg.close();
+    dlg.remove();
+  }
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  apply();
+  document.body.append(dlg);
+  dlg.showModal();
+  body.scrollTop = 0;
+  body.focus({ preventScroll: true });
+  return { close };
+}
+
 function adultMax(today) {
   const [y, m, d] = today.split('-');
   return `${Number(y) - 18}-${m}-${d}`;
@@ -300,6 +361,10 @@ export function signDialog(ctx, b, house) {
     field(GUEST_FIELDS.doc_number, mk('doc_number')));
 
   const textBox = h('div', { class: 'contract-wrap' }, h('p', { class: 'muted', text: 'Carico il testo del contratto…' }));
+  let blocks = null; // testo caricato (per la lettura a schermo intero)
+  const readBtn = h('button', { class: 'btn house read-btn', type: 'button', disabled: true,
+    onClick: () => blocks && openReader({ blocks, guestText: guestParagraph(g, lang), title: `${lang === 'en' ? 'Rental agreement' : 'Contratto'} · ${house.name}`, lang }) },
+  icon('expand', { size: 18 }), 'Leggi a schermo intero');
   const langSeg = h('div');
   const drawLang = () => langSeg.replaceChildren(segmented(Object.entries(LANGS).map(([value, label]) => ({ value, label })), lang,
     (v) => { lang = v; drawLang(); updateGuest(); acceptText.textContent = ACCEPT[lang]; loadDraft(); }, 'Lingua del contratto'));
@@ -319,6 +384,8 @@ export function signDialog(ctx, b, house) {
     h('section', { class: 'stack' }, h('h3', { text: 'Dati dell’ospite (chi firma)' }), form),
     h('section', { class: 'stack' },
       h('div', { class: 'sig-head' }, h('h3', { text: 'Contratto' }), langSeg),
+      h('div', { class: 'read-row' }, readBtn,
+        h('span', { class: 'muted small', text: 'Caratteri grandi e regolabili: fai leggere così l’ospite, poi torna qui per la firma.' })),
       textBox),
     h('label', { class: 'accept-row', for: acceptBox.id }, acceptBox, acceptText),
     h('div', { class: 'sig-grid' }, padGuest.el, padHost.el),
@@ -336,12 +403,15 @@ export function signDialog(ctx, b, house) {
     canClose: async () => !dirty || sending === 'done' || confirmDialog({ title: 'Uscire senza firmare?', text: 'I dati e le firme scritti si perdono (non restano sul dispositivo).', okLabel: 'Esci', danger: true }),
   });
   for (const [k, v] of Object.entries(houseVars(house))) dlg.el.style.setProperty(k, v);
+  dlg.el.classList.add('contract-dlg');
   requestAnimationFrame(() => { padGuest.fit(); padHost.fit(); });
 
   // Testo del contratto: lo prepara il server (con i dati della casa e della prenotazione), nella lingua scelta.
   function loadDraft() {
     const seq = ++loadSeq;
     saveBtn.disabled = true;
+    readBtn.disabled = true;
+    blocks = null;
     textBox.replaceChildren(h('p', { class: 'muted', text: 'Carico il testo del contratto…' }));
     store.request(`/api/bookings/${encodeURIComponent(b.id)}/contract-draft?lang=${lang}`).then((res) => {
       if (dlg.closed || seq !== loadSeq) return;
@@ -350,6 +420,8 @@ export function signDialog(ctx, b, house) {
         return;
       }
       textBox.replaceChildren(contractView(res.blocks, guestEl));
+      blocks = res.blocks;
+      readBtn.disabled = false;
       saveBtn.disabled = false;
     }).catch((e) => {
       if (dlg.closed || seq !== loadSeq) return;

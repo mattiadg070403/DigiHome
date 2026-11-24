@@ -7,7 +7,7 @@ import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import {
   CHANNELS, arrivalReminderItems, MINORS, SECURITY_STATUS, balanceDue, bookingAlerts, checkinSteps, checkoutSteps,
   missingRequired, nextStep, parseSteps, phase, statusTags, stepLabel, guestsLabel,
-  extraLabel, extrasTotal } from '../../shared/booking.js';
+  extraLabel, extrasTotal, enteredAfterStay } from '../../shared/booking.js';
 import { openBookingForm } from './form.js';
 import { runNextAction, patchSteps, cancelBooking, restoreBooking } from './actions.js';
 import { alertActions, waNumber } from './contact.js';
@@ -41,7 +41,11 @@ export function renderDetail(ctx, id) {
   const alerts = bookingAlerts(b, ui.today, d.bookings, ctx.clock(b));
   const n = nights(b.check_in, b.check_out);
   const year = Number(ui.today.slice(0, 4));
-  const editable = !['cancellata', 'chiusa'].includes(b.stage);
+  const admin = d.me?.role === 'admin';
+  // Storico (inserito a soggiorno finito): niente ospiti, Questura, contratto, check-in e check-out da rivedere.
+  const history = b.stage === 'chiusa' && enteredAfterStay(b);
+  // Chiusa: la corregge solo l'amministratore.
+  const editable = b.stage !== 'cancellata' && (b.stage !== 'chiusa' || admin);
 
   const head = h('div', { class: 'detail-head' },
     h('div', { class: 'detail-band' }),
@@ -53,7 +57,7 @@ export function renderDetail(ctx, id) {
         b.ext_uid || b.ext_url ? h('div', { class: 'row-sub' },
           h('span', { text: `Collegata al calendario ${CHANNELS[b.channel].label}: le date si aggiornano da sole.` }),
           b.ext_url ? h('a', { href: b.ext_url, target: '_blank', rel: 'noopener noreferrer', text: `Apri su ${CHANNELS[b.channel].label}` }) : null) : null,
-        h('div', { class: 'tags' }, statusTags(b, ui.today).map(tag))),
+        h('div', { class: 'tags' }, statusTags(b, ui.today).map(tag), history ? tag({ text: 'Storico', tone: 'neutral' }) : null)),
       h('div', { class: 'btn-row' },
         editable ? h('button', { class: 'btn', type: 'button', onClick: () => openBookingForm(ctx, { existing: b }) }, icon('edit', { size: 16 }), 'Modifica') : null)));
 
@@ -100,13 +104,14 @@ export function renderDetail(ctx, id) {
     ['Asciugamani', b.towels ? 'sì' : 'no'],
     ['Delega minorenni', MINORS[b.minors_delegation]],
     meterSummary(b, house) ? ['Contatore della luce', meterSummary(b, house)] : null,
-    b.stage === 'chiusa' ? ['Recensione', b.review_ok ? 'si può chiedere' : 'meglio di no'] : null,
+    b.stage === 'chiusa' && !history ? ['Recensione', b.review_ok ? 'si può chiedere' : 'meglio di no'] : null,
+    history && b.booked_on ? ['Prenotata il', fmtShort(b.booked_on)] : null,
     b.notes ? ['Note della prenotazione', b.notes] : null,
   ].filter(Boolean));
 
   const flows = [];
-  if (b.stage !== 'confermata' && b.stage !== 'cancellata') flows.push(h('a', { class: 'btn small', href: `#/p/${b.id}/checkin`, text: 'Rivedi check-in' }));
-  if (b.stage === 'partita' || b.stage === 'chiusa') flows.push(h('a', { class: 'btn small', href: `#/p/${b.id}/checkout`, text: 'Rivedi check-out' }));
+  if (history) { /* storico: niente check-in e check-out da rivedere */ } else if (b.stage !== 'confermata' && b.stage !== 'cancellata') flows.push(h('a', { class: 'btn small', href: `#/p/${b.id}/checkin`, text: 'Rivedi check-in' }));
+  if (!history && (b.stage === 'partita' || b.stage === 'chiusa')) flows.push(h('a', { class: 'btn small', href: `#/p/${b.id}/checkout`, text: 'Rivedi check-out' }));
 
   return h('div', { vars: houseVars(house) },
     h('div', { class: 'page-head' }, backLink(ctx, b), ctx.syncChip()),
@@ -116,14 +121,14 @@ export function renderDetail(ctx, id) {
       // Contatti e dettagli insieme (giro di semplificazione 23/11): una scheda in meno.
       panel('Contatti e dettagli', h('div', { class: 'stack' }, contacts, h('hr', { class: 'soft' }), details)),
       panel('Note', notesBlock(ctx, b)),
-      b.channel === 'diretto' ? contractPanel(ctx, b) : null),
-    b.stage !== 'cancellata' ? h('div', { class: 'section' }, guestsPanel(ctx, b)) : null,
+      b.channel === 'diretto' && !history ? contractPanel(ctx, b) : null),
+    b.stage !== 'cancellata' && !history ? h('div', { class: 'section' }, guestsPanel(ctx, b)) : null,
     h('div', { class: 'section' }, stayAccountPanel(ctx, b)),
     h('div', { class: 'section' },
       h('div', { class: 'btn-row' }, flows,
         b.stage === 'cancellata'
           ? h('button', { class: 'btn', type: 'button', text: 'Ripristina prenotazione', onClick: () => restoreBooking(ctx, b) })
-          : b.stage !== 'chiusa' ? h('button', { class: 'btn danger', type: 'button', text: 'Cancella prenotazione', onClick: () => cancelBooking(ctx, b) }) : null)),
+          : b.stage !== 'chiusa' || admin ? h('button', { class: 'btn danger', type: 'button', text: 'Cancella prenotazione', onClick: () => cancelBooking(ctx, b) }) : null)),
     historyBlock(ctx, b));
 }
 

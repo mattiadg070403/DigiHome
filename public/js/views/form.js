@@ -5,7 +5,7 @@
 
 import { h } from '../dom.js';
 import { openDialog, field, setFieldError, switchRow, segmented, houseVars, confirmDialog } from '../ui.js';
-import { dateRangeField, timeField } from '../pickers.js';
+import { dateField, dateRangeField, timeField } from '../pickers.js';
 import { readDraft, writeDraft, clearDraft } from '../drafts.js';
 import { fmtShort, isIsoDate, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
@@ -62,6 +62,12 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
   initTax();
 
   const house = () => d.houses.find((x) => x.id === v.house_id) || d.houses[0];
+  // Soggiorno già finito: storico degli anni passati. Si salva chiuso, senza i campi che servono solo per l'arrivo.
+  const isPast = () => (existing ? existing.stage === 'chiusa' : isIsoDate(v.check_out) && v.check_out < ui.today);
+  const admin = d.me?.role === 'admin';
+  const futureOnly = []; // campi che per lo storico non servono (si nascondono)
+  const pastOnly = [];
+  const fut = (el) => { if (el) futureOnly.push(el); return el; };
   const controls = {};
   const box = h('div', { class: 'stack' });
   const summary = h('div', { class: 'summary', attrs: { 'aria-live': 'polite' } });
@@ -232,7 +238,11 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     const linkedNote = linked ? h('div', { class: 'banner full', text: existing.needs_details
       ? `Arrivata dal calendario ${CHANNELS[v.channel].label}: completa nome, persone e telefono. Le date si aggiornano da sole dal calendario.`
       : `Collegata al calendario ${CHANNELS[v.channel].label}: se cambi le date qui, al prossimo aggiornamento tornano quelle di ${CHANNELS[v.channel].label}.` }) : null;
+    futureOnly.length = 0;
+    pastOnly.length = 0;
+    pastOnly.push(pastNote);
     box.replaceChildren(
+      pastNote,
       h('div', { class: 'form-grid' },
         linkedNote,
         houseSeg,
@@ -240,7 +250,8 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
         field('Nome dell’ospite o del gruppo', input('guest_name', { type: 'text', maxlength: '120', autocomplete: 'off' }), { full: true }),
         h('div', { class: 'field full', vars: houseVars(h0) }, h('div', { class: 'label', text: 'Date del soggiorno' }), range.el),
         guestsControl(),
-        h('div', { class: 'field' }, h('div', { class: 'label', text: 'Orario di arrivo (se lo sai già)' }), time.el),
+        fut(h('div', { class: 'field' }, h('div', { class: 'label', text: 'Orario di arrivo (se lo sai già)' }), time.el)),
+        bookedOnField(),
         field('Telefono', input('phone', { type: 'tel', autocomplete: 'off', maxlength: '40' })),
         field('Email', input('email', { type: 'email', autocomplete: 'off', maxlength: '160' })),
       ),
@@ -248,36 +259,57 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
       h('div', { class: 'form-grid' },
         field(direct ? 'Prezzo totale del soggiorno (€)' : `Totale pagato su ${CHANNELS[v.channel].label} (€)`, money('total_cents'),
           { hint: 'Quello che paga l’ospite per il soggiorno, senza tassa di soggiorno e senza extra chiesti a parte' }),
-        direct ? field('Acconto (€)', money('deposit_cents')) : h('div'),
-        direct ? h('div', { class: 'full' }, switchRow('Acconto già ricevuto', { checked: Boolean(v.deposit_paid), onChange: (c) => { v.deposit_paid = c ? 1 : 0; changed(); } })) : null,
-        field('Cauzione (€)', money('security_cents'), { hint: 'Lascia vuoto se non la chiedi' }),
+        direct ? fut(field('Acconto (€)', money('deposit_cents'))) : h('div'),
+        direct ? fut(h('div', { class: 'full' }, switchRow('Acconto già ricevuto', { checked: Boolean(v.deposit_paid), onChange: (c) => { v.deposit_paid = c ? 1 : 0; changed(); } }))) : null,
+        fut(field('Cauzione (€)', money('security_cents'), { hint: 'Lascia vuoto se non la chiedi' })),
       ),
       summary,
-      h('h3', { text: 'Tassa di soggiorno' }),
-      taxBlock(),
+      fut(h('h3', { text: 'Tassa di soggiorno' })),
+      fut(taxBlock()),
       h('h3', { text: 'Dettagli' }),
       h('div', { class: 'form-grid' },
         h('div', null, switchRow('Lenzuola', { checked: Boolean(v.linens), onChange: (c) => { v.linens = c ? 1 : 0; v.linens_touched = true; changed(); } })),
         h('div', null, switchRow('Asciugamani', { checked: Boolean(v.towels), onChange: (c) => { v.towels = c ? 1 : 0; v.linens_touched = true; changed(); } })),
-        field('Delega per minorenni', minors, { hint: 'Serve se ci sono minorenni senza un genitore' }),
+        fut(field('Delega per minorenni', minors, { hint: 'Serve se ci sono minorenni senza un genitore' })),
         field('Note', notes, { full: true }),
       ),
     );
     refresh();
   }
 
+  // Storico: spiegazione e "prenotata il" (facoltativo, per il ritmo delle prenotazioni nel listino).
+  const pastNote = h('div', { class: 'banner ok', hidden: true });
+  let bookedOnInput = null;
+  function bookedOnField() {
+    const f = dateField({ value: v.booked_on || '', label: 'Prenotata il (gg/mm/aaaa)', calendar: false, min: '2015-01-01', max: ui.today,
+      onChange: (iso) => { v.booked_on = iso || ''; setFieldError(f.input, ''); changed(); } });
+    bookedOnInput = f.input;
+    controls.booked_on = f.input;
+    const el = h('div', { class: 'field' }, h('div', { class: 'label', text: 'Prenotata il (facoltativo)' }), f.input,
+      h('div', { class: 'hint', text: 'Il giorno in cui è arrivata (lo trovi su Airbnb o Booking): serve al ritmo delle prenotazioni nel listino.' }));
+    pastOnly.push(el);
+    return el;
+  }
+
   function refresh() {
+    const past = isPast();
+    for (const el of futureOnly) el.hidden = past;
+    for (const el of pastOnly) el.hidden = !past;
+    pastNote.textContent = !past ? '' : isNew && !admin
+      ? 'Soggiorno già concluso: i soggiorni passati li inserisce solo l’amministratore.'
+      : `Soggiorno già concluso: ${isNew ? 'lo salvo direttamente nell’archivio' : 'è nell’archivio (storico)'}. Non chiede check-in, dati degli ospiti, Alloggiati, DMS, contratto né tassa di soggiorno; conta nei bilanci, nella contabilità e nel listino.`;
+    pastNote.classList.toggle('warn', past && isNew && !admin);
     refreshTax();
     const n = isIsoDate(v.check_in) && isIsoDate(v.check_out) && v.check_out > v.check_in ? nights(v.check_in, v.check_out) : 0;
     const parts = [];
     if (n) parts.push(h('span', null, h('strong', { text: `${n} ${n === 1 ? 'notte' : 'notti'}` }), ` · ${fmtShort(v.check_in)} → ${fmtShort(v.check_out)}`));
-    if (v.channel === 'diretto' && v.total_cents > 0) parts.push(h('span', { text: `${v.deposit_paid ? 'Saldo all’arrivo' : 'Ancora da incassare'}: ${fmtEuro(balanceDue(v))}` }));
+    if (v.channel === 'diretto' && v.total_cents > 0 && !past) parts.push(h('span', { text: `${v.deposit_paid ? 'Saldo all’arrivo' : 'Ancora da incassare'}: ${fmtEuro(balanceDue(v))}` }));
     if (n && v.total_cents > 0) parts.push(h('span', { class: 'muted', text: `${fmtEuro(Math.round(v.total_cents / n))} a notte` }));
     summary.replaceChildren(...(parts.length ? parts : [h('span', { class: 'muted', text: 'Scegli le date per vedere il riepilogo.' })]));
   }
 
   function payload() {
-    return {
+    const out = {
       channel: v.channel, guest_name: v.guest_name, phone: v.phone, email: v.email, guests: Number(v.guests),
       check_in: v.check_in, check_out: v.check_out, arrival_time: v.arrival_time || '',
       total_cents: v.total_cents || 0, security_cents: v.security_cents || 0,
@@ -285,6 +317,15 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
       deposit_paid: v.channel === 'diretto' ? Boolean(v.deposit_paid) : false,
       linens: Boolean(v.linens), towels: Boolean(v.towels), minors_delegation: v.minors_delegation, notes: v.notes,
     };
+    if (isPast()) {
+      // Storico: niente orario, acconto, cauzione e delega; sì "prenotata il".
+      delete out.arrival_time;
+      delete out.security_cents;
+      delete out.minors_delegation;
+      if (isNew) { out.deposit_cents = 0; out.deposit_paid = false; } else { delete out.deposit_cents; delete out.deposit_paid; }
+      out.booked_on = v.booked_on || '';
+    }
+    return out;
   }
 
   function showErrors(errors) {
@@ -352,13 +393,17 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
   async function save() {
     if (saving) return;
     for (const k of MONEY) {
-      if (controls[k] && parseEuro(controls[k].value) === null) { controls[k].focus(); return; }
+      if (controls[k] && !controls[k].closest('[hidden]') && parseEuro(controls[k].value) === null) { controls[k].focus(); return; }
     }
     if (!range.valid) { dlg.setBanner(range.problem); range.focus(); return; }
     if (guestsErr) { dlg.setBanner(guestsErr); controls.guests.focus(); return; }
-    if (!timeOk) { dlg.setBanner('Orario di arrivo non valido (es. 16:30).'); controls.arrival_time.focus(); return; }
-    if (v.tax_persons > Number(v.guests)) { dlg.setBanner('Tassa di soggiorno: le persone che pagano sono più di quelle della prenotazione.'); controls.tax_persons.focus(); return; }
-    if (v.tax_manual && parseEuro(controls.tax_amount.value) === null) { controls.tax_amount.focus(); return; }
+    const past = isPast();
+    if (past && isNew && !admin) { dlg.setBanner('I soggiorni già conclusi li inserisce solo l’amministratore.'); return; }
+    if (past && bookedOnInput && bookedOnInput.value.trim() && !isIsoDate(v.booked_on)) { setFieldError(bookedOnInput, 'Data non valida'); bookedOnInput.focus(); return; }
+    if (past && v.booked_on && isIsoDate(v.check_in) && v.booked_on > v.check_in) { setFieldError(bookedOnInput, 'Deve essere prima dell’arrivo'); bookedOnInput.focus(); return; }
+    if (!past && !timeOk) { dlg.setBanner('Orario di arrivo non valido (es. 16:30).'); controls.arrival_time.focus(); return; }
+    if (!past && v.tax_persons > Number(v.guests)) { dlg.setBanner('Tassa di soggiorno: le persone che pagano sono più di quelle della prenotazione.'); controls.tax_persons.focus(); return; }
+    if (!past && v.tax_manual && parseEuro(controls.tax_amount.value) === null) { controls.tax_amount.focus(); return; }
     const p = payload();
     const check = validateBooking({ ...p, house_id: v.house_id }, { house: house(), partial: !isNew });
     if (!check.ok) { dlg.setBanner('Controlla i campi evidenziati.'); showErrors(check.errors); return; }
@@ -427,6 +472,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
    * nei periodi senza tassa non serve salvarla (e se c'era si toglie).
    */
   function taxOp(bookingId) {
+    if (isPast()) return null; // storico: la tassa non si gestisce qui
     const cur = bookingId ? taxOf(bookingId) : null;
     const calc = taxCalc();
     const amount = taxAmount();

@@ -20,7 +20,7 @@ const OVERLAP = `EXISTS (SELECT 1 FROM bookings o WHERE o.house_id = ? AND o.sta
   AND o.id <> ? AND o.check_in < ? AND o.check_out > ?)`;
 
 const BOOKING_EDITABLE = ['channel', 'guest_name', 'phone', 'email', 'guests', 'check_in', 'check_out', 'arrival_time',
-  'total_cents', 'deposit_cents', 'deposit_paid', 'security_cents', 'linens', 'towels', 'minors_delegation', 'notes'];
+  'total_cents', 'deposit_cents', 'deposit_paid', 'security_cents', 'linens', 'towels', 'minors_delegation', 'notes', 'booked_on'];
 
 export class OpError extends Error {
   constructor(status, code, message, extra = {}) {
@@ -136,6 +136,13 @@ async function bookingCreate(db, user, opId, p) {
   const id = isId(p.id) ? p.id : crypto.randomUUID();
   if (await getBooking(db, id)) throw new OpError(409, 'state', 'Prenotazione già salvata.');
   const at = nowIso();
+  // Soggiorno già finito (storico degli anni passati): si salva direttamente chiuso, senza check-in né Questura.
+  const today = todayRome();
+  const past = value.check_out < today; // chi parte oggi è ancora un soggiorno da gestire
+  if (past && user.role !== 'admin') throw new OpError(403, 'forbidden', 'Solo l’amministratore può inserire soggiorni già conclusi.');
+  if (value.booked_on && value.booked_on > value.check_in) {
+    throw bad('La data della prenotazione deve essere prima dell’arrivo', { errors: { booked_on: 'Deve essere prima dell’arrivo' } });
+  }
   const row = {
     id, house_id: house.id,
     channel: value.channel, guest_name: value.guest_name, phone: value.phone ?? null, email: value.email ?? null,
@@ -145,8 +152,10 @@ async function bookingCreate(db, user, opId, p) {
     security_status: (value.security_cents ?? 0) > 0 ? 'da_incassare' : 'nessuna',
     linens: value.linens ?? 1, towels: value.towels ?? 0, minors_delegation: value.minors_delegation ?? 'non_serve',
     notes: value.notes ?? null,
-    booked_on: todayRome(), // giorno in cui è arrivata (ritmo delle prenotazioni nel listino)
+    // Giorno in cui è arrivata (ritmo delle prenotazioni nel listino): oggi, oppure quello scritto per lo storico.
+    booked_on: past ? value.booked_on ?? null : todayRome(),
   };
+  if (past) Object.assign(row, { stage: 'chiusa', arrival_time: null, security_cents: 0, security_status: 'nessuna' });
   if (row.deposit_cents > row.total_cents) throw bad('L’acconto supera il totale', { errors: { deposit_cents: 'L’acconto supera il totale' } });
   const cols = Object.keys(row);
   const main = db.prepare(`INSERT INTO bookings (${cols.join(', ')}, created_at, created_by, updated_at, updated_by, rev)
@@ -168,8 +177,9 @@ async function bookingUpdate(db, user, opId, p) {
   const cur = await getBooking(db, p.id);
   if (!cur) throw notFound();
   if (cur.version !== p.version) throw conflictError(cur);
-  if (cur.stage === 'cancellata' || cur.stage === 'chiusa') {
-    throw new OpError(409, 'state', 'Una prenotazione cancellata o chiusa non si può modificare.');
+  // Chiusa: solo l'amministratore può correggerla (per esempio lo storico inserito a mano).
+  if (cur.stage === 'cancellata' || (cur.stage === 'chiusa' && user.role !== 'admin')) {
+    throw new OpError(409, 'state', cur.stage === 'chiusa' ? 'Una prenotazione chiusa la può correggere solo l’amministratore.' : 'Una prenotazione cancellata non si può modificare.');
   }
   const input = {};
   for (const k of Object.keys(p.changes || {})) {
@@ -186,6 +196,8 @@ async function bookingUpdate(db, user, opId, p) {
   if (merged.check_out <= merged.check_in) throw bad('La partenza deve essere dopo l’arrivo', { errors: { check_out: 'La partenza deve essere dopo l’arrivo' } });
   if (daysBetween(merged.check_in, merged.check_out) > 90) throw bad('Soggiorno troppo lungo (massimo 90 notti)', { errors: { check_out: 'Soggiorno troppo lungo (massimo 90 notti)' } });
   if (merged.deposit_cents > merged.total_cents) throw bad('L’acconto supera il totale', { errors: { deposit_cents: 'L’acconto supera il totale' } });
+  if (cur.stage === 'chiusa' && merged.check_out > todayRome()) throw bad('Un soggiorno chiuso deve restare nel passato', { errors: { check_out: 'Deve essere nel passato' } });
+  if (value.booked_on && value.booked_on > merged.check_in) throw bad('La data della prenotazione deve essere prima dell’arrivo', { errors: { booked_on: 'Deve essere prima dell’arrivo' } });
   if (value.security_cents !== undefined && cur.security_status === 'nessuna' && value.security_cents > 0) value.security_status = 'da_incassare';
   if (value.security_cents === 0 && cur.security_status === 'da_incassare') value.security_status = 'nessuna';
   const changes = diff(cur, value);
@@ -295,10 +307,11 @@ function bookingClose(db, user, opId, p) {
 }
 
 function bookingCancel(db, user, opId, p) {
-  // Prenotazione di Airbnb/Booking cancellata qui: sulla piattaforma resta attiva → avviso finché non si conferma.
+  // Prenotazione di Airbnb/Booking cancellata qui: sulla piattaforma resta attiva → avviso finché non si conferma
+  // (non per i soggiorni già finiti). Una chiusa la può togliere solo l'amministratore (es. storico inserito per sbaglio).
   return setStage(db, user, opId, p, {
-    from: ['confermata', 'in_casa', 'partita'], to: 'cancellata', action: 'cancel',
-    extraSet: ", ext_cancel_warn = CASE WHEN channel <> 'diretto' AND ext_gone = 0 THEN 1 ELSE 0 END",
+    from: ['confermata', 'in_casa', 'partita', ...(user.role === 'admin' ? ['chiusa'] : [])], to: 'cancellata', action: 'cancel',
+    extraSet: ", ext_cancel_warn = CASE WHEN channel <> 'diretto' AND ext_gone = 0 AND stage <> 'chiusa' THEN 1 ELSE 0 END",
   });
 }
 

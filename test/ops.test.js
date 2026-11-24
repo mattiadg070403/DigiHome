@@ -189,8 +189,49 @@ test('check-out: cauzione obbligatoria, trattenuta con importo e motivo, poi chi
   const c = await runOp(db, admin, { opId: op(), type: 'booking.close', payload: { id: record.id, version: 3, review_ok: true } });
   assert.equal(c.record.stage, 'chiusa');
   assert.equal(c.record.review_ok, 1);
-  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.update',
+  // Chiusa: il collaboratore non la modifica; l'amministratore sì (correzioni dello storico).
+  const collab = await addUser(db, { email: 'c2@example.invalid', role: 'collaboratore' });
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'booking.update',
     payload: { id: record.id, version: 4, changes: { guests: 2 } } }), 'state');
+  const u = await runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: record.id, version: 4, changes: { guests: 2 } } });
+  assert.equal(u.record.guests, 2);
+  assert.equal(u.record.stage, 'chiusa');
+});
+
+test('storico: un soggiorno già finito si salva chiuso, senza avvisi, e solo dall’amministratore', async () => {
+  const { db, admin, collab } = await setup();
+  const { bookingAlerts, enteredAfterStay } = await import('../public/shared/booking.js');
+  const { accountingTodo } = await import('../public/shared/accounting.js');
+  const past = booking({ check_in: addDays(T, -400), check_out: addDays(T, -393), booked_on: addDays(T, -500), security_cents: 30000, arrival_time: '16:00' });
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'booking.create', payload: { booking: past } }), 'forbidden');
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: { ...past, booked_on: addDays(T, -390) } } }), 'validation');
+  const { record } = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: past } });
+  assert.equal(record.stage, 'chiusa');
+  assert.equal(record.booked_on, addDays(T, -500));
+  assert.equal(record.security_cents, 0);
+  assert.equal(record.arrival_time, null);
+  assert.ok(enteredAfterStay(record));
+  assert.deepEqual(bookingAlerts(record, T, [record]), []);
+  // Airbnb passata senza pagamento segnato: nessuna richiesta nella contabilità (né cedolare di quell'anno).
+  const air = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ channel: 'airbnb', check_in: addDays(T, -380), check_out: addDays(T, -375), security_cents: 0, deposit_cents: 0, deposit_paid: false }) } });
+  const st = await readState(db, admin);
+  const house = st.houses.find((x) => x.id === 'faro-blu');
+  assert.deepEqual(accountingTodo({ bookings: [record, air.record], extras: [], expenses: [], remittances: [] }, house, T), []);
+  // Senza data della prenotazione: resta vuota (non "oggi", che falserebbe il ritmo delle prenotazioni).
+  const nob = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ check_in: addDays(T, -300), check_out: addDays(T, -295) }) } });
+  assert.equal(nob.record.booked_on, null);
+  // Chi parte oggi non è storico: resta da gestire.
+  const today = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ check_in: addDays(T, -2), check_out: T }) } });
+  assert.equal(today.record.stage, 'confermata');
+  // Inserita per sbaglio: l'amministratore la toglie (e la può ripristinare); il collaboratore no.
+  await expectOpError(runOp(db, collab, { opId: op(), type: 'booking.cancel', payload: { id: record.id, version: 1 } }), 'state');
+  const c = await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: record.id, version: 1 } });
+  assert.equal(c.record.stage, 'cancellata');
+  assert.equal(c.record.ext_cancel_warn, 0);
+  const r = await runOp(db, admin, { opId: op(), type: 'booking.restore', payload: { id: record.id, version: 2 } });
+  assert.equal(r.record.stage, 'chiusa');
+  // Correzione: le date devono restare nel passato.
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: record.id, version: 3, changes: { check_out: addDays(T, 3) } } }), 'validation');
 });
 
 test('cancellare libera le date; ripristinare controlla che siano ancora libere', async () => {

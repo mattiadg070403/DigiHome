@@ -83,6 +83,9 @@ export function closeDialog(ctx, b) {
 /** Testo della conferma: cosa succede alle date, qui e sulle piattaforme. */
 function cancelText(b) {
   const name = b.guest_name;
+  if (b.stage === 'chiusa') {
+    return `Il soggiorno di ${name} non conterà più nei bilanci, nella contabilità e nel listino. Usalo per togliere un soggiorno inserito per sbaglio; potrai ripristinarlo.`;
+  }
   if (b.channel === 'diretto') {
     return `La prenotazione di ${name} verrà segnata come cancellata e le date torneranno libere, anche su Airbnb e Booking (se collegati, entro qualche ora). Potrai ripristinarla se le date sono ancora libere.`;
   }
@@ -103,7 +106,7 @@ export async function cancelBooking(ctx, b) {
   if (!ok) return;
   const cur = latest(ctx, b.id);
   await ctx.act('booking.cancel', { id: b.id, version: cur.version }, {
-    message: b.channel !== 'diretto' && !b.ext_gone
+    message: b.channel !== 'diretto' && !b.ext_gone && b.stage !== 'chiusa'
       ? `Cancellata nel gestionale. Su ${b.channel === 'airbnb' ? 'Airbnb' : 'Booking'} resta attiva: guarda l'avviso in Oggi.`
       : 'Prenotazione cancellata',
     undo: (res) => ctx.act('booking.restore', { id: b.id, version: res.record.version }, { message: 'Prenotazione ripristinata' }),

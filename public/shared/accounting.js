@@ -176,6 +176,9 @@ export function yearReport(data, house, year, today) {
   };
   totals.cedolareToPay = Math.max(0, totals.cedolare - totals.cedolareWithheld - totals.cedolareRemitted);
   totals.profit = totals.netRevenue - totals.expenses - totals.cedolare;
+  // Seconda cifra chiesta da Mattia (solo informativa): cedolare contata solo su Airbnb e Booking.
+  totals.cedolarePortals = stays.filter((x) => x.b.channel !== 'diretto').reduce((s, x) => s + x.a.cedolare, 0);
+  totals.profitPortalsOnly = totals.netRevenue - totals.expenses - totals.cedolarePortals;
 
   // Per canale: notti vendute e ricavo netto per notte (prezzo − commissione + extra).
   const channels = {};

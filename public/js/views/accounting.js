@@ -77,11 +77,15 @@ export function renderAccounting(ctx) {
     yearSel);
 
   const was = (k) => (prev ? `${year - 1}: ${fmtEuro(Math.round(prev.totals[k] / 100) * 100)}` : null);
+  // Seconda cifra (cedolare solo su Airbnb e Booking): solo se ci sono prenotazioni dirette.
+  const split = t.cedolarePortals !== t.cedolare;
   const tiles = h('div', { class: 'acc-tiles' },
     tile('Ricavi netti', t.netRevenue, was('netRevenue'), 't-rev', () => explain(ctx, house, r, 'ricavi')),
     tile('Spese', t.expenses, was('expenses'), 't-exp', () => explain(ctx, house, r, 'spese')),
-    tile('Cedolare', t.cedolare, t.cedolareToPay ? `da versare ${fmtEuro(t.cedolareToPay)}` : was('cedolare'), 't-ced', () => explain(ctx, house, r, 'cedolare')),
-    tile('Utile', t.profit, was('profit'), t.profit < 0 ? 't-profit bad' : 't-profit', () => explain(ctx, house, r, 'utile')));
+    tile('Cedolare', t.cedolare, t.cedolareToPay ? `da versare ${fmtEuro(t.cedolareToPay)}` : was('cedolare'), 't-ced', () => explain(ctx, house, r, 'cedolare'),
+      split ? ['Solo Airbnb e Booking', t.cedolarePortals] : null),
+    tile('Utile', t.profit, was('profit'), t.profit < 0 ? 't-profit bad' : 't-profit', () => explain(ctx, house, r, 'utile'),
+      split ? ['Cedolare solo Airbnb e Booking', t.profitPortalsOnly] : null));
 
   return h('div', { vars: houseVars(house), class: 'acc' }, head, switches,
     tiles,
@@ -94,11 +98,14 @@ export function renderAccounting(ctx) {
 }
 
 /** Riquadro con il numero in euro interi (i centesimi sono nella spiegazione). */
-function tile(label, cents, sub, tone, onClick) {
+function tile(label, cents, sub, tone, onClick, alt = null) {
   const round = Math.round(cents / 100) * 100;
-  return h('button', { class: ['acc-tile', tone], type: 'button', onClick, attrs: { 'aria-label': `${label}: ${fmtEuro(round)}. Tocca per la spiegazione` } },
+  const altRound = alt ? Math.round(alt[1] / 100) * 100 : 0;
+  return h('button', { class: ['acc-tile', tone], type: 'button', onClick,
+    attrs: { 'aria-label': `${label}: ${fmtEuro(round)}${alt ? `; ${alt[0]}: ${fmtEuro(altRound)}` : ''}. Tocca per la spiegazione` } },
     h('span', { class: 'acc-tile-label' }, h('span', { class: 'acc-dot' }), label, icon('info', { size: 15 })),
     h('strong', { class: 'acc-tile-value', text: fmtEuro(round) }),
+    alt ? h('span', { class: 'acc-tile-alt' }, h('span', { text: alt[0] }), h('strong', { text: fmtEuro(altRound) })) : null,
     sub ? h('span', { class: 'acc-tile-sub', text: sub }) : null);
 }
 
@@ -311,7 +318,8 @@ function explain(ctx, house, r, which) {
         { k: 'Già trattenuta dalle piattaforme', hint: 'Booking sempre, Airbnb dal 2027', v: minus(t.cedolareWithheld) },
         { k: 'Versata da te', v: minus(t.cedolareRemitted) },
         { k: 'Ancora da versare', v: fmtEuro(t.cedolareToPay), strong: true },
-      ]),
+        t.cedolarePortals !== t.cedolare ? { k: 'Seconda cifra: solo su Airbnb e Booking', hint: 'Senza le prenotazioni dirette', v: fmtEuro(t.cedolarePortals) } : null,
+      ].filter(Boolean)),
       h('p', { class: 'hint', text: 'Calcolo indicativo: da confermare con il commercialista.' }),
     ];
   } else {
@@ -322,7 +330,8 @@ function explain(ctx, house, r, which) {
         { k: 'Spese', v: minus(t.expenses) },
         { k: `Cedolare (${ced})`, v: minus(t.cedolare) },
         { k: 'Utile', v: fmtEuro(t.profit), strong: true },
-      ]),
+        t.cedolarePortals !== t.cedolare ? { k: 'Seconda cifra: cedolare solo su Airbnb e Booking', v: fmtEuro(t.profitPortalsOnly) } : null,
+      ].filter(Boolean)),
       h('p', { class: 'hint', text: 'Quello che resta davvero: tassa di soggiorno e cauzioni restituite non contano.' }),
     ];
   }

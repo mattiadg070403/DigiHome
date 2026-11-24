@@ -116,6 +116,9 @@ test('riepilogo dell’anno: ricavi netti, spese per tipo, cedolare (trattenuta,
   assert.equal(r.totals.cedolareWithheld, 61824);
   assert.equal(r.totals.cedolareToPay, 31500 + 21000 - 10000);
   assert.equal(r.totals.profit, r.totals.netRevenue - r.totals.expenses - r.totals.cedolare);
+  // Seconda cifra (informativa): cedolare solo su Airbnb e Booking.
+  assert.equal(r.totals.cedolarePortals, 61824 + 21000);
+  assert.equal(r.totals.profitPortalsOnly, r.totals.profit + 31500);
   assert.equal(r.channels.booking.nights, 7);
   assert.equal(r.channels.booking.perNight, Math.round((294400 - 47575 + 6000) / 7));
   assert.equal(r.channels.diretto.perNight, Math.round(150000 / 7));

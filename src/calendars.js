@@ -4,7 +4,8 @@
 // - Ogni evento del calendario è una prenotazione, tranne i blocchi di Airbnb ("Not available"),
 //   che sono date chiuse a mano o arrivate da altri calendari (es. da Booking).
 // - Booking.com esporta tutte le date chiuse allo stesso modo: un evento di Booking coperto per intero
-//   da prenotazioni di altri canali (es. Airbnb) è la loro copia e si ignora.
+//   da prenotazioni di altri canali (es. Airbnb) è la loro copia e si ignora. Un evento di Booking di 28 notti
+//   o più è una chiusura (es. la casa chiusa fuori stagione), non una prenotazione: si ignora.
 // - Prenotazione nuova → si crea con "dati da completare" (le piattaforme non danno nome, ospiti, telefono).
 //   Se c'è già la stessa prenotazione inserita a mano (stesso canale e stesse date) si collega quella.
 // - Date cambiate → si aggiornano (prima dell'arrivo; durante il soggiorno solo la partenza).
@@ -15,13 +16,14 @@
 import { parseIcs, isBlock, airbnbInfo } from './ical.js';
 import { commit, REV_NEXT } from './ops.js';
 import { SYSTEM_EMAIL } from '../public/shared/calendar.js';
-import { addDays, overlaps, todayRome } from '../public/shared/dates.js';
+import { addDays, daysBetween, overlaps, todayRome } from '../public/shared/dates.js';
 import { occupiedNights } from '../public/shared/booking.js';
 
 const SYSTEM = { email: SYSTEM_EMAIL };
 const MAX_BYTES = 3 * 1024 * 1024;
 const TIMEOUT_MS = 20000;
 const LABEL = { airbnb: 'Airbnb', booking: 'Booking' };
+const CLOSURE_NIGHTS = 28; // Booking: da qui in su è una chiusura delle date, non un soggiorno
 
 class SyncError extends Error {}
 
@@ -95,7 +97,8 @@ export async function applyEvents(db, cal, events, today = todayRome()) {
   const linked = rows.filter((b) => b.channel === ch && b.ext_uid);
   const byUid = new Map(linked.map((b) => [b.ext_uid, b]));
 
-  const reservations = events.filter((e) => !(ch === 'airbnb' ? isBlock(e) : e.status === 'CANCELLED'));
+  const reservations = events.filter((e) => !(ch === 'airbnb' ? isBlock(e)
+    : e.status === 'CANCELLED' || daysBetween(e.start, e.end) >= CLOSURE_NIGHTS));
   const inFeed = new Set(reservations.map((e) => e.uid));
   const otherNights = occupiedNights(rows.filter((b) => b.channel !== ch), cal.house_id);
   const future = reservations.filter((e) => e.end > today && !(ch === 'booking' && covered(e, otherNights)));

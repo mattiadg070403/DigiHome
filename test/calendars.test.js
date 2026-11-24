@@ -227,6 +227,9 @@ test('Booking: le date che sono la copia di prenotazioni Airbnb o dirette si ign
       ev({ uid: 'copia-airbnb', start: addDays(T, 10), end: addDays(T, 14), summary: 'CLOSED - Not available' }),
       ev({ uid: 'copia-diretta', start: addDays(T, 41), end: addDays(T, 43), summary: 'CLOSED - Not available' }),
       ev({ uid: 'vera', start: addDays(T, 20), end: addDays(T, 23), summary: 'CLOSED - Not available' }),
+      // Casa chiusa fuori stagione (mesi interi): non è una prenotazione.
+      ev({ uid: 'chiusura', start: addDays(T, 60), end: addDays(T, 240), summary: 'CLOSED - Not available' }),
+      ev({ uid: 'chiusura-mese', start: addDays(T, 250), end: addDays(T, 278), summary: 'CLOSED - Not available' }),
     ),
   });
   const res = await syncAll(db, { fetcher });

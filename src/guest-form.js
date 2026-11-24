@@ -60,13 +60,17 @@ export async function formInfo(db, token, today = todayRome(), part = null) {
   const reason = formClosedReason(b, today);
   if (reason === 'not_found') throw new OpError(404, 'not_found', 'Link non valido.');
   const house = await db.prepare('SELECT name, color, contract_info FROM houses WHERE id = ?').bind(b.house_id).first();
+  const color = /^#[0-9A-Fa-f]{6}$/.test(house.color || '') ? house.color : null;
+  // Link chiuso (schedine inviate, scaduto, cancellato): solo il motivo, niente date, persone o locatore.
+  // Chi ritrova il link in una chat dopo mesi non scopre più quando e dove era il soggiorno.
+  if (reason) return { open: false, reason, house: house.name, color };
   let controller = null;
   try { controller = JSON.parse(house.contract_info || '{}').landlord_name || null; } catch { controller = null; }
   return {
     open: !reason,
     reason,
     house: house.name,
-    color: /^#[0-9A-Fa-f]{6}$/.test(house.color || '') ? house.color : null,
+    color,
     controller,
     check_in: b.check_in,
     check_out: b.check_out,
@@ -238,6 +242,7 @@ async function reorder(db, bookingId) {
 /* ------------------------------ Gestionale: crea o disattiva il link ------------------------------ */
 
 async function guestLinkOp(db, user, opId, p) {
+  if (typeof p.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(p.id)) throw new OpError(400, 'validation', 'Richiesta non valida');
   const b = await db.prepare('SELECT * FROM bookings WHERE id = ?').bind(p.id).first();
   if (!b) throw new OpError(404, 'not_found', 'Prenotazione non trovata.');
   const at = new Date().toISOString();

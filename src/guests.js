@@ -184,6 +184,9 @@ registerOps(GUEST_HANDLERS, { private: true });
 
 /** Cancellazione automatica: ospiti un anno dopo la partenza. Restituisce quanti. */
 export async function purgeGuests(db, today = todayRome()) {
+  // Link del modulo per gli ospiti: un mese dopo la partenza il codice si cancella (il link smette di esistere).
+  await db.prepare(`UPDATE bookings SET guest_form_token = NULL, guest_form_leader_part = NULL
+    WHERE guest_form_token IS NOT NULL AND check_out < date(?, '-30 days')`).bind(today).run();
   const r = await db.prepare(`DELETE FROM guests WHERE booking_id IN (SELECT id FROM bookings WHERE check_out < date(?, '-365 days'))`).bind(today).run();
   return r.meta.changes || 0;
 }

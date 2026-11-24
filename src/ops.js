@@ -927,7 +927,7 @@ async function bookingMoney(db, user, opId, p) {
 /* ------------------------------- Ricevuta del saldo ------------------------------- */
 
 /**
- * Ricevuta del saldo di una prenotazione diretta (solo l'amministratore: contiene i dati del locatore).
+ * Ricevuta del saldo di una prenotazione diretta (tutti gli utenti dalla 0.19; contiene i dati del locatore).
  * Una sola per prenotazione: se c'è già si restituisce quella. Numero progressivo per casa e anno (della data di oggi),
  * assegnato nella stessa istruzione che la salva: due ricevute non possono avere lo stesso numero.
  */
@@ -975,7 +975,7 @@ async function payReceiptIssue(db, user, opId, p) {
 /* ------------------------------- Listino prezzi ------------------------------- */
 
 /**
- * Netti per settimana del listino (solo l'amministratore: listino e regole di prezzo sono impostazioni).
+ * Netti per settimana del listino (tutti gli utenti dalla 0.19; le regole di prezzo restano impostazioni dell'amministratore).
  * p: { house_id, year, weeks: { 'AAAA-MM-GG': centesimi | null } } → si uniscono a quelli già salvati (null = togli).
  * Più dispositivi possono scrivere settimane diverse: in caso di scrittura contemporanea si rilegge e si riprova.
  */
@@ -1358,7 +1358,7 @@ const HANDLERS = {
 export const PRIVATE_OPS = new Set(['contract.sign']);
 export function registerOps(map, { private: isPrivate = false } = {}) {
   for (const [type, fn] of Object.entries(map)) {
-    if (HANDLERS[type]) throw new Error(`Operazione già registrata: ${type}`);
+    if (Object.hasOwn(HANDLERS, type)) throw new Error(`Operazione già registrata: ${type}`);
     HANDLERS[type] = fn;
     if (isPrivate) PRIVATE_OPS.add(type);
   }
@@ -1372,7 +1372,8 @@ export async function runOp(db, user, body) {
   if (!body || typeof body !== 'object') throw bad('Richiesta non valida');
   const { opId, type, payload } = body;
   if (typeof opId !== 'string' || !/^[A-Za-z0-9-]{16,64}$/.test(opId)) throw bad('Codice operazione mancante');
-  const handler = HANDLERS[type];
+  // Solo le operazioni dell'elenco (mai proprietà ereditate come "constructor" o "toString").
+  const handler = typeof type === 'string' && Object.hasOwn(HANDLERS, type) ? HANDLERS[type] : null;
   if (!handler) throw bad('Operazione sconosciuta');
 
   const prev = await db.prepare('SELECT user_email, result FROM ops WHERE op_id = ?').bind(opId).first();

@@ -245,15 +245,25 @@ export async function sendSchedine(db, env, user, p, { fetchImpl = fetch, today 
 
   // Blocco: un solo invio alla volta per prenotazione.
   const at = nowIso();
+  // Anche "non ancora inviate" (o invio di nuovo voluto) è dentro il blocco: due "Invia" quasi insieme non
+  // possono mai partire tutti e due, nemmeno se il primo finisce mentre il secondo sta preparando.
   const lock = await db.prepare(`UPDATE bookings SET alloggiati_error = ? WHERE id = ?
-    AND (alloggiati_error IS NULL OR alloggiati_error NOT LIKE 'IN_CORSO:%' OR alloggiati_error < ?)`)
-    .bind(`IN_CORSO:${at}`, b.id, `IN_CORSO:${new Date(Date.now() - LOCK_MS).toISOString()}`).run();
-  if (lock.meta.changes !== 1) throw new OpError(409, 'busy', 'Invio già in corso da un altro dispositivo: aspetta un minuto.');
+    AND (alloggiati_error IS NULL OR alloggiati_error NOT LIKE 'IN_CORSO:%' OR alloggiati_error < ?)
+    AND alloggiati_at IS ?`)
+    .bind(`IN_CORSO:${at}`, b.id, `IN_CORSO:${new Date(Date.now() - LOCK_MS).toISOString()}`, b.alloggiati_at ?? null).run();
+  if (lock.meta.changes !== 1) {
+    const now = await db.prepare('SELECT alloggiati_at FROM bookings WHERE id = ?').bind(b.id).first();
+    if (now && now.alloggiati_at !== (b.alloggiati_at ?? null)) throw new OpError(409, 'already', 'Le schedine sono appena state inviate da un altro dispositivo.', { at: now.alloggiati_at });
+    throw new OpError(409, 'busy', 'Invio già in corso da un altro dispositivo: aspetta un minuto.');
+  }
 
   const client = alloggiatiClient(cred, { fetchImpl });
-  const finish = async (fields, action, changes) => {
+  // stepDone: spunta "schedine inviate" nel check-in dentro l'UPDATE stesso, senza toccare gli altri passaggi
+  // (che un altro dispositivo può aver spuntato mentre il portale rispondeva).
+  const finish = async (fields, action, changes, stepDone = false) => {
     const cols = Object.keys(fields);
-    const main = db.prepare(`UPDATE bookings SET ${cols.map((c) => `${c} = ?`).join(', ')}, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ?`)
+    const steps = stepDone ? ", checkin_steps = json_set(COALESCE(checkin_steps, '{}'), '$.alloggiati', 1)" : '';
+    const main = db.prepare(`UPDATE bookings SET ${cols.map((c) => `${c} = ?`).join(', ')}${steps}, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ?`)
       .bind(...cols.map((c) => fields[c]), nowIso(), user.email, b.id);
     await commit(db, { main, user, opId: crypto.randomUUID(), entity: 'booking', entityId: b.id, action, changes });
     return db.prepare('SELECT * FROM bookings WHERE id = ?').bind(b.id).first();
@@ -278,8 +288,7 @@ export async function sendSchedine(db, env, user, p, { fetchImpl = fetch, today 
     }
     const record = await finish({
       alloggiati_at: nowIso(), alloggiati_by: user.email, alloggiati_count: rows.length, alloggiati_error: null,
-      checkin_steps: JSON.stringify({ ...JSON.parse(b.checkin_steps || '{}'), alloggiati: 1 }),
-    }, 'alloggiati_invio', { schedine: rows.length });
+    }, 'alloggiati_invio', { schedine: rows.length }, true);
     await db.prepare('UPDATE guests SET sent_at = ? WHERE booking_id = ? AND deleted = 0').bind(record.alloggiati_at, b.id).run();
     return { ok: true, count: rows.length, record };
   } catch (e) {
@@ -299,6 +308,7 @@ async function sha256Hex(bytes) {
 
 /** Scarica e salva la ricevuta di un giorno per una casa. Poi cancella i dati dei documenti di quel giorno. */
 export async function fetchReceipt(db, env, houseId, date, { fetchImpl = fetch, client } = {}) {
+  if (typeof houseId !== 'string' || !/^[a-z0-9-]{2,40}$/.test(houseId)) throw bad('Casa non valida');
   if (!isIsoDate(date)) throw bad('Data non valida');
   const have = await db.prepare('SELECT id FROM alloggiati_receipts WHERE house_id = ? AND date = ?').bind(houseId, date).first();
   if (have) return { ok: true, id: have.id, existing: true };

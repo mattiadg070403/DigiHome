@@ -105,6 +105,7 @@ export function buildDmsXml({ house, bookings, guestsByBooking, from, to }) {
 
 /** Legge dal database e prepara il file del periodo. */
 export async function dmsFile(db, houseId, from, to) {
+  if (typeof houseId !== 'string' || !isIsoDate(from) || !isIsoDate(to)) throw bad('Periodo non valido');
   const house = await db.prepare('SELECT * FROM houses WHERE id = ?').bind(houseId).first();
   if (!house) throw new OpError(404, 'not_found', 'Casa non trovata.');
   const bookings = (await db.prepare(`SELECT * FROM bookings WHERE house_id = ? AND stage <> 'cancellata'

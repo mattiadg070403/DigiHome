@@ -422,7 +422,7 @@ export function validateBooking(input, { house, partial = false } = {}) {
   const need = (k) => !partial || has(k);
 
   if (need('channel')) {
-    if (!CHANNELS[input.channel]) errors.channel = 'Scegli il canale';
+    if (typeof input.channel !== 'string' || !Object.hasOwn(CHANNELS, input.channel)) errors.channel = 'Scegli il canale';
     else v.channel = input.channel;
   }
   if (need('guest_name')) {

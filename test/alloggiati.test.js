@@ -370,3 +370,42 @@ test('SPOT Easy: file .txt delle schedine (168 caratteri, CR LF, capo per primo)
   await receiptJob(db, ENV, { fetchImpl: portal.fetchImpl, today: addDays(romeDay(r.record.alloggiati_at), 1) });
   await assert.rejects(spotFile(db, b.id), /a mano su SPOT Easy/);
 });
+
+test('invio: due "Invia" quasi insieme → una sola spedizione; i passaggi spuntati intanto restano', async () => {
+  const { db, admin, collab, b } = await setup();
+  const portal = fakePortal();
+  await saveCredentials(db, ENV, admin, { houseId: 'faro-blu', utente: 'U', password: PWD, wskey: 'K' }, { fetchImpl: portal.fetchImpl });
+  await addGuests(db, collab, b, famiglia);
+  // La seconda richiesta prende il blocco solo dopo che la prima ha finito (il caso peggiore).
+  let firstDone;
+  const firstFinished = new Promise((res) => { firstDone = res; });
+  const slowDb = new Proxy(db, { get(t, k) {
+    if (k === 'prepare') return (sql) => {
+      const s = t.prepare(sql);
+      if (/SET alloggiati_error = \? WHERE id = \?/.test(sql)) {
+        return { bind: (...a) => { const bound = s.bind(...a); return { run: async () => { await firstFinished; return bound.run(); } }; } };
+      }
+      return s;
+    };
+    const v = t[k];
+    return typeof v === 'function' ? v.bind(t) : v;
+  } });
+  // Mentre il portale risponde, un altro telefono spunta un passaggio del check-in.
+  const slowFetch = async (url, opts) => {
+    if (/Send/.test(opts.headers.SOAPAction)) {
+      await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: b.id, flow: 'checkin', step: 'pagamenti', done: true } });
+    }
+    return portal.fetchImpl(url, opts);
+  };
+  const p1 = sendSchedine(db, ENV, collab, { bookingId: b.id }, { fetchImpl: slowFetch }).then((x) => { firstDone(); return x; });
+  const p2 = sendSchedine(slowDb, ENV, admin, { bookingId: b.id }, { fetchImpl: slowFetch });
+  const [r1, r2] = await Promise.allSettled([p1, p2]);
+  assert.equal(r1.status, 'fulfilled');
+  assert.equal(r1.value.ok, true);
+  assert.equal(r2.status, 'rejected');
+  assert.match(r2.reason.message, /appena state inviate/);
+  assert.equal(portal.calls.filter((c) => c.method === 'Send').length, 1);
+  const steps = JSON.parse((await db.prepare('SELECT checkin_steps FROM bookings WHERE id = ?').bind(b.id).first()).checkin_steps);
+  assert.equal(steps.alloggiati, 1);
+  assert.equal(steps.pagamenti, 1);
+});

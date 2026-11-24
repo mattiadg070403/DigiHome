@@ -1,7 +1,7 @@
 // Punto di ingresso: accesso, API e file dell'app.
 
 import { authenticate } from './auth.js';
-import { fail, json, secure, text } from './http.js';
+import { fail, json, readLimited, secure, text } from './http.js';
 import { OpError, PRIVATE_OPS, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
 import { GUEST_HANDLERS, listGuests, purgeGuests } from './guests.js';
 import { checkConnection, docTypes, fetchReceipt, placesStats, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine, spotFile } from './questura.js';
@@ -40,10 +40,8 @@ function sameOrigin(request, url) {
 async function readJson(request, max = MAX_BODY) {
   const type = request.headers.get('Content-Type') || '';
   if (!type.startsWith('application/json')) throw new OpError(415, 'type', 'Formato non valido.');
-  const len = Number(request.headers.get('Content-Length') || 0);
-  if (len > max) throw new OpError(413, 'size', 'Richiesta troppo grande.');
-  const raw = await request.text();
-  if (raw.length > max) throw new OpError(413, 'size', 'Richiesta troppo grande.');
+  const raw = await readLimited(request, max);
+  if (raw === null) throw new OpError(413, 'size', 'Richiesta troppo grande.');
   try {
     return JSON.parse(raw);
   } catch {

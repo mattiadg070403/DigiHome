@@ -13,7 +13,7 @@ import { formInfo, formPlaces, submitForm } from './guest-form.js';
 const CODE = '[1-9A-HJ-NP-Za-km-z]{12}';
 const PAGE_RE = new RegExp(`^/(${CODE})$`);
 const API_RE = new RegExp(`^/api/form/(${CODE})(/places)?$`);
-import { json, fail, secure, text } from './http.js';
+import { json, fail, readLimited, secure, text } from './http.js';
 
 const MAX_BODY = 64 * 1024;
 const STATIC = new Set(['/form.js', '/form.css', '/favicon.svg']);
@@ -43,8 +43,8 @@ export async function handle(request, env) {
       const origin = request.headers.get('Origin');
       if (origin && origin !== url.origin) return fail(403, 'forbidden', 'Richiesta non consentita.');
       if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) return fail(415, 'validation', 'Richiesta non valida.');
-      const raw = await request.text();
-      if (raw.length > MAX_BODY) return fail(413, 'validation', 'Troppi dati.');
+      const raw = await readLimited(request, MAX_BODY);
+      if (raw === null) return fail(413, 'validation', 'Troppi dati.');
       let body;
       try { body = JSON.parse(raw); } catch { return fail(400, 'validation', 'Richiesta non valida.'); }
       return json(await submitForm(env.DB, token, body));

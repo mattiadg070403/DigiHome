@@ -122,8 +122,15 @@ test('più telefoni: ognuno inserisce i suoi, i dati si sommano e chi ha prenota
 test('il modulo si chiude: schedine inviate, link scaduto, prenotazione cancellata, troppi invii', async () => {
   const s1 = await setup();
   await s1.db.prepare('UPDATE bookings SET alloggiati_at = ? WHERE id = ?').bind(new Date().toISOString(), s1.b.id).run();
-  assert.equal((await formInfo(s1.db, s1.token)).reason, 'done');
+  const closed = await formInfo(s1.db, s1.token);
+  assert.equal(closed.reason, 'done');
+  // Link chiuso: niente date, persone o locatore (chi lo ritrova in una chat non scopre il soggiorno).
+  assert.deepEqual(Object.keys(closed).sort(), ['color', 'house', 'open', 'reason']);
   await assert.rejects(submitForm(s1.db, s1.token, asLead([lead])), /non è più disponibile/);
+  // Un mese dopo la partenza il codice si cancella: il link non esiste più.
+  const { purgeGuests } = await import('../src/guests.js');
+  await purgeGuests(s1.db, addDays(s1.b.check_out, 31));
+  await assert.rejects(formInfo(s1.db, s1.token), /Link non valido/);
   const s2 = await setup({ checkIn: T });
   assert.equal((await formInfo(s2.db, s2.token, addDays(T, 1))).open, true); // anche il giorno dopo l'arrivo
   assert.equal((await formInfo(s2.db, s2.token, addDays(T, 2))).reason, 'expired');
@@ -156,6 +163,9 @@ test('Worker pubblico: solo le sue pagine, intestazioni di sicurezza, POST solo 
   assert.equal((await post({ 'Content-Type': 'application/json', Origin: 'https://evil.example' }, '{}')).status, 403);
   assert.equal((await post({ 'Content-Type': 'text/plain' }, '{}')).status, 415);
   assert.equal((await post({ 'Content-Type': 'application/json' }, 'x'.repeat(70000))).status, 413);
+  // Anche senza Content-Length (corpo a pezzi): si ferma appena supera il limite.
+  const stream = new ReadableStream({ start(c) { for (let i = 0; i < 100; i++) c.enqueue(new TextEncoder().encode('x'.repeat(10000))); c.close(); } });
+  assert.equal((await handle(new Request(`${base}/api/form/${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: stream, duplex: 'half' }), env)).status, 413);
   const ok = await post({ 'Content-Type': 'application/json', Origin: base }, JSON.stringify(asLead([lead, second])));
   assert.equal(ok.status, 200);
   assert.equal((await handle(new Request(`${base}/robots.txt`), env)).status, 200);

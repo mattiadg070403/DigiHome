@@ -196,6 +196,13 @@ test('check-out: cauzione obbligatoria, trattenuta con importo e motivo, poi chi
   assert.equal(u.record.stage, 'chiusa');
 });
 
+test('operazioni: solo quelle dell’elenco (mai proprietà ereditate come constructor)', async () => {
+  const { db, collab } = await setup();
+  for (const type of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    await expectOpError(runOp(db, collab, { opId: op(), type, payload: {} }), 'validation');
+  }
+});
+
 test('storico: un soggiorno già finito si salva chiuso, senza avvisi (anche dal collaboratore)', async () => {
   const { db, admin, collab } = await setup();
   const { bookingAlerts, enteredAfterStay } = await import('../public/shared/booking.js');

@@ -59,8 +59,6 @@ export function renderAccounting(ctx) {
   ])].sort((a, b) => b - a);
   const year = ui.accYear && years.includes(ui.accYear) ? ui.accYear : thisYear;
   const r = yearReport(d, house, year, ui.today);
-  const prevHas = years.includes(year - 1);
-  const prev = prevHas ? yearReport(d, house, year - 1, ui.today) : null;
   const t = r.totals;
 
   const yearSel = h('select', { class: 'input acc-year', attrs: { 'aria-label': 'Anno' },
@@ -76,15 +74,14 @@ export function renderAccounting(ctx) {
     segmented(d.houses.map((x) => ({ value: x.id, label: x.name, swatch: true, vars: houseVars(x) })), house.id, (id) => ctx.setHouse(id), 'Casa'),
     yearSel);
 
-  const was = (k) => (prev ? `${year - 1}: ${fmtEuro(Math.round(prev.totals[k] / 100) * 100)}` : null);
   // Seconda cifra (cedolare solo su Airbnb e Booking): solo se ci sono prenotazioni dirette.
   const split = t.cedolarePortals !== t.cedolare;
   const tiles = h('div', { class: 'acc-tiles' },
-    tile('Ricavi netti', t.netRevenue, was('netRevenue'), 't-rev', () => explain(ctx, house, r, 'ricavi')),
-    tile('Spese', t.expenses, was('expenses'), 't-exp', () => explain(ctx, house, r, 'spese')),
-    tile('Cedolare', t.cedolare, t.cedolareToPay ? `da versare ${fmtEuro(t.cedolareToPay)}` : was('cedolare'), 't-ced', () => explain(ctx, house, r, 'cedolare'),
+    tile('Ricavi netti', t.netRevenue, null, 't-rev', () => explain(ctx, house, r, 'ricavi')),
+    tile('Spese', t.expenses, null, 't-exp', () => explain(ctx, house, r, 'spese')),
+    tile('Cedolare', t.cedolare, t.cedolareToPay ? `da versare ${fmtEuro(t.cedolareToPay)}` : null, 't-ced', () => explain(ctx, house, r, 'cedolare'),
       split ? ['Solo Airbnb e Booking', t.cedolarePortals] : null),
-    tile('Utile', t.profit, was('profit'), t.profit < 0 ? 't-profit bad' : 't-profit', () => explain(ctx, house, r, 'utile'),
+    tile('Utile', t.profit, null, t.profit < 0 ? 't-profit bad' : 't-profit', () => explain(ctx, house, r, 'utile'),
       split ? ['Cedolare solo Airbnb e Booking', t.profitPortalsOnly] : null));
 
   return h('div', { vars: houseVars(house), class: 'acc' }, head, switches,
@@ -105,7 +102,8 @@ function tile(label, cents, sub, tone, onClick, alt = null) {
     attrs: { 'aria-label': `${label}: ${fmtEuro(round)}${alt ? `; ${alt[0]}: ${fmtEuro(altRound)}` : ''}. Tocca per la spiegazione` } },
     h('span', { class: 'acc-tile-label' }, h('span', { class: 'acc-dot' }), label, icon('info', { size: 15 })),
     h('strong', { class: 'acc-tile-value', text: fmtEuro(round) }),
-    alt ? h('span', { class: 'acc-tile-alt' }, h('span', { text: alt[0] }), h('strong', { text: fmtEuro(altRound) })) : null,
+    // Solo il numero (Mattia, 24/11): la spiegazione è nell'etichetta per i lettori di schermo e toccando il riquadro.
+    alt ? h('span', { class: 'acc-tile-alt', attrs: { title: alt[0] } }, h('strong', { text: fmtEuro(altRound) })) : null,
     sub ? h('span', { class: 'acc-tile-sub', text: sub }) : null);
 }
 

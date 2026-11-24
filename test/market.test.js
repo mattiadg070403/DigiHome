@@ -124,6 +124,21 @@ test('flusso completo: ricerca → 10 scelte → prezzi per settimana; solo l’
   assert.equal(prices.length, 18 * 4);
   assert.equal(prices.filter((p) => p.status === 'libera').length, 18 * 2);
   assert.ok(prices.filter((p) => p.status === 'libera').every((p) => p.week_cents === 175000));
+  // Premere di nuovo subito dopo non rifà niente (stessi dati, si spenderebbe per niente)...
+  const again = await requestRefresh(db, ENV, admin, 'faro-blu', opts);
+  assert.equal(again.queued, 0);
+  assert.equal(again.fresh, 18);
+  assert.equal(again.started, 0);
+  // ...e mentre è in corso non mette niente in più in coda.
+  await new Promise((r) => setTimeout(r, 5));
+  await runOp(db, admin, { opId: crypto.randomUUID(), type: 'market.select', payload: { house_id: 'faro-blu', listing_ids: ids.slice(0, 3) } });
+  const changed = await requestRefresh(db, ENV, admin, 'faro-blu', opts); // scelta cambiata → si rifà tutto
+  assert.equal(changed.queued, 18);
+  const during = await requestRefresh(db, ENV, admin, 'faro-blu', opts);
+  assert.equal(during.queued, 0);
+  assert.equal(during.already, 18);
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM market_jobs WHERE kind = 'prices'").first()).n, 36); // niente doppioni
+  for (let i = 0; i < 10; i++) await marketTick(db, ENV, opts);
   // La chiave va solo nell'intestazione verso Apify, mai negli input né nello stato.
   assert.ok(calls.every((c) => c.auth === `Bearer ${ENV.APIFY_TOKEN}`));
   assert.ok(!JSON.stringify(calls.map((c) => c.body)).includes(ENV.APIFY_TOKEN));

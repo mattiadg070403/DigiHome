@@ -54,7 +54,8 @@ export function marketSettingsDialog(ctx, house) {
     h('div', { class: 'label', text: 'Aggiungi una casa che conosci, con il link di Airbnb' }),
     h('div', { class: 'field mk-add' }, h('div', { class: 'btn-row' }, linkIn, h('button', { class: 'btn small primary', type: 'button', text: 'Aggiungi', onClick: addLink })), h('div', { class: 'err', hidden: true })),
     h('p', { class: 'muted small', text: 'Sul telefono: apri l’annuncio nell’app di Airbnb → Condividi → Copia link, poi incollalo qui. Le case che aggiungi tu vengono prima di quelle trovate dalla ricerca.' }));
-  const jobsLine = h('p', { class: 'muted small', attrs: { 'aria-live': 'polite' } });
+  const jobsLine = h('div', { attrs: { role: 'status', 'aria-live': 'polite' } });
+  let busy = ''; // pulsante appena premuto ('search' | 'prices'): resta spento finché non risponde il server
   let picked = new Set(); // scelta in corso (insieme di annunci)
   let touched = false; // finché non si tocca niente, la scelta segue quella salvata
 
@@ -115,25 +116,39 @@ export function marketSettingsDialog(ctx, house) {
     const d = store.data;
     const comps = (d.marketComps || []).filter((c) => c.house_id === house.id);
     const jobs = (d.marketJobs || []).filter((j) => j.house_id === house.id);
-    const pending = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
+    const isPending = (j) => j.status === 'queued' || j.status === 'running';
+    const searching = jobs.some((j) => j.kind === 'search' && isPending(j));
+    const pricePending = jobs.filter((j) => j.kind === 'prices' && isPending(j));
     const lastErr = jobs.find((j) => j.status === 'error');
     const lastPrice = (d.marketPrices || []).filter((p) => p.house_id === house.id).reduce((m, p) => (p.checked_at > m ? p.checked_at : m), '');
-    jobsLine.textContent = [
-      pending.length ? `In corso su Apify: ${pending.length} ${pending.length === 1 ? 'ricerca' : 'ricerche'} (i risultati arrivano da soli in pochi minuti).` : null,
-      lastPrice ? `Prezzi aggiornati il ${when(lastPrice)}. Si aggiornano da soli una volta a settimana.` : null,
-      lastErr && !pending.length ? `Ultimo errore: ${lastErr.error}` : null,
-    ].filter(Boolean).join(' ');
+    // Stato ben visibile: si capisce subito se una ricerca o un aggiornamento è partito (e non serve premere di nuovo).
+    const status = [];
+    if (searching) status.push(h('div', { class: 'banner ok small', text: 'Ricerca delle case simili partita su Apify: ci vuole qualche minuto. Non serve premere di nuovo; puoi anche chiudere la finestra.' }));
+    if (pricePending.length) {
+      const from = pricePending.reduce((m, j) => (j.created_at < m ? j.created_at : m), pricePending[0].created_at);
+      const batch = jobs.filter((j) => j.kind === 'prices' && j.created_at >= from);
+      const doneN = batch.length - pricePending.length;
+      status.push(h('div', { class: 'banner ok small', text: `Aggiornamento dei prezzi partito: ${doneN} di ${batch.length} ${batch.length === 1 ? 'settimana pronta' : 'settimane pronte'}. Non serve premere di nuovo: continua da solo anche se chiudi l’app (con la finestra aperta va più veloce; chiusa, fino a qualche ora).` }));
+    }
+    if (!pricePending.length && lastPrice) status.push(h('p', { class: 'muted small', text: `Prezzi aggiornati il ${when(lastPrice)}. Si aggiornano da soli una volta a settimana.` }));
+    if (lastErr && !searching && !pricePending.length) status.push(h('p', { class: 'small warn-text', text: `Ultimo errore: ${lastErr.error}` }));
+    jobsLine.replaceChildren(...status);
     if (!touched) picked = new Set(comps.filter((c) => c.selected).map((c) => c.listing_id));
-    const searchBtn = h('button', { class: 'btn small', type: 'button', disabled: !ready, onClick: async () => {
-      if (!(await save({ quiet: true }))) return;
-      const r = await post('/api/market/discover');
-      if (r) ctx.toast('Ricerca avviata su Apify: tra qualche minuto compaiono le case simili');
-      touched = false;
+    const searchBtn = h('button', { class: 'btn small', type: 'button', disabled: !ready || searching || busy === 'search', onClick: async () => {
+      busy = 'search';
       draw();
-    } }, icon('refresh', { size: 16 }), comps.length ? 'Cerca di nuovo' : 'Cerca case simili');
+      try {
+        if (!(await save({ quiet: true }))) return;
+        const r = await post('/api/market/discover');
+        if (r) ctx.toast('Ricerca partita su Apify: tra qualche minuto compaiono le case simili');
+        touched = false;
+      } finally {
+        busy = '';
+        draw();
+      }
+    } }, icon('refresh', { size: 16 }), searching ? 'Ricerca in corso…' : busy === 'search' ? 'Avvio…' : comps.length ? 'Cerca di nuovo' : 'Cerca case simili');
     if (!comps.length) {
       const lastSearch = jobs.find((j) => j.kind === 'search');
-      const searching = lastSearch && (lastSearch.status === 'queued' || lastSearch.status === 'running');
       const text = searching ? 'Ricerca in corso: aspetta qualche minuto con la finestra aperta, le case compaiono qui da sole.'
         : lastSearch && lastSearch.status === 'done' ? 'La ricerca è finita ma nessuna casa corrisponde ai criteri: prova ad allargare il raggio (es. 5 km) o a lasciare vuote le camere, salva e cerca di nuovo.'
           : lastSearch && lastSearch.status === 'error' ? `La ricerca non è riuscita: ${lastSearch.error || 'errore di Apify'}.`
@@ -178,11 +193,23 @@ export function marketSettingsDialog(ctx, house) {
             draw();
           } catch { /* messaggio già mostrato */ }
         } }),
-        h('button', { class: 'btn small', type: 'button', disabled: !ready, onClick: async () => {
-          const r = await post('/api/market/refresh');
-          if (r) ctx.toast('Aggiornamento dei prezzi avviato: le settimane arrivano un po’ alla volta');
+        h('button', { class: 'btn small', type: 'button', disabled: !ready || pricePending.length > 0 || busy === 'prices', onClick: async () => {
+          busy = 'prices';
           draw();
-        } }, icon('refresh', { size: 16 }), 'Aggiorna i prezzi adesso'),
+          try {
+            const res = await post('/api/market/refresh');
+            const r = res && res.result;
+            if (r) {
+              ctx.toast(r.queued ? `Aggiornamento partito: ${r.queued} ${r.queued === 1 ? 'settimana' : 'settimane'} da controllare`
+                : r.already ? 'L’aggiornamento è già in corso: non serve premere di nuovo'
+                  : r.fresh ? 'I prezzi sono già aggiornati nelle ultime 12 ore: non serve rifarlo'
+                    : 'Nessuna settimana da controllare');
+            }
+          } finally {
+            busy = '';
+            draw();
+          }
+        } }, icon('refresh', { size: 16 }), pricePending.length ? 'Aggiornamento in corso…' : busy === 'prices' ? 'Avvio…' : 'Aggiorna i prezzi adesso'),
         searchBtn));
   }
 

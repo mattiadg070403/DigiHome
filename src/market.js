@@ -105,15 +105,40 @@ export async function requestRefresh(db, env, user, houseId, opts = {}) {
   const house = await houseOf(db, houseId);
   const n = (await db.prepare('SELECT COUNT(*) AS n FROM market_comps WHERE house_id = ? AND selected = 1').bind(house.id).first()).n;
   if (!n) throw new OpError(400, 'validation', 'Scegli prima le case simili da confrontare.');
-  await enqueuePrices(db, house, opts.today || todayRome());
-  return marketTick(db, env, opts);
+  const today = opts.today || todayRome();
+  const weeks = weeksToCheck(house, today);
+  const pendingBefore = await pendingWeeks(db, house.id);
+  const fresh = await freshWeeks(db, house.id);
+  const queued = await enqueuePrices(db, house, today, { skip: fresh });
+  const tick = await marketTick(db, env, opts);
+  // Per il messaggio dell'app: quante settimane sono partite ora, quante erano già in corso, quante già aggiornate.
+  return { ...tick, queued, already: weeks.filter((ws) => pendingBefore.has(ws)).length, fresh: weeks.filter((ws) => fresh.has(ws) && !pendingBefore.has(ws)).length };
 }
 
-async function enqueuePrices(db, house, today) {
-  const pending = new Set(((await db.prepare("SELECT week_start FROM market_jobs WHERE house_id = ? AND kind = 'prices' AND status IN ('queued', 'running')")
-    .bind(house.id).all()).results || []).map((r) => r.week_start));
+async function pendingWeeks(db, houseId) {
+  return new Set(((await db.prepare("SELECT week_start FROM market_jobs WHERE house_id = ? AND kind = 'prices' AND status IN ('queued', 'running')")
+    .bind(houseId).all()).results || []).map((r) => r.week_start));
+}
+
+/**
+ * Settimane già aggiornate da poco (nelle ultime 12 ore) e dopo l'ultima modifica delle case scelte: premere di nuovo
+ * "Aggiorna i prezzi adesso" non le rifà (si spenderebbe su Apify per avere gli stessi dati).
+ */
+const FRESH_HOURS = 12;
+async function freshWeeks(db, houseId) {
+  const since = new Date(Date.now() - FRESH_HOURS * 3600000).toISOString();
+  const change = await db.prepare(`SELECT MAX(t) AS t FROM (
+      SELECT MAX(at) AS t FROM audit_log WHERE entity = 'house' AND entity_id = ? AND action = 'mercato'
+      UNION ALL SELECT MAX(found_at) AS t FROM market_comps WHERE house_id = ? AND selected = 1)`).bind(houseId, houseId).first();
+  const after = change && change.t && change.t > since ? change.t : since;
+  return new Set(((await db.prepare("SELECT DISTINCT week_start FROM market_jobs WHERE house_id = ? AND kind = 'prices' AND status = 'done' AND finished_at > ?")
+    .bind(houseId, after).all()).results || []).map((r) => r.week_start));
+}
+
+async function enqueuePrices(db, house, today, { skip = new Set() } = {}) {
+  const pending = await pendingWeeks(db, house.id);
   const at = nowIso();
-  const stmts = weeksToCheck(house, today).filter((ws) => !pending.has(ws)).map((ws) => db.prepare(
+  const stmts = weeksToCheck(house, today).filter((ws) => !pending.has(ws) && !skip.has(ws)).map((ws) => db.prepare(
     "INSERT INTO market_jobs (id, house_id, kind, week_start, status, created_at) VALUES (?, ?, 'prices', ?, 'queued', ?)")
     .bind(crypto.randomUUID(), house.id, ws, at));
   if (stmts.length) await db.batch(stmts);

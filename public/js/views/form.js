@@ -64,7 +64,6 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
   const house = () => d.houses.find((x) => x.id === v.house_id) || d.houses[0];
   // Soggiorno già finito: storico degli anni passati. Si salva chiuso, senza i campi che servono solo per l'arrivo.
   const isPast = () => (existing ? existing.stage === 'chiusa' : isIsoDate(v.check_out) && v.check_out < ui.today);
-  const admin = d.me?.role === 'admin';
   const futureOnly = []; // campi che per lo storico non servono (si nascondono)
   const pastOnly = [];
   const fut = (el) => { if (el) futureOnly.push(el); return el; };
@@ -295,10 +294,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     const past = isPast();
     for (const el of futureOnly) el.hidden = past;
     for (const el of pastOnly) el.hidden = !past;
-    pastNote.textContent = !past ? '' : isNew && !admin
-      ? 'Soggiorno già concluso: i soggiorni passati li inserisce solo l’amministratore.'
-      : `Soggiorno già concluso: ${isNew ? 'lo salvo direttamente nell’archivio' : 'è nell’archivio (storico)'}. Non chiede check-in, dati degli ospiti, Alloggiati, DMS, contratto né tassa di soggiorno; conta nei bilanci, nella contabilità e nel listino.`;
-    pastNote.classList.toggle('warn', past && isNew && !admin);
+    pastNote.textContent = !past ? '' : `Soggiorno già concluso: ${isNew ? 'lo salvo direttamente nell’archivio' : 'è nell’archivio (storico)'}. Non chiede check-in, dati degli ospiti, Alloggiati, DMS, contratto né tassa di soggiorno; conta nei bilanci, nella contabilità e nel listino.`;
     refreshTax();
     const n = isIsoDate(v.check_in) && isIsoDate(v.check_out) && v.check_out > v.check_in ? nights(v.check_in, v.check_out) : 0;
     const parts = [];
@@ -398,7 +394,6 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     if (!range.valid) { dlg.setBanner(range.problem); range.focus(); return; }
     if (guestsErr) { dlg.setBanner(guestsErr); controls.guests.focus(); return; }
     const past = isPast();
-    if (past && isNew && !admin) { dlg.setBanner('I soggiorni già conclusi li inserisce solo l’amministratore.'); return; }
     if (past && bookedOnInput && bookedOnInput.value.trim() && !isIsoDate(v.booked_on)) { setFieldError(bookedOnInput, 'Data non valida'); bookedOnInput.focus(); return; }
     if (past && v.booked_on && isIsoDate(v.check_in) && v.booked_on > v.check_in) { setFieldError(bookedOnInput, 'Deve essere prima dell’arrivo'); bookedOnInput.focus(); return; }
     if (!past && !timeOk) { dlg.setBanner('Orario di arrivo non valido (es. 16:30).'); controls.arrival_time.focus(); return; }

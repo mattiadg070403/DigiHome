@@ -52,7 +52,7 @@ export async function readState(db, user) {
     // Listino prezzi: netti per settimana (lo vedono tutti, lo cambia solo l'amministratore).
     prices: rows(13),
     // Ricevute del saldo: contengono i dati del locatore, solo per l'amministratore.
-    payReceipts: isAdmin ? rows(14) : [],
+    payReceipts: rows(14),
     // Mercato: case simili (dati pubblici degli annunci), prezzi per settimana e ultimi lavori su Apify.
     marketComps: rows(15),
     marketPrices: rows(16),

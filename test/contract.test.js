@@ -187,7 +187,7 @@ test('firma ripetuta con lo stesso codice: non crea un secondo contratto', async
   assert.equal(n.n, 1);
 });
 
-test('lettura del contratto: amministratore sì, collaboratore solo se l’ha fatto firmare lui di recente', async () => {
+test('lettura del contratto: tutti gli utenti attivi (il collaboratore fa tutto tranne impostazioni e credenziali)', async () => {
   const { db, admin, collab, b } = await setup();
   const r = await runOp(db, collab, { opId: op(), type: 'contract.sign', payload: signPayload(b) });
   const c = await readContract(db, admin, r.record.id);
@@ -195,9 +195,8 @@ test('lettura del contratto: amministratore sì, collaboratore solo se l’ha fa
   assert.ok(c.guest_sign.startsWith('data:image/jpeg'));
   assert.equal((await readContract(db, collab, r.record.id)).id, r.record.id);
   await db.prepare("UPDATE contracts SET signed_at = '2020-01-01T00:00:00Z'").run();
-  await expectOpError(readContract(db, collab, r.record.id), 'forbidden');
   const other = await addUser(db, { email: 'altro@example.invalid', name: 'Altro', role: 'collaboratore' });
-  await expectOpError(readContract(db, other, r.record.id), 'forbidden');
+  assert.equal((await readContract(db, other, r.record.id)).id, r.record.id);
 });
 
 test('i dati personali del locatore non arrivano ai collaboratori', async () => {
@@ -218,11 +217,10 @@ test('i dati personali del locatore non arrivano ai collaboratori', async () => 
   assert.doesNotMatch(JSON.stringify(log.results), /Mario Rossi|Lecce/);
 });
 
-test('eliminare un contratto: solo l’amministratore, contenuto svuotato subito, passaggio tolto', async () => {
+test('eliminare un contratto: contenuto svuotato subito, passaggio tolto', async () => {
   const { db, admin, collab, b } = await setup();
   const r = await runOp(db, admin, { opId: op(), type: 'contract.sign', payload: signPayload(b) });
-  await expectOpError(runOp(db, collab, { opId: op(), type: 'contract.delete', payload: { id: r.record.id } }), 'forbidden');
-  const del = await runOp(db, admin, { opId: op(), type: 'contract.delete', payload: { id: r.record.id } });
+  const del = await runOp(db, collab, { opId: op(), type: 'contract.delete', payload: { id: r.record.id } });
   assert.equal(del.record.deleted, 1);
   assert.equal(JSON.parse(del.booking.checkin_steps).contratto, 0);
   const row = await db.prepare('SELECT * FROM contracts WHERE id = ?').bind(r.record.id).first();

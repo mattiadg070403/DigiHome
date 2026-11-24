@@ -26,8 +26,7 @@ test('ricevuta: solo saldo, numerazione progressiva per casa e anno, una sola pe
   const { db, admin, collab, mk } = await setup();
   const b1 = await mk();
   const b2 = await mk({ check_in: '2030-07-13', check_out: '2030-07-20', deposit_paid: 0, deposit_cents: 0, total_cents: 6000 });
-  await assert.rejects(op(db, collab, 'payreceipt.issue', { booking_id: b1.id }), /amministratore/i);
-  const r1 = await op(db, admin, 'payreceipt.issue', { booking_id: b1.id });
+  const r1 = await op(db, collab, 'payreceipt.issue', { booking_id: b1.id }); // anche il collaboratore
   assert.equal(r1.record.number, 1);
   assert.equal(r1.record.year, Number(todayRome().slice(0, 4)));
   assert.equal(r1.record.amount_cents, 160000); // 2.100 − 500 di acconto già ricevuto
@@ -38,8 +37,7 @@ test('ricevuta: solo saldo, numerazione progressiva per casa e anno, una sola pe
   const data = JSON.parse(r1.record.data);
   assert.equal(data.landlord_cf, 'RSSMRA70A01E506X');
   assert.equal(data.guest_name, 'Luca Verdi');
-  // Solo l'amministratore le vede (contengono i dati del locatore).
-  assert.equal((await readState(db, collab)).payReceipts.length, 0);
+  assert.equal((await readState(db, collab)).payReceipts.length, 2);
   assert.equal((await readState(db, admin)).payReceipts.length, 2);
 });
 

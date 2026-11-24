@@ -496,7 +496,7 @@ export function openSigned(ctx, meta) {
   const status = h('div', { class: 'stack' }, h('p', { class: 'muted', text: 'Preparo il PDF…' }));
   const shareBtn = h('button', { class: 'btn house', type: 'button', disabled: true, onClick: share }, icon('chat', { size: 16 }), 'Invia su WhatsApp');
   const dlBtn = h('button', { class: 'btn', type: 'button', disabled: true, onClick: () => file && download(file, file.name) }, icon('download', { size: 16 }), 'Scarica PDF');
-  const delBtn = isAdmin(ctx) && b && STAGES.includes(b.stage) ? h('button', { class: 'btn ghost danger small', type: 'button', text: 'Elimina per rifarlo', onClick: remove }) : null;
+  const delBtn = b && STAGES.includes(b.stage) ? h('button', { class: 'btn ghost danger small', type: 'button', text: 'Elimina per rifarlo', onClick: remove }) : null;
   let file = null;
 
   const dlg = openDialog({

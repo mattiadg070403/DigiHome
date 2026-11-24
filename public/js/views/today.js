@@ -52,7 +52,7 @@ function overdueBanner(ctx) {
 function pricingBanner(ctx) {
   const { store, ui } = ctx;
   const d = store.data;
-  if (d.me.role !== 'admin' || weekday(ui.today) !== 1 || Number(ui.today.slice(5, 7)) > 8) return null;
+  if (weekday(ui.today) !== 1 || Number(ui.today.slice(5, 7)) > 8) return null;
   const counts = d.houses.map((house) => {
     const year = seasonYear(ui.today, pricingSettings(house));
     return { house, n: suggestionCount(buildList({ bookings: d.bookings, prices: d.prices, extras: d.extras, house, year, today: ui.today })) };

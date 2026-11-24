@@ -162,7 +162,6 @@ test('operazioni: listino solo per l’amministratore, settimane unite, registro
   const admin = await addUser(db, { email: 'admin@example.invalid', role: 'admin' });
   const collab = await addUser(db, { email: 'collab@example.invalid', role: 'collaboratore' });
   const op = (user, payload) => runOp(db, user, { opId: crypto.randomUUID(), type: 'price.set', payload });
-  await assert.rejects(op(collab, { house_id: 'faro-blu', year: 2027, weeks: { '2027-06-05': 150000 } }), /amministratore/i);
   await assert.rejects(op(admin, { house_id: 'casa-x', year: 2027, weeks: { '2027-06-05': 150000 } }), /Casa non trovata/);
   await assert.rejects(op(admin, { house_id: 'faro-blu', year: 2027, weeks: { '2027-06-05': -5 } }), /non valido/);
   const a = await op(admin, { house_id: 'faro-blu', year: 2027, weeks: { '2027-06-05': 150000, '2027-06-12': 160000 } });
@@ -172,7 +171,7 @@ test('operazioni: listino solo per l’amministratore, settimane unite, registro
   assert.equal(b.record.version, 2);
   const same = await op(admin, { house_id: 'faro-blu', year: 2027, weeks: { '2027-06-12': 170000 } });
   assert.equal(same.unchanged, true);
-  // Lo vedono tutti (anche i collaboratori), lo cambia solo l'amministratore.
+  // Lo vedono e lo cambiano tutti (le impostazioni del listino invece solo l'amministratore).
   const st = await readState(db, collab);
   assert.equal(st.prices.length, 1);
   // Impostazioni del listino: controllate dal server.

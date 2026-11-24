@@ -189,21 +189,18 @@ test('check-out: cauzione obbligatoria, trattenuta con importo e motivo, poi chi
   const c = await runOp(db, admin, { opId: op(), type: 'booking.close', payload: { id: record.id, version: 3, review_ok: true } });
   assert.equal(c.record.stage, 'chiusa');
   assert.equal(c.record.review_ok, 1);
-  // Chiusa: il collaboratore non la modifica; l'amministratore sì (correzioni dello storico).
+  // Chiusa: si può correggere (anche dal collaboratore: fa tutto tranne impostazioni e credenziali).
   const collab = await addUser(db, { email: 'c2@example.invalid', role: 'collaboratore' });
-  await expectOpError(runOp(db, collab, { opId: op(), type: 'booking.update',
-    payload: { id: record.id, version: 4, changes: { guests: 2 } } }), 'state');
-  const u = await runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: record.id, version: 4, changes: { guests: 2 } } });
+  const u = await runOp(db, collab, { opId: op(), type: 'booking.update', payload: { id: record.id, version: 4, changes: { guests: 2 } } });
   assert.equal(u.record.guests, 2);
   assert.equal(u.record.stage, 'chiusa');
 });
 
-test('storico: un soggiorno già finito si salva chiuso, senza avvisi, e solo dall’amministratore', async () => {
+test('storico: un soggiorno già finito si salva chiuso, senza avvisi (anche dal collaboratore)', async () => {
   const { db, admin, collab } = await setup();
   const { bookingAlerts, enteredAfterStay } = await import('../public/shared/booking.js');
   const { accountingTodo } = await import('../public/shared/accounting.js');
   const past = booking({ check_in: addDays(T, -400), check_out: addDays(T, -393), booked_on: addDays(T, -500), security_cents: 30000, arrival_time: '16:00' });
-  await expectOpError(runOp(db, collab, { opId: op(), type: 'booking.create', payload: { booking: past } }), 'forbidden');
   await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: { ...past, booked_on: addDays(T, -390) } } }), 'validation');
   const { record } = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: past } });
   assert.equal(record.stage, 'chiusa');
@@ -223,9 +220,8 @@ test('storico: un soggiorno già finito si salva chiuso, senza avvisi, e solo da
   // Chi parte oggi non è storico: resta da gestire.
   const today = await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: booking({ check_in: addDays(T, -2), check_out: T }) } });
   assert.equal(today.record.stage, 'confermata');
-  // Inserita per sbaglio: l'amministratore la toglie (e la può ripristinare); il collaboratore no.
-  await expectOpError(runOp(db, collab, { opId: op(), type: 'booking.cancel', payload: { id: record.id, version: 1 } }), 'state');
-  const c = await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: record.id, version: 1 } });
+  // Inserita per sbaglio: si toglie (e si può ripristinare).
+  const c = await runOp(db, collab, { opId: op(), type: 'booking.cancel', payload: { id: record.id, version: 1 } });
   assert.equal(c.record.stage, 'cancellata');
   assert.equal(c.record.ext_cancel_warn, 0);
   const r = await runOp(db, admin, { opId: op(), type: 'booking.restore', payload: { id: record.id, version: 2 } });

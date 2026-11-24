@@ -139,7 +139,6 @@ async function bookingCreate(db, user, opId, p) {
   // Soggiorno già finito (storico degli anni passati): si salva direttamente chiuso, senza check-in né Questura.
   const today = todayRome();
   const past = value.check_out < today; // chi parte oggi è ancora un soggiorno da gestire
-  if (past && user.role !== 'admin') throw new OpError(403, 'forbidden', 'Solo l’amministratore può inserire soggiorni già conclusi.');
   if (value.booked_on && value.booked_on > value.check_in) {
     throw bad('La data della prenotazione deve essere prima dell’arrivo', { errors: { booked_on: 'Deve essere prima dell’arrivo' } });
   }
@@ -177,10 +176,8 @@ async function bookingUpdate(db, user, opId, p) {
   const cur = await getBooking(db, p.id);
   if (!cur) throw notFound();
   if (cur.version !== p.version) throw conflictError(cur);
-  // Chiusa: solo l'amministratore può correggerla (per esempio lo storico inserito a mano).
-  if (cur.stage === 'cancellata' || (cur.stage === 'chiusa' && user.role !== 'admin')) {
-    throw new OpError(409, 'state', cur.stage === 'chiusa' ? 'Una prenotazione chiusa la può correggere solo l’amministratore.' : 'Una prenotazione cancellata non si può modificare.');
-  }
+  // Chiusa: si può correggere (per esempio lo storico inserito a mano); cancellata no.
+  if (cur.stage === 'cancellata') throw new OpError(409, 'state', 'Una prenotazione cancellata non si può modificare.');
   const input = {};
   for (const k of Object.keys(p.changes || {})) {
     if (!BOOKING_EDITABLE.includes(k)) throw bad(`Campo non modificabile: ${k}`);
@@ -308,9 +305,9 @@ function bookingClose(db, user, opId, p) {
 
 function bookingCancel(db, user, opId, p) {
   // Prenotazione di Airbnb/Booking cancellata qui: sulla piattaforma resta attiva → avviso finché non si conferma
-  // (non per i soggiorni già finiti). Una chiusa la può togliere solo l'amministratore (es. storico inserito per sbaglio).
+  // (non per i soggiorni già finiti). Anche una chiusa si può togliere (es. storico inserito per sbaglio).
   return setStage(db, user, opId, p, {
-    from: ['confermata', 'in_casa', 'partita', ...(user.role === 'admin' ? ['chiusa'] : [])], to: 'cancellata', action: 'cancel',
+    from: ['confermata', 'in_casa', 'partita', 'chiusa'], to: 'cancellata', action: 'cancel',
     extraSet: ", ext_cancel_warn = CASE WHEN channel <> 'diretto' AND ext_gone = 0 AND stage <> 'chiusa' THEN 1 ELSE 0 END",
   });
 }
@@ -935,7 +932,6 @@ async function bookingMoney(db, user, opId, p) {
  * assegnato nella stessa istruzione che la salva: due ricevute non possono avere lo stesso numero.
  */
 async function payReceiptIssue(db, user, opId, p) {
-  requireAdmin(user);
   if (!isId(p.booking_id)) throw bad('Richiesta non valida');
   const existing = await db.prepare('SELECT * FROM pay_receipts WHERE booking_id = ?').bind(p.booking_id).first();
   if (existing) return { record: existing, unchanged: true };
@@ -984,7 +980,6 @@ async function payReceiptIssue(db, user, opId, p) {
  * Più dispositivi possono scrivere settimane diverse: in caso di scrittura contemporanea si rilegge e si riprova.
  */
 async function priceSet(db, user, opId, p) {
-  requireAdmin(user);
   const house = typeof p.house_id === 'string' ? await getHouse(db, p.house_id) : null;
   if (!house) throw bad('Casa non trovata');
   const r = checkWeekChanges(p.year, p.weeks);
@@ -1258,7 +1253,6 @@ async function contractSign(db, user, opId, p) {
 
 /** Elimina un contratto (per rifarlo): il contenuto si cancella subito, la riga sparisce dopo 30 giorni. */
 async function contractDelete(db, user, opId, p) {
-  requireAdmin(user);
   if (!isId(p.id)) throw bad('Richiesta non valida');
   const cur = await db.prepare('SELECT id, booking_id FROM contracts WHERE id = ? AND deleted = 0').bind(p.id).first();
   if (!cur) throw notFound();
@@ -1281,15 +1275,11 @@ function todayPlus(days) {
   return d.toISOString().slice(0, 10);
 }
 
-/** Contratto completo (per il PDF): l'amministratore sempre, chi l'ha fatto firmare nelle 24 ore successive. */
+/** Contratto completo (per il PDF): tutti gli utenti attivi (decisione di Mattia, 24/11: il collaboratore fa tutto). */
 export async function readContract(db, user, id) {
   const c = await db.prepare(`SELECT c.*, h.name AS house_name FROM contracts c JOIN houses h ON h.id = c.house_id
     WHERE c.id = ? AND c.deleted = 0`).bind(id).first();
   if (!c) throw notFound();
-  const recent = Date.now() - Date.parse(c.signed_at) < 24 * 60 * 60 * 1000;
-  if (user.role !== 'admin' && !(c.signed_by === user.email && recent)) {
-    throw new OpError(403, 'forbidden', 'Il contratto firmato lo può riaprire solo l’amministratore.');
-  }
   return { ...contractMeta(c), house_name: c.house_name, body: JSON.parse(c.body), guest: JSON.parse(c.guest),
     guest_sign: c.guest_sign, host_sign: c.host_sign };
 }

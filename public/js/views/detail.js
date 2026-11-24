@@ -41,11 +41,9 @@ export function renderDetail(ctx, id) {
   const alerts = bookingAlerts(b, ui.today, d.bookings, ctx.clock(b));
   const n = nights(b.check_in, b.check_out);
   const year = Number(ui.today.slice(0, 4));
-  const admin = d.me?.role === 'admin';
   // Storico (inserito a soggiorno finito): niente ospiti, Questura, contratto, check-in e check-out da rivedere.
   const history = b.stage === 'chiusa' && enteredAfterStay(b);
-  // Chiusa: la corregge solo l'amministratore.
-  const editable = b.stage !== 'cancellata' && (b.stage !== 'chiusa' || admin);
+  const editable = b.stage !== 'cancellata';
 
   const head = h('div', { class: 'detail-head' },
     h('div', { class: 'detail-band' }),
@@ -128,7 +126,7 @@ export function renderDetail(ctx, id) {
       h('div', { class: 'btn-row' }, flows,
         b.stage === 'cancellata'
           ? h('button', { class: 'btn', type: 'button', text: 'Ripristina prenotazione', onClick: () => restoreBooking(ctx, b) })
-          : b.stage !== 'chiusa' || admin ? h('button', { class: 'btn danger', type: 'button', text: 'Cancella prenotazione', onClick: () => cancelBooking(ctx, b) }) : null)),
+          : h('button', { class: 'btn danger', type: 'button', text: 'Cancella prenotazione', onClick: () => cancelBooking(ctx, b) }))),
     historyBlock(ctx, b));
 }
 
@@ -140,7 +138,7 @@ export function renderDetail(ctx, id) {
  */
 function receiptBlock(ctx, b, house) {
   const { store } = ctx;
-  if (!house.receipts_enabled || store.data.me.role !== 'admin' || b.channel !== 'diretto' || b.stage === 'cancellata') return null;
+  if (!house.receipts_enabled || b.channel !== 'diretto' || b.stage === 'cancellata') return null;
   const r = (store.data.payReceipts || []).find((x) => x.booking_id === b.id);
   const due = balanceDue(b);
   const out = h('div', { class: 'stack acc-tight receipt-block' }, h('hr', { class: 'soft' }), h('strong', { text: 'Ricevuta del saldo' }));

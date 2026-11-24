@@ -34,7 +34,8 @@ function weekLabel(ws) {
 export function renderPricing(ctx, { tabs } = {}) {
   const { store, ui } = ctx;
   const d = store.data;
-  const isAdmin = d.me.role === 'admin';
+  // Il listino lo cambiano tutti (il collaboratore fa tutto tranne impostazioni e credenziali).
+  const isAdmin = true;
   const house = d.houses.find((x) => x.id === ui.houseId) || d.houses[0];
   const settings = pricingSettings(house);
   if (view.house !== house.id || !view.year) { view.house = house.id; view.year = seasonYear(ui.today, settings); }

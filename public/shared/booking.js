@@ -98,7 +98,7 @@ export function checkinSteps(b, opt = {}) {
   });
   steps.push({
     key: 'dms', required: true, title: 'Comunicazione DMS Puglia',
-    help: 'Obbligatoria: carica sul DMS Puglia (con SPID, «Carica movimentazione») il file preparato in Archivio → Questura e DMS, oppure registra l’arrivo a mano.',
+    help: 'Obbligatoria: su SPOT Easy (con SPID) «Carica scheda Alloggiati» con il file della scheda (Ospiti e Questura → DMS Puglia), poi scegli la residenza degli ospiti; oppure «Aggiungi un nuovo arrivo» a mano.',
   });
   return steps;
 }

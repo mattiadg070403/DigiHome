@@ -178,6 +178,42 @@ async function placeLookup(db, codes) {
   return (code) => map.get(code) || null;
 }
 
+/* ------------------------------ File PS per SPOT Easy (DMS Puglia) ------------------------------ */
+
+/**
+ * File "PS" per SPOT Easy (DMS Puglia per le locazioni turistiche: «Carica file PS»): è il file .txt delle
+ * schedine Alloggiati, una riga di 168 caratteri per ospite (capo per primo), righe chiuse da CR LF.
+ * Si può creare finché ci sono i dati del documento del capo: dopo la ricevuta della Questura vengono cancellati
+ * e allora l'arrivo su SPOT Easy si inserisce a mano (l'app mostra i dati che servono).
+ */
+export async function spotFile(db, bookingId, { today = todayRome() } = {}) {
+  if (!isId(bookingId)) throw bad('Richiesta non valida');
+  const b = await db.prepare('SELECT * FROM bookings WHERE id = ?').bind(bookingId).first();
+  if (!b) throw new OpError(404, 'not_found', 'Prenotazione non trovata.');
+  if (b.stage === 'cancellata') throw new OpError(409, 'state', 'Prenotazione cancellata.');
+  const guests = await listGuests(db, b.id);
+  if (!guests.length) throw new OpError(409, 'guests', 'Inserisci prima i dati degli ospiti.');
+  if (guests.length !== b.guests) throw new OpError(409, 'guests', `Ospiti inseriti: ${guests.length}; nella prenotazione: ${b.guests}.`);
+  if (guests[0].doc_purged_at) {
+    throw new OpError(409, 'purged', 'Il documento del capo è già stato cancellato dopo la ricevuta della Questura: inserisci l’arrivo a mano su SPOT Easy.');
+  }
+  const incomplete = guests.map((g, i) => ({ g, miss: guestMissing(g, i === 0, { today }) })).filter((x) => x.miss.length);
+  if (incomplete.length) throw new OpError(409, 'guests', `Dati incompleti: ${incomplete.map((x) => `${x.g.first_name} ${x.g.last_name} (${x.miss.join(', ')})`).join('; ')}.`);
+  const place = await placeLookup(db, guests.flatMap((g) => [g.birth_place, g.doc_place]));
+  let rows;
+  try {
+    rows = bookingSchedine(b, guests, place);
+  } catch (e) {
+    throw new OpError(409, 'guests', `${e.message}.`);
+  }
+  const surname = guests[0].last_name ? String(guests[0].last_name).normalize('NFD').replace(/[^A-Za-z0-9]+/g, '').slice(0, 20) : 'ospite';
+  return {
+    text: `${rows.map((x) => x.row).join('\r\n')}\r\n`,
+    filename: `SPOT-${b.house_id}-${b.check_in}-${surname || 'ospite'}.txt`,
+    count: rows.length,
+  };
+}
+
 /* ------------------------------ Invio delle schedine ------------------------------ */
 
 /**

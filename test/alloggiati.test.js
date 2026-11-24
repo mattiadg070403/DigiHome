@@ -4,7 +4,7 @@ import { freshDb, addUser } from './d1.js';
 import { runOp, OpError } from '../src/ops.js';
 import '../src/guests.js';
 import '../src/dms.js';
-import { checkConnection, fetchReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine, romeDay } from '../src/questura.js';
+import { checkConnection, fetchReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine, spotFile, romeDay } from '../src/questura.js';
 import { buildDmsXml, dmsFile } from '../src/dms.js';
 import { purgeGuests } from '../src/guests.js';
 import { openJson, sealJson } from '../src/secrets.js';
@@ -345,4 +345,28 @@ test('luoghi: date di fine nel futuro = ancora validi; la ricerca trova anche i 
   for (const x of p) await db.prepare('INSERT INTO places (code, name, province, kind, active) VALUES (?, ?, ?, ?, ?)').bind(x.code, x.name, x.province, x.kind, x.active).run();
   const found = await searchPlaces(db, 'mila', 'C');
   assert.deepEqual(found.map((x) => [x.name, x.active]), [['MILANO', 1], ['MILANO VECCHIO', 0]]);
+});
+
+test('SPOT Easy: file .txt delle schedine (168 caratteri, CR LF, capo per primo); dopo la ricevuta non si crea più', async () => {
+  const { db, admin, b } = await setup({ checkIn: addDays(T, -1) });
+  const portal = fakePortal();
+  await saveCredentials(db, ENV, admin, { houseId: 'faro-blu', utente: 'U', password: PWD, wskey: 'K' }, { fetchImpl: portal.fetchImpl });
+  await assert.rejects(spotFile(db, b.id), /dati degli ospiti/);
+  await addGuests(db, admin, b, famiglia.slice(0, 2));
+  await assert.rejects(spotFile(db, b.id), /Ospiti inseriti: 2/);
+  await addGuests(db, admin, b, famiglia.slice(2));
+  const f = await spotFile(db, b.id);
+  assert.equal(f.count, 3);
+  assert.match(f.filename, /^SPOT-faro-blu-\d{4}-\d{2}-\d{2}-Rossi\.txt$/);
+  assert.ok(f.text.endsWith('\r\n'));
+  const lines = f.text.slice(0, -2).split('\r\n');
+  assert.equal(lines.length, 3);
+  assert.ok(lines.every((l) => l.length === 168 && /^[\x20-\x7e]+$/.test(l)));
+  assert.deepEqual(lines.map((l) => l.slice(0, 2)), ['17', '19', '19']);
+  // Uguale a quello inviato alla Questura.
+  const r = await sendSchedine(db, ENV, admin, { bookingId: b.id }, { fetchImpl: portal.fetchImpl });
+  for (const l of lines) assert.ok(portal.calls.at(-1).body.includes(l));
+  // Dopo la ricevuta il documento del capo è cancellato: niente file (si inserisce a mano).
+  await receiptJob(db, ENV, { fetchImpl: portal.fetchImpl, today: addDays(romeDay(r.record.alloggiati_at), 1) });
+  await assert.rejects(spotFile(db, b.id), /a mano su SPOT Easy/);
 });

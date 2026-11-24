@@ -7,6 +7,7 @@ import { dateField } from '../pickers.js';
 import { GROUPS, SEX, TYPE_LABEL, docDropped, guestMissing, guestType, nameTranscription, plainDoc, plainName, sendWindow } from '../../shared/alloggiati.js';
 import { addDays, fmtShort, todayRome } from '../../shared/dates.js';
 import { waNumber } from './contact.js';
+import { parseSteps } from '../../shared/booking.js';
 
 const cache = new Map(); // id prenotazione → { guests, loading, error, at }
 let docTypesCache = null;
@@ -128,7 +129,8 @@ function panelContent(ctx, bookingId, redraw) {
     guests.length ? h('div', { class: 'stack extras' }, rows) : h('p', { class: 'hint', text: `Nome, data e luogo di nascita, cittadinanza e residenza di tutti (${b.guests}); per chi prenota anche il documento. Servono per la Questura e per il DMS Puglia.` }),
     count, group, add ? h('div', { class: 'btn-row' }, add) : null,
     formBlock(ctx, b, house),
-    questuraBlock(ctx, b, house, guests, after)];
+    questuraBlock(ctx, b, house, guests, after),
+    spotBlock(ctx, b, guests)];
 }
 
 /* ------------------------------ Modulo online per l'ospite ------------------------------ */
@@ -236,6 +238,80 @@ function questuraBlock(ctx, b, house, guests, after) {
   out.append(h('div', { class: 'btn-row' }, btn));
   if (reason && !b.alloggiati_at) out.append(h('p', { class: 'hint', text: reason }));
   else if (!b.alloggiati_at) out.append(h('p', { class: 'hint', text: 'Prima il portale controlla le schedine: se trova un errore non invia niente e te lo dice.' }));
+  return out;
+}
+
+/* ------------------------------ DMS Puglia: SPOT Easy ------------------------------ */
+
+const SEX_TEXT = { M: 'maschio', F: 'femmina' };
+const residenceText = (g) => (g.residence_name ? placeLabel({ name: g.residence_name, province: g.residence_province, kind: g.residence_kind }) : '—');
+const itDate = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
+
+/**
+ * DMS Puglia per le locazioni turistiche (SPOT Easy, «Carica scheda Alloggiati»): si scarica il file .txt
+ * delle schedine e lo si carica su SPOT Easy; poi lì si sceglie la residenza di ogni ospite (il file non la contiene).
+ * Dopo la ricevuta della Questura il documento del capo è cancellato: allora l'arrivo si inserisce a mano
+ * («Aggiungi un nuovo arrivo») con i dati mostrati qui.
+ */
+function spotBlock(ctx, b, guests) {
+  const { ui } = ctx;
+  if (b.stage === 'cancellata' || !guests.length) return null;
+  const done = Boolean(parseSteps(b.checkin_steps).dms);
+  const out = h('div', { class: 'stack questura' }, h('strong', { text: 'DMS Puglia · SPOT Easy' }));
+  const canMark = b.stage === 'confermata' || b.stage === 'in_casa';
+  const mark = (value) => ctx.act('booking.step', { id: b.id, flow: 'checkin', step: 'dms', done: value },
+    { message: value ? 'DMS Puglia segnato come fatto' : 'DMS Puglia di nuovo da fare' }).catch((e) => ctx.toast(e.message, { bad: true }));
+  if (done) {
+    out.append(h('div', { class: 'acc-payout' }, tag({ text: 'Caricato su SPOT Easy', tone: 'ok' }),
+      canMark ? h('button', { class: 'btn small ghost', type: 'button', text: 'Non ancora', onClick: () => mark(false) }) : null));
+    return out;
+  }
+  const complete = guests.length === b.guests && guests.every((g, i) => !guestMissing(g, i === 0, { today: ui.today }).length);
+  const purged = Boolean(guests[0].doc_purged_at);
+  const residences = h('ul', { class: 'plain-list spot-list' }, guests.map((g) => h('li', null,
+    h('span', { text: `${fullName(g)}: ` }), h('strong', { text: residenceText(g) }))));
+  if (purged) {
+    // Niente file: i dati per «Aggiungi un nuovo arrivo».
+    out.append(h('p', { class: 'hint', text: 'Il documento del capo è stato cancellato dopo la ricevuta della Questura, quindi il file non si può più creare. Su SPOT Easy usa «Aggiungi un nuovo arrivo» con questi dati:' }),
+      h('ul', { class: 'plain-list spot-list' }, guests.map((g, i) => h('li', null,
+        h('strong', { text: TYPE_LABEL[guestType(i, guests.length, b.guest_group)] }),
+        h('span', { text: ` · ${SEX_TEXT[g.sex] || '—'} · ${g.sex === 'F' ? 'nata' : 'nato'} il ${itDate(g.birth_date)} · cittadinanza ${g.citizenship_name || '—'} · residenza ${residenceText(g)}` })))),
+      h('p', { class: 'small', text: `Arrivo ${fmtShort(b.check_in)}, partenza ${fmtShort(b.check_out)}.` }));
+  } else {
+    const msg = h('div', { attrs: { 'aria-live': 'polite' } });
+    const dl = h('button', { class: 'btn small primary', type: 'button', disabled: !complete }, icon('download', { size: 16 }), 'Scarica il file per SPOT Easy');
+    dl.addEventListener('click', async () => {
+      msg.replaceChildren();
+      dl.disabled = true;
+      try {
+        const res = await fetch(`/api/bookings/${encodeURIComponent(b.id)}/spot`, { credentials: 'same-origin', cache: 'no-store', redirect: 'manual' });
+        if (!res.ok || res.type === 'opaqueredirect') {
+          let text = 'File non preparato.';
+          try { text = (await res.json()).message || text; } catch { text = 'Sessione scaduta: ricarica la pagina.'; }
+          msg.replaceChildren(h('div', { class: 'banner bad small', text }));
+          return;
+        }
+        const name = (/filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '') || [])[1] || `SPOT-${b.check_in}.txt`;
+        const url = URL.createObjectURL(await res.blob());
+        const a = h('a', { href: url, download: name });
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        msg.replaceChildren(h('div', { class: 'banner ok small', text: 'File scaricato. Caricalo su SPOT Easy con «Carica scheda Alloggiati», poi scegli la residenza di ogni ospite (qui sotto) e conferma.' }));
+      } catch {
+        msg.replaceChildren(h('div', { class: 'banner bad small', text: 'Connessione assente: riprova.' }));
+      } finally { dl.disabled = !complete; }
+    });
+    out.append(
+      h('p', { class: 'hint', text: complete
+        ? 'Su SPOT Easy tocca «Carica scheda Alloggiati» e scegli questo file. Il file non contiene la residenza: dopo il caricamento SPOT Easy te la chiede per ogni ospite.'
+        : 'Il file si prepara quando i dati di tutti gli ospiti sono completi.' }),
+      h('div', { class: 'btn-row' }, dl), msg);
+    if (complete) out.append(h('p', { class: 'small', text: 'Residenze da scegliere su SPOT Easy:' }), residences);
+  }
+  if (canMark) out.append(h('div', { class: 'btn-row' }, h('button', { class: 'btn small', type: 'button', onClick: () => mark(true) }, icon('check', { size: 16 }), 'Fatto: caricato su SPOT Easy')));
+  out.append(h('p', { class: 'hint', text: 'Va fatto entro il 10 del mese dopo (poi SPOT Easy invia da solo); conviene farlo all’arrivo, prima che il documento venga cancellato.' }));
   return out;
 }
 

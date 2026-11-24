@@ -1,18 +1,16 @@
 // Questura e DMS: impostazioni del collegamento con Alloggiati Web (solo amministratore),
-// impostazioni del DMS Puglia, archivio delle ricevute e file per il DMS.
+// archivio delle ricevute e riepilogo del DMS Puglia (SPOT Easy).
 
 import { h, icon } from '../dom.js';
 import { field, setFieldError, openDialog, confirmDialog, tag } from '../ui.js';
 import { dateField } from '../pickers.js';
-import { addDays, fmtShort, isIsoDate } from '../../shared/dates.js';
+import { addDays, fmtShort } from '../../shared/dates.js';
+import { enteredAfterStay, parseSteps } from '../../shared/booking.js';
 
 const SECRET_NAME = 'CHIAVE_CREDENZIALI';
 
 export function parseStatus(house) {
   try { return house && house.alloggiati_status ? JSON.parse(house.alloggiati_status) : {}; } catch { return {}; }
-}
-export function parseDms(house) {
-  try { return house && house.dms_settings ? JSON.parse(house.dms_settings) : {}; } catch { return {}; }
 }
 const when = (iso) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }) : '');
 
@@ -146,94 +144,32 @@ function line(k, v) {
   return h('div', { class: 'acc-line' }, h('dt', { text: k }), h('dd', { text: v }));
 }
 
-/* ------------------------------ DMS: impostazioni ------------------------------ */
-
-export function dmsSettingsDialog(ctx, house) {
-  const cur = parseDms(house);
-  const rooms = h('input', { class: 'input', inputmode: 'numeric', value: cur.rooms ? String(cur.rooms) : '' });
-  const beds = h('input', { class: 'input', inputmode: 'numeric', value: cur.beds ? String(cur.beds) : String(house.max_guests || '') });
-  const v = { sent_until: cur.sent_until || null };
-  const sent = dateField({ value: v.sent_until, label: 'Data (gg/mm/aaaa)', today: ctx.ui.today, onChange: (s) => { v.sent_until = s; } }).el;
-  const dlg = openDialog({
-    title: `DMS Puglia · ${house.name}`,
-    content: h('div', { class: 'stack' },
-      h('p', { class: 'muted small', text: 'Servono per il file del DMS: ogni giorno il file dice quante camere e posti letto ha la casa e se è occupata. Usa gli stessi numeri registrati sul DMS.' }),
-      h('div', { class: 'form-grid' }, field('Camere', rooms), field('Posti letto', beds),
-        field('Ultimo giorno già comunicato al DMS', sent, { hint: 'Il prossimo file parte dal giorno dopo. Vuoto = non ancora usato.' }))),
-    actions: [
-      h('button', { class: 'btn', type: 'button', text: 'Annulla', onClick: () => dlg.close() }),
-      h('button', { class: 'btn primary', type: 'button', text: 'Salva', onClick: save }),
-    ],
-  });
-  async function save() {
-    const r = Number(rooms.value);
-    const bd = Number(beds.value);
-    if (!Number.isInteger(r) || r < 1) { setFieldError(rooms, 'Numero non valido'); return; }
-    if (!Number.isInteger(bd) || bd < r) { setFieldError(beds, 'Numero non valido (almeno quanto le camere)'); return; }
-    if (v.sent_until && !isIsoDate(v.sent_until)) { dlg.setBanner('Data non valida'); return; }
-    try {
-      await ctx.act('house.dms', { houseId: house.id, rooms: r, beds: bd, sent_until: v.sent_until }, { message: 'Impostazioni del DMS salvate' });
-      dlg.close();
-    } catch (e) { dlg.setBanner(e.message); }
-  }
-}
-
 /* ------------------------------ Archivio: Questura e DMS ------------------------------ */
 
 export function questuraView(ctx, house) {
   const { store, ui } = ctx;
   const st = parseStatus(house);
-  const dms = parseDms(house);
-  const admin = store.data.me.role === 'admin';
   const receipts = (store.data.receipts || []).filter((r) => r.house_id === house.id);
 
-  // File per il DMS: dal giorno dopo l'ultimo comunicato a ieri (o a oggi, se scelto).
-  const defFrom = dms.sent_until ? addDays(dms.sent_until, 1) : addDays(ui.today, -7);
-  const per = ui.dmsPeriod && ui.dmsPeriod.house === house.id ? ui.dmsPeriod : (ui.dmsPeriod = { house: house.id, from: defFrom, to: addDays(ui.today, -1) < defFrom ? defFrom : addDays(ui.today, -1) });
-  const msg = h('div', { attrs: { 'aria-live': 'polite' } });
-  const fromF = dateField({ value: per.from, label: 'Dal (gg/mm/aaaa)', today: ui.today, onChange: (s) => { per.from = s; } }).el;
-  const toF = dateField({ value: per.to, label: 'Al (gg/mm/aaaa)', today: ui.today, onChange: (s) => { per.to = s; } }).el;
-  const dl = h('button', { class: 'btn primary', type: 'button' }, icon('download', { size: 16 }), 'Scarica il file per il DMS');
-  dl.addEventListener('click', async () => {
-    msg.replaceChildren();
-    if (!isIsoDate(per.from) || !isIsoDate(per.to) || per.to < per.from) { msg.replaceChildren(h('div', { class: 'banner bad small', text: 'Controlla le date del periodo.' })); return; }
-    dl.disabled = true;
-    try {
-      const res = await fetch(`/api/dms?house=${encodeURIComponent(house.id)}&from=${per.from}&to=${per.to}`, { credentials: 'same-origin', cache: 'no-store', redirect: 'manual' });
-      if (!res.ok || res.type === 'opaqueredirect') {
-        let text = 'File non preparato.';
-        try { text = (await res.json()).message || text; } catch { text = 'Sessione scaduta: ricarica la pagina.'; }
-        msg.replaceChildren(h('div', { class: 'banner bad small', text }));
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = h('a', { href: url, download: `DMS-${house.id}-${per.from}-${per.to}.xml` });
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      msg.replaceChildren(h('div', { class: 'banner ok small' },
-        h('span', { text: `File scaricato. Caricalo sul DMS (SPOT Online → «Carica movimentazione»). Quando il DMS l’ha accettato, tocca: ` }),
-        h('button', { class: 'btn small', type: 'button', text: `Caricato fino al ${fmtShort(per.to)}`, onClick: async () => {
-          try {
-            await ctx.act('house.dms', { houseId: house.id, sentOnly: true, sent_until: per.to }, { message: `DMS segnato fino al ${fmtShort(per.to)}` });
-            ui.dmsPeriod = null;
-          } catch (e) { ctx.toast(e.message, { bad: true }); }
-        } })));
-    } catch {
-      msg.replaceChildren(h('div', { class: 'banner bad small', text: 'Connessione assente: riprova.' }));
-    } finally { dl.disabled = false; }
-  });
-
+  // DMS Puglia per le locazioni turistiche (SPOT Easy): un caricamento per ogni arrivo, entro il 10 del mese dopo.
+  // Qui il riepilogo degli arrivi del mese scorso e di questo; il file si scarica dalla scheda della prenotazione.
+  const monthStart = `${ui.today.slice(0, 7)}-01`;
+  const prevStart = `${addDays(monthStart, -1).slice(0, 7)}-01`;
+  const arrivals = store.data.bookings
+    .filter((b) => b.house_id === house.id && b.stage !== 'cancellata' && !enteredAfterStay(b) && b.check_in >= prevStart && b.check_in <= ui.today)
+    .sort((a, b) => a.check_in.localeCompare(b.check_in));
+  const dmsDone = (b) => Boolean(parseSteps(b.checkin_steps).dms);
+  const todo = arrivals.filter((b) => !dmsDone(b)).length;
+  const deadline = (b) => { const [y, m] = b.check_in.split('-').map(Number); return `10/${String(m === 12 ? 1 : m + 1).padStart(2, '0')}/${m === 12 ? y + 1 : y}`; };
+  const arrivalRows = arrivals.map((b) => h('a', { class: 'row row-link', href: `#/p/${b.id}` },
+    h('span', { class: 'row-main' }, h('span', { class: 'row-title', text: b.guest_name }),
+      h('span', { class: 'row-sub', text: `Arrivo ${fmtShort(b.check_in)} · ${b.guests} ${b.guests === 1 ? 'ospite' : 'ospiti'}${dmsDone(b) ? '' : ` · entro il ${deadline(b)}`}` })),
+    tag({ text: dmsDone(b) ? 'Caricato' : 'Da caricare', tone: dmsDone(b) ? 'ok' : 'warn' })));
   const dmsCard = h('section', { class: 'card card-pad stack' },
-    h('div', { class: 'section-head acc-card-head' }, h('h2', { text: 'DMS Puglia' }),
-      admin ? h('button', { class: 'btn small ghost', type: 'button', text: 'Impostazioni', onClick: () => dmsSettingsDialog(ctx, house) }) : null),
-    !dms.rooms ? h('div', { class: 'banner warn small', text: admin ? 'Imposta camere e posti letto della casa (Impostazioni qui sopra).' : 'L’amministratore deve impostare camere e posti letto della casa.' }) : null,
-    h('p', { class: 'small', text: dms.sent_until ? `Ultimo giorno comunicato: ${fmtShort(dms.sent_until)}.` : 'Non ancora usato: per il primo file scegli un periodo che inizia con la casa vuota.' }),
-    h('div', { class: 'stack acc-tight' }, field('Dal', fromF), field('Al', toF)),
-    h('div', { class: 'btn-row' }, dl), msg,
-    h('p', { class: 'hint', text: 'Il file contiene, giorno per giorno, arrivi e partenze con sesso, età, cittadinanza e residenza degli ospiti (nessun nome né documento). Si entra sul DMS con SPID e si carica il file.' }));
+    h('div', { class: 'section-head acc-card-head' }, h('h2', { text: 'DMS Puglia · SPOT Easy' }),
+      arrivals.length ? tag({ text: todo ? `${todo} da caricare` : 'Tutto caricato', tone: todo ? 'warn' : 'ok' }) : null),
+    arrivalRows.length ? h('div', { class: 'rows' }, arrivalRows) : h('p', { class: 'hint', text: 'Nessun arrivo questo mese e il mese scorso.' }),
+    h('p', { class: 'hint', text: 'Per ogni arrivo: apri la prenotazione → Ospiti e Questura → «Scarica il file per SPOT Easy». Su SPOT Easy (con SPID) tocca «Carica scheda Alloggiati», scegli il file, completa la residenza degli ospiti e conferma. Va fatto entro il 10 del mese dopo; conviene all’arrivo, finché c’è il documento del capo.' }));
 
   const recRows = receipts.map((r) => h('div', { class: 'row' },
     h('span', { class: 'row-main' }, h('span', { class: 'row-title', text: `Ricevuta del ${r.date.split('-').reverse().join('/')}` }),

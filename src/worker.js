@@ -4,7 +4,7 @@ import { authenticate } from './auth.js';
 import { fail, json, secure, text } from './http.js';
 import { OpError, PRIVATE_OPS, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
 import { GUEST_HANDLERS, listGuests, purgeGuests } from './guests.js';
-import { checkConnection, docTypes, fetchReceipt, placesStats, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine } from './questura.js';
+import { checkConnection, docTypes, fetchReceipt, placesStats, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine, spotFile } from './questura.js';
 import { dmsFile } from './dms.js';
 import './guest-form.js';
 import { hasSecret } from './secrets.js';
@@ -85,6 +85,15 @@ async function handleApi(request, env, url) {
       // Ospiti della prenotazione: si leggono solo aprendo la scheda (non fanno parte dello stato).
       const g = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/guests$/);
       if (g) return json({ ok: true, guests: await listGuests(env.DB, g[1]) }, { headers: { 'Cache-Control': 'no-store' } });
+      // File PS per SPOT Easy (DMS Puglia): le schedine della prenotazione in un .txt, da caricare su SPOT Easy.
+      const sp = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/spot$/);
+      if (sp) {
+        const f = await spotFile(env.DB, sp[1]);
+        return secure(new Response(f.text, { status: 200, headers: {
+          'Content-Type': 'text/plain; charset=us-ascii', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': `attachment; filename="${f.filename}"`,
+        } }), { cache: 'no-store' });
+      }
       if (path === '/api/places') {
         return json({ ok: true, places: await searchPlaces(env.DB, url.searchParams.get('q'), url.searchParams.get('kind')) });
       }

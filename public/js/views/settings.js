@@ -14,7 +14,7 @@ import { importBlock } from './import.js';
 import { accountingSettingsDialog } from './accounting.js';
 import { marketSettingsDialog, marketSummary } from './market.js';
 import { accountingSettings, channelRule, effectiveBp } from '../../shared/accounting.js';
-import { alloggiatiSettingsDialog, dmsSettingsDialog, alloggiatiSummary } from './questura.js';
+import { alloggiatiSettingsDialog, alloggiatiSummary } from './questura.js';
 
 const IMPORT_VISIBLE = false;
 
@@ -342,8 +342,6 @@ function housesSection(ctx) {
     const acc = accountingSettings(x);
     const today = ctx.ui.today;
     const comm = (ch) => pctBp(effectiveBp(channelRule(acc, ch, today)));
-    let dms = {};
-    try { dms = x.dms_settings ? JSON.parse(x.dms_settings) : {}; } catch { dms = {}; }
     const allo = alloggiatiSummary(x);
     return [
       { label: 'Casa', sub: `Fino a ${x.max_guests} persone · check-in ${x.checkin_time} · check-out ${x.checkout_time} · tassa di soggiorno${x.receipts_enabled ? ' · ricevuta del saldo' : ''}`, open: () => houseDialog(ctx, x) },
@@ -353,7 +351,6 @@ function housesSection(ctx) {
       { label: 'Contabilità', sub: `Airbnb ${comm('airbnb')} · Booking ${comm('booking')} · cedolare ${pctBp(acc.cedolare_bp)}`, open: () => accountingSettingsDialog(ctx, x) },
       { label: 'Alloggiati Web', sub: allo.text.replace(/^Alloggiati Web: /, '').replace(/^./, (c) => c.toUpperCase()), tone: allo.tone === 'ok' ? 'ok' : allo.tone === 'warn' ? 'warn' : null, open: () => alloggiatiSettingsDialog(ctx, x) },
       (() => { const m = marketSummary(ctx, x); return { label: 'Mercato (Apify)', sub: m.text, tone: m.tone === 'ok' ? null : m.tone, open: () => marketSettingsDialog(ctx, x) }; })(),
-      { label: 'DMS Puglia', sub: dms.rooms ? `${dms.rooms} ${dms.rooms === 1 ? 'camera' : 'camere'} · ${dms.beds} posti letto` : 'Camere e posti letto da impostare', tone: dms.rooms ? null : 'warn', open: () => dmsSettingsDialog(ctx, x) },
     ];
   };
   return h('section', { class: 'section' },

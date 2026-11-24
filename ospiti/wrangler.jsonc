@@ -10,6 +10,12 @@
   "workers_dev": true,
   "preview_urls": false,
 
+  // Indirizzi per gli ospiti, uno per casa (domini personalizzati: Cloudflare crea da solo il record DNS e il certificato).
+  "routes": [
+    { "pattern": "registrazione.faroblugallipoli.it", "custom_domain": true },
+    { "pattern": "registrazione.isolabellagallipoli.it", "custom_domain": true }
+  ],
+
   "assets": {
     "directory": "../public-ospiti",
     "binding": "ASSETS",

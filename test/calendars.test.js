@@ -338,6 +338,10 @@ test('calendario pubblico per Airbnb: solo date delle prenotazioni dirette e di 
   // Codici sbagliati, altre pagine, altri metodi
   assert.equal((await get(`/cal/${'0'.repeat(48)}.ics`)).status, 404);
   assert.equal((await get('/cal/abc.ics')).status, 404);
+  // Stesso calendario anche con il percorso /ical/ (quello dei link nuovi, accettato da Booking.com).
+  const noStamp = (t) => t.replace(/DTSTAMP:\S+/g, '');
+  assert.equal(noStamp(await (await get(`/ical/${tok}.ics`)).text()), noStamp(await (await get(`/cal/${tok}.ics`)).text()));
+  assert.equal((await get(`/xical/${tok}.ics`)).status, 404);
   assert.equal((await get('/api/state')).status, 404);
   assert.equal((await get('/')).status, 404);
   assert.equal((await get(`/cal/${tok}.ics`, 'POST')).status, 405);

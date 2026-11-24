@@ -2,7 +2,9 @@
 //
 // Airbnb e Booking leggono questo calendario dai loro server, senza poter fare il login:
 // per questo vive in un Worker a parte, che fa UNA sola cosa:
-//   GET /cal/<codice segreto di 48 caratteri>.ics → date occupate di una casa, nient'altro.
+//   GET /ical/<codice segreto di 48 caratteri>.ics (o /cal/…, il formato dei primi link) → date occupate di una
+//   casa, nient'altro. Booking.com rifiuta alcuni indirizzi (es. *.workers.dev): per questo il calendario risponde
+//   anche sui domini delle case (calendario.<sito>) e il percorso contiene "ical".
 // Nessun nome, nessun dato degli ospiti, nessun'altra pagina. Codice sbagliato → 404.
 
 import { addDays, todayRome } from '../public/shared/dates.js';
@@ -57,7 +59,7 @@ export default {
     const url = new URL(request.url);
     if (request.method !== 'GET' && request.method !== 'HEAD') return plain('Metodo non consentito.', 405);
     if (url.pathname === '/robots.txt') return plain('User-agent: *\nDisallow: /\n', 200);
-    const m = /^\/cal\/([a-f0-9]{48})\.ics$/.exec(url.pathname);
+    const m = /^\/i?cal\/([a-f0-9]{48})\.ics$/.exec(url.pathname);
     if (!m) return plain('Non trovato.', 404);
     try {
       const list = await exportFor(env.DB, m[1]);

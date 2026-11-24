@@ -35,6 +35,8 @@
     "ALLOW_DEMO": "false",
     // Indirizzo del calendario pubblico (cartella calendario/): serve a mostrare il link da dare ad Airbnb e Booking.
     "CALENDAR_PUBLIC_URL": "https://digihome-calendario.mattia-digirolamo03.workers.dev",
+    // Calendario per Airbnb e Booking sul dominio di ogni casa (Booking.com rifiuta *.workers.dev).
+    "CALENDARI_DOMINI": "{\"faro-blu\":\"https://calendario.faroblugallipoli.it\",\"isola-bella\":\"https://calendario.isolabellagallipoli.it\"}",
     // Modulo online per gli ospiti (Worker digihome-ospiti, cartella ospiti/): un dominio per casa, collegato il 24/11/2026.
     "OSPITI_DOMINI": "{\"faro-blu\":\"https://registrazione.faroblugallipoli.it\",\"isola-bella\":\"https://registrazione.isolabellagallipoli.it\"}"
   },

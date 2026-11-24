@@ -12,6 +12,13 @@
   "workers_dev": true,
   "preview_urls": false,
 
+  // Indirizzi sul dominio di ogni casa (Booking.com rifiuta alcuni indirizzi, come *.workers.dev).
+  // Domini personalizzati: Cloudflare crea da solo il record DNS e il certificato. I link vecchi restano validi.
+  "routes": [
+    { "pattern": "calendario.faroblugallipoli.it", "custom_domain": true },
+    { "pattern": "calendario.isolabellagallipoli.it", "custom_domain": true }
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",

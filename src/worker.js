@@ -13,9 +13,9 @@ import { hasSecret } from './secrets.js';
  * Indirizzo del modulo per gli ospiti casa per casa (dominio della casa, es. registrazione.faroblugallipoli.it):
  * variabile OSPITI_DOMINI = {"faro-blu":"https://…","isola-bella":"https://…"}. Solo indirizzi https validi.
  */
-function formDomains(env) {
+function formDomains(env, name = 'OSPITI_DOMINI') {
   try {
-    const map = JSON.parse(env.OSPITI_DOMINI || '{}');
+    const map = JSON.parse(env[name] || '{}');
     return Object.fromEntries(Object.entries(map).filter(([k, v]) => /^[a-z0-9-]{2,40}$/.test(k) && /^https:\/\/[a-z0-9.-]+$/.test(String(v))));
   } catch {
     return {};
@@ -62,7 +62,9 @@ async function handleApi(request, env, url) {
       const info = { demo: env.ALLOW_DEMO === 'true', env: env.APP_ENV || 'prova', version: APP_VERSION, secretReady: hasSecret(env), apifyReady: apifyReady(env),
         calendarBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.CALENDAR_PUBLIC_URL || '') ? env.CALENDAR_PUBLIC_URL : null,
         formBase: /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost:\d+)$/.test(env.OSPITI_PUBLIC_URL || '') ? env.OSPITI_PUBLIC_URL : null,
-        formBases: formDomains(env) };
+        formBases: formDomains(env),
+        // Calendario per Airbnb e Booking sul dominio di ogni casa (CALENDARI_DOMINI, come OSPITI_DOMINI).
+        calendarBases: formDomains(env, 'CALENDARI_DOMINI') };
       // Controllo veloce: se l'app ha già l'ultima versione dei dati, non li rimanda.
       const known = url.searchParams.get('rev');
       if (known !== null && /^\d{1,12}$/.test(known)) {

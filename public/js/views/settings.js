@@ -126,9 +126,10 @@ function exportDialog(ctx, cal) {
   const house = d.houses.find((x) => x.id === cal.house_id);
   const name = PLATFORM[cal.channel];
   const other = cal.channel === 'airbnb' ? 'Booking' : 'Airbnb';
-  const base = ctx.store.info.calendarBase;
+  // Sul dominio della casa (Booking.com rifiuta alcuni indirizzi, come *.workers.dev); i link /cal/ già dati restano validi.
+  const base = (ctx.store.info.calendarBases || {})[cal.house_id] || ctx.store.info.calendarBase;
   const current = () => (ctx.store.data.calendars || []).find((c) => c.id === cal.id) || cal;
-  const link = () => `${base}/cal/${current().export_token}.ics`;
+  const link = () => `${base}/ical/${current().export_token}.ics`;
   const box = h('div', { class: 'stack' });
   const draw = () => {
     if (!base || !current().export_token) {

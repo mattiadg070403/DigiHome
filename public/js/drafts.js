@@ -5,11 +5,13 @@
 const KEY = 'dh.bozza.prenotazione';
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
-export function readDraft() {
+/** user: id di chi è entrato (la bozza di un altro utente sullo stesso dispositivo non si mostra). */
+export function readDraft(user = null) {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const d = JSON.parse(raw);
+    if (d && user && d.user && d.user !== user) return null;
     if (!d || typeof d !== 'object' || !d.v || Date.now() - d.at > MAX_AGE_MS) {
       localStorage.removeItem(KEY);
       return null;
@@ -20,7 +22,7 @@ export function readDraft() {
   }
 }
 
-/** draft: { mode: 'new'|'edit', id?, version?, v } */
+/** draft: { mode: 'new'|'edit', id?, version?, v, user } */
 export function writeDraft(draft) {
   try {
     localStorage.setItem(KEY, JSON.stringify({ ...draft, at: Date.now() }));

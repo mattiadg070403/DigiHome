@@ -4,7 +4,7 @@ import { authenticate } from './auth.js';
 import { fail, json, readLimited, secure, text } from './http.js';
 import { OpError, PRIVATE_OPS, runOp, contractDraft, readContract, purgeContracts } from './ops.js';
 import { GUEST_HANDLERS, listGuests, purgeGuests } from './guests.js';
-import { checkConnection, docTypes, fetchReceipt, placesStats, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine, spotFile } from './questura.js';
+import { checkConnection, docTypes, fetchReceipt, placesStats, purgeStaleDocs, readReceipt, receiptJob, saveCredentials, searchPlaces, sendSchedine, spotFile } from './questura.js';
 import { dmsFile } from './dms.js';
 import './guest-form.js';
 import { hasSecret } from './secrets.js';
@@ -252,6 +252,9 @@ export default {
     ctx.waitUntil(purgeGuests(env.DB).then((n) => {
       if (n) console.log('Ospiti cancellati (oltre un anno dalla partenza)', n);
     }).catch((e) => console.error('Cancellazione ospiti non riuscita', e && e.stack ? e.stack : e)));
+    ctx.waitUntil(purgeStaleDocs(env.DB).then((n) => {
+      if (n) console.log('Dati dei documenti cancellati (schedine inviate o prenotazione cancellata)', n);
+    }).catch((e) => console.error('Cancellazione documenti non riuscita', e && e.stack ? e.stack : e)));
     // Mercato (Apify): legge i lavori finiti, mette in coda l'aggiornamento settimanale, avvia i prossimi.
     ctx.waitUntil(marketTick(env.DB, env).then((r) => {
       if (r && !r.skipped && (r.done || r.started || r.failed)) console.log('Mercato', JSON.stringify(r));

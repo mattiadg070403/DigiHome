@@ -64,14 +64,21 @@ export async function formInfo(db, token, today = todayRome(), part = null) {
   // Link chiuso (schedine inviate, scaduto, cancellato): solo il motivo, niente date, persone o locatore.
   // Chi ritrova il link in una chat dopo mesi non scopre più quando e dove era il soggiorno.
   if (reason) return { open: false, reason, house: house.name, color };
+  // Titolare e contatto per l'informativa: dai Dati del contratto della casa.
   let controller = null;
-  try { controller = JSON.parse(house.contract_info || '{}').landlord_name || null; } catch { controller = null; }
+  let privacyContact = null;
+  try {
+    const ci = JSON.parse(house.contract_info || '{}');
+    controller = ci.landlord_name || null;
+    privacyContact = ci.privacy_contact || null;
+  } catch { controller = null; }
   return {
     open: !reason,
     reason,
     house: house.name,
     color,
     controller,
+    privacy_contact: privacyContact,
     check_in: b.check_in,
     check_out: b.check_out,
     guests: b.guests,
@@ -248,14 +255,18 @@ async function guestLinkOp(db, user, opId, p) {
   const at = new Date().toISOString();
   let main;
   if (p.action === 'revoke') {
-    main = db.prepare(`UPDATE bookings SET guest_form_token = NULL, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ?`)
+    // "Ho prenotato io" si libera se gli ospiti di quel telefono non ci sono più (es. eliminati dal gestore).
+    main = db.prepare(`UPDATE bookings SET guest_form_token = NULL, guest_form_leader_part = CASE WHEN EXISTS (SELECT 1 FROM guests g WHERE g.booking_id = bookings.id AND g.deleted = 0
+        AND g.form_part = bookings.guest_form_leader_part) THEN guest_form_leader_part ELSE NULL END, version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ?`)
       .bind(at, user.email, b.id);
   } else {
     if (b.stage === 'cancellata') throw new OpError(409, 'state', 'La prenotazione è cancellata.');
     if (b.alloggiati_at) throw new OpError(409, 'state', 'Le schedine sono già state inviate.');
     if (todayRome() > formLastDay(b)) throw new OpError(409, 'state', 'L’arrivo è già passato.');
     if (b.guest_form_token && !p.renew) return { record: b };
-    main = db.prepare(`UPDATE bookings SET guest_form_token = ?, guest_form_created_at = ?, guest_form_submits = 0, version = version + 1, rev = ${REV_NEXT},
+    main = db.prepare(`UPDATE bookings SET guest_form_token = ?, guest_form_created_at = ?, guest_form_submits = 0,
+      guest_form_leader_part = CASE WHEN EXISTS (SELECT 1 FROM guests g WHERE g.booking_id = bookings.id AND g.deleted = 0
+        AND g.form_part = bookings.guest_form_leader_part) THEN guest_form_leader_part ELSE NULL END, version = version + 1, rev = ${REV_NEXT},
       updated_at = ?, updated_by = ? WHERE id = ?`).bind(newFormToken(), at, at, user.email, b.id);
   }
   await commit(db, { main, user, opId, entity: 'booking', entityId: b.id, action: p.action === 'revoke' ? 'link_ospiti_disattivato' : 'link_ospiti',

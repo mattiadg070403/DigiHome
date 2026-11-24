@@ -40,7 +40,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
   let v = existing ? { ...existing } : { ...EMPTY(preset.house_id || ui.houseId, d.houses), ...('check_in' in preset ? { check_in: preset.check_in } : {}) };
 
   // Bozza rimasta da prima (ricarica, scheda chiusa, uscita per sbaglio)?
-  const draft = readDraft();
+  const draft = readDraft(ctx.store.data.me?.id);
   let restored = false;
   if (draft && ((isNew && draft.mode === 'new' && !preset.check_in) || (!isNew && draft.mode === 'edit' && draft.id === existing.id))) {
     v = { ...v, ...draft.v };
@@ -79,7 +79,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     dirty = true;
     clearTimeout(draftTimer);
     draftTimer = setTimeout(() => {
-      writeDraft(isNew ? { mode: 'new', v } : { mode: 'edit', id: existing.id, version: base.version, v });
+      writeDraft(isNew ? { mode: 'new', v, user: ctx.store.data.me?.id } : { mode: 'edit', id: existing.id, version: base.version, v, user: ctx.store.data.me?.id });
     }, 250);
     refresh();
   }
@@ -493,7 +493,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
 
 /** Avviso "Prenotazione non salvata" da mostrare in Oggi e Prenotazioni (null se non c'è bozza). */
 export function draftBanner(ctx) {
-  const draft = readDraft();
+  const draft = readDraft(ctx.store.data.me?.id);
   if (!draft) return null;
   const existing = draft.mode === 'edit' ? ctx.store.data.bookings.find((b) => b.id === draft.id) : null;
   if (draft.mode === 'edit' && !existing) { clearDraft(); return null; }

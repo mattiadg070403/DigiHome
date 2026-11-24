@@ -341,6 +341,20 @@ async function purgeDocsForDay(db, houseId, date) {
 }
 
 /**
+ * Dati del documento rimasti anche se non servono più (oltre al caso normale, "ricevuta scaricata"):
+ * schedine segnate come inviate da almeno 2 giorni dopo l'arrivo (anche a mano dal portale, o senza ricevuta),
+ * prenotazioni cancellate. Così vale sempre quello che dice l'informativa agli ospiti.
+ */
+export async function purgeStaleDocs(db, today = todayRome()) {
+  const r = await db.prepare(`UPDATE guests SET doc_type = NULL, doc_number = NULL, doc_place = NULL, doc_purged_at = ?
+    WHERE deleted = 0 AND (doc_number IS NOT NULL OR doc_type IS NOT NULL OR doc_place IS NOT NULL)
+      AND booking_id IN (SELECT id FROM bookings WHERE stage = 'cancellata'
+        OR ((alloggiati_at IS NOT NULL OR json_extract(checkin_steps, '$.alloggiati') = 1) AND check_in <= date(?, '-2 days')))`)
+    .bind(nowIso(), today).run();
+  return r.meta.changes || 0;
+}
+
+/**
  * Lavoro automatico (ogni 30 minuti): ricevute mancanti dei giorni di invio (ultimi 30 giorni, oggi escluso),
  * cancellazione delle ricevute oltre i 5 anni. Restituisce un riassunto.
  */

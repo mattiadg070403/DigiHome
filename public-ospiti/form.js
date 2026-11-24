@@ -32,7 +32,14 @@
       add: 'Aggiungi un ospite', remove: 'Togli',
       group: 'Viaggiate come', family: 'Famiglia', friends: 'Gruppo di amici',
       privacyTitle: 'Privacy',
-      privacy: (who) => `Titolare del trattamento: ${who}. I dati servono solo per la comunicazione obbligatoria alla Questura (Alloggiati Web, art. 109 TULPS) e, senza nomi, per le statistiche turistiche della Regione Puglia. Non li usiamo per altro e non li diamo ad altri. I dati del documento si cancellano appena la Questura conferma la ricezione; gli altri dopo un anno dalla partenza.`,
+      privacy: (who, contact) => [
+        `Titolare del trattamento: ${who || 'il gestore della casa vacanze'}${contact ? ` (contatto: ${contact})` : ''}.`,
+        'Dati: nome e cognome, sesso, data e luogo di nascita, cittadinanza, residenza e, per chi ha prenotato, il documento di identità.',
+        'Finalità e base giuridica: comunicazione obbligatoria alla Questura (Alloggiati Web, art. 109 TULPS) e alla Regione Puglia per la rilevazione dei flussi turistici (DMS/SPOT), in adempimento di obblighi di legge (art. 6, par. 1, lett. c, GDPR). Senza questi dati il soggiorno non può essere registrato. Non li usiamo per altro.',
+        'Comunicazione: solo alla Questura e alla Regione Puglia, come prevede la legge; sono custoditi dai fornitori dei servizi informatici che ospitano l’archivio, con dati conservati nell’Unione europea.',
+        'Conservazione: i dati del documento si cancellano dopo l’invio alla Questura, al più tardi pochi giorni dopo l’arrivo; gli altri un anno dopo la partenza.',
+        'Diritti: puoi chiedere al Titolare l’accesso ai tuoi dati, la rettifica, la cancellazione o la limitazione, nei limiti previsti dalla legge, e presentare reclamo al Garante per la protezione dei dati personali (www.garanteprivacy.it).',
+      ],
       agree: 'Ho letto e confermo che i dati sono corretti',
       send: 'Invia i dati', sending: 'Invio in corso…',
       doneTitle: 'Grazie, dati ricevuti!',
@@ -75,7 +82,14 @@
       add: 'Add a guest', remove: 'Remove',
       group: 'You are travelling as', family: 'Family', friends: 'Group of friends',
       privacyTitle: 'Privacy',
-      privacy: (who) => `Data controller: ${who}. Your details are used only for the mandatory report to the Police (Alloggiati Web, art. 109 TULPS) and, without names, for the tourism statistics of the Puglia Region. We do not use them for anything else or share them with anyone else. ID details are deleted as soon as the Police confirm receipt; the rest one year after departure.`,
+      privacy: (who, contact) => [
+        `Data controller: ${who || 'the holiday home manager'}${contact ? ` (contact: ${contact})` : ''}.`,
+        'Data: first and last name, sex, date and place of birth, citizenship, residence and, for the lead guest, the ID document.',
+        'Purpose and legal basis: mandatory report to the Italian Police (Alloggiati Web, art. 109 TULPS) and to the Puglia Region for tourism statistics (DMS/SPOT), to comply with legal obligations (art. 6(1)(c) GDPR). Without these details the stay cannot be registered. We do not use them for anything else.',
+        'Recipients: only the Police and the Puglia Region, as required by law; the data are kept by the IT service providers hosting the archive, stored in the European Union.',
+        'Retention: ID details are deleted after the report to the Police, at the latest a few days after arrival; the rest one year after departure.',
+        'Your rights: you can ask the data controller for access, rectification, erasure or restriction, within the limits of the law, and lodge a complaint with the Italian Data Protection Authority (www.garanteprivacy.it).',
+      ],
       agree: 'I have read this and confirm the details are correct',
       send: 'Send details', sending: 'Sending…',
       doneTitle: 'Thank you, details received!',
@@ -133,6 +147,7 @@
     try { data = await res.json(); } catch { data = null; }
     if (!res.ok || !data || data.ok === false) {
       const e = new Error((data && data.message) || `HTTP ${res.status}`);
+      e.api = true; // risposta del server (gli errori di rete invece non hanno questo segno, su ogni browser)
       e.code = data && data.code;
       e.extra = data || {};
       throw e;
@@ -423,7 +438,7 @@
       role && isLeader() && info.guests > 1 ? h('div', { class: 'card' }, h('span', { class: 'label', text: t().group }),
         seg([['famiglia', t().family], ['gruppo', t().friends]], group, (v) => { group = v; render(); }, t().group)) : null,
       !role ? null : h('div', { class: 'card' },
-        h('div', { class: 'privacy' }, h('strong', { text: t().privacyTitle }), h('p', { text: t().privacy(info.controller || info.house) })),
+        h('div', { class: 'privacy' }, h('strong', { text: t().privacyTitle }), ...t().privacy(info.controller, info.privacy_contact).map((p) => h('p', { text: p }))),
         h('label', { class: 'check' }, agree, h('span', { text: t().agree })),
         banner ? h('div', { class: 'banner bad', role: 'alert', text: banner }) : null,
         sendBtn),
@@ -453,7 +468,8 @@
         h('button', { class: 'btn', type: 'button', text: t().again, onClick: () => location.reload() })));
       window.scrollTo(0, 0);
     } catch (e) {
-      banner = e.message === 'Failed to fetch' ? t().network : e.message;
+      // Rete assente o debole: Chrome dice "Failed to fetch", Safari "Load failed"… si riconosce dal segno.
+      banner = !e.api ? t().network : e.message;
       if (e.extra && Number.isInteger(e.extra.index)) errors[e.extra.index] = { ...(errors[e.extra.index] || {}), server: true };
       if (e.code === 'leader_taken') { info = { ...info, leaderTaken: true }; role = null; }
       else if (e.code && !['validation', 'server', 'forbidden'].includes(e.code)) info = { ...info, open: false, reason: T.it.closed[e.code] ? e.code : 'expired' };
@@ -486,8 +502,9 @@
       document.documentElement.lang = lang;
       render();
     } catch (e) {
-      info = { open: false, reason: e.code === 'not_found' ? 'not_found' : 'not_found', house: '' };
-      if (e.message === 'Failed to fetch') { app.replaceChildren(h('p', { class: 'loading', text: t().network })); return; }
+      info = { open: false, reason: 'not_found', house: '' };
+      // "Link non valido" solo se il server lo dice; senza rete o con un errore del server: riprovare.
+      if (e.code !== 'not_found') { app.replaceChildren(h('p', { class: 'loading', text: t().network })); return; }
       render();
     }
   }

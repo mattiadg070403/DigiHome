@@ -15,6 +15,7 @@ import { accountingSettingsDialog } from './accounting.js';
 import { marketSettingsDialog, marketSummary } from './market.js';
 import { accountingSettings, channelRule, effectiveBp } from '../../shared/accounting.js';
 import { alloggiatiSettingsDialog, alloggiatiSummary } from './questura.js';
+import { clearDraft } from '../drafts.js';
 
 const IMPORT_VISIBLE = false;
 
@@ -32,7 +33,7 @@ export function renderSettings(ctx) {
           h('dt', { text: 'Nome' }), h('dd', { text: d.me.name }),
           h('dt', { text: 'Email' }), h('dd', { text: d.me.email }),
           h('dt', { text: 'Ruolo' }), h('dd', { text: admin ? 'Amministratore' : 'Collaboratore' })),
-        h('div', null, h('a', { class: 'btn small', href: '/cdn-cgi/access/logout', text: 'Esci' }))),
+        h('div', null, h('a', { class: 'btn small', href: '/cdn-cgi/access/logout', text: 'Esci', onClick: (e) => logout(e, ctx) }))),
       h('section', { class: 'card card-pad stack' },
         h('h2', { text: 'Gestionale' }),
         h('dl', { class: 'kv' },
@@ -232,6 +233,23 @@ function calendarDialog(ctx, cal) {
       dlg.setBanner(e.message);
     }
   }
+}
+
+/**
+ * Esci: prima di lasciare il dispositivo toglie le modifiche in sospeso e la bozza di chi esce (su un telefono o un
+ * iPad condiviso non devono restare né partire a nome di chi entra dopo).
+ */
+async function logout(e, ctx) {
+  e.preventDefault();
+  const href = e.currentTarget.getAttribute('href');
+  const n = ctx.store.pending;
+  if (n) {
+    const ok = await confirmDialog({ title: 'Uscire adesso?', text: `${n === 1 ? 'C’è una modifica non ancora salvata' : `Ci sono ${n} modifiche non ancora salvate`} (manca la connessione). Uscendo ${n === 1 ? 'si perde' : 'si perdono'}.`, okLabel: 'Esci lo stesso', danger: true });
+    if (!ok) return;
+  }
+  ctx.store.forgetMine();
+  clearDraft();
+  location.href = href;
 }
 
 /** Copia di sicurezza scaricabile: tutti i dati in un file, da conservare sul computer. */

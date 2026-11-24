@@ -100,6 +100,8 @@ async function guestSave(db, user, opId, p) {
   const cur = await db.prepare('SELECT * FROM guests WHERE id = ?').bind(p.id).first();
   let main;
   let action;
+  // Ospite nuovo già salvato al tentativo prima (la risposta si era persa): è lo stesso, si aggiorna.
+  if (cur && p.create === true && cur.created_by === user.email && cur.booking_id === b.id && !cur.deleted) p.version = cur.version;
   if (cur) {
     if (cur.booking_id !== b.id || cur.deleted) throw new OpError(404, 'not_found', 'Ospite non trovato.');
     if (Number(p.version) !== cur.version) throw new OpError(409, 'conflict', 'Questo ospite è stato modificato da un altro dispositivo. Riapri la scheda.');
@@ -137,6 +139,10 @@ async function guestDelete(db, user, opId, p) {
       version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ? WHERE id = ? AND deleted = 0`)
     .bind(nowIso(), user.email, p.id);
   await commit(db, { main, user, opId, entity: 'guest', entityId: p.id, action: 'delete', changes: { prenotazione: cur.booking_id } });
+  // Se erano gli ultimi ospiti del telefono di "chi ha prenotato", il posto si libera per il modulo.
+  await db.prepare(`UPDATE bookings SET guest_form_leader_part = NULL WHERE id = ? AND guest_form_leader_part IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM guests g WHERE g.booking_id = bookings.id AND g.deleted = 0 AND g.form_part = bookings.guest_form_leader_part)`)
+    .bind(cur.booking_id).run();
   // Le posizioni restano in ordine (0, 1, 2, …) senza buchi.
   const rest = (await db.prepare('SELECT id FROM guests WHERE booking_id = ? AND deleted = 0 ORDER BY position').bind(cur.booking_id).all()).results || [];
   if (rest.length) await db.batch(rest.map((g, i) => db.prepare('UPDATE guests SET position = ? WHERE id = ?').bind(i, g.id)));

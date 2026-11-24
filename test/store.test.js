@@ -211,3 +211,21 @@ test('un record eliminato confermato dal server sparisce subito dall’elenco (n
   assert.equal(store.data.notes.length, 0);
   assert.ok(!seen.includes(1), 'la nota non è mai ricomparsa');
 });
+
+test('dispositivo condiviso: le modifiche in sospeso di un altro utente non partono a nome di chi è entrato; "Esci" toglie le proprie', async () => {
+  const storage = memoryStorage([{ opId: 'operazione-di-mattia-1', type: 'task.toggle', payload: { id: 't1', done: true }, at: Date.now(), user: 'mattia' }]);
+  const sent = [];
+  const s = createStore({ storage, sleep: async () => {}, fetchImpl: async (url, opts) => {
+    if (url === '/api/ops') { sent.push(JSON.parse(opts.body)); return reply({ ok: true, record: { id: 't9', rev: 9 } }); }
+    return reply(snapshot(1, { me: { id: 'giulia', role: 'collaboratore' } }));
+  } });
+  await s.load({ force: true });
+  assert.equal(s.resume(), 0);
+  assert.equal(s.resume.others, 1);
+  assert.equal(sent.length, 0, 'non inviata a nome di Giulia');
+  assert.equal(storage.saved.length, 1, 'resta sul dispositivo per Mattia');
+  assert.equal(storage.saved[0].user, 'mattia');
+  // Giulia esce: le sue (nessuna) via, quelle di Mattia restano.
+  assert.equal(s.forgetMine(), 0);
+  assert.equal(storage.saved.length, 1);
+});

@@ -57,7 +57,19 @@ function isId(s) {
  */
 const TABLES = { booking: 'bookings', note: 'booking_notes', task: 'tasks', user: 'users', house: 'houses', calendar: 'calendars', extra: 'booking_extras', expense: 'expenses', deadline: 'deadlines', contract: 'contracts', remittance: 'remittances', guest: 'guests', price: 'price_lists', payreceipt: 'pay_receipts' };
 
-export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes }) {
+// Nel registro delle modifiche i dati personali di contatto e i testi liberi non si scrivono: solo che sono
+// cambiati (lo storico mostra comunque solo i nomi dei campi). Così una correzione o una cancellazione chiesta
+// dall'interessato non lascia il valore vecchio nel registro.
+const PRIVATE_FIELDS = new Set(['guest_name', 'phone', 'email', 'notes', 'text']);
+function auditSafe(changes) {
+  if (!changes || typeof changes !== 'object') return changes;
+  const out = {};
+  for (const [k, v] of Object.entries(changes)) out[k] = PRIVATE_FIELDS.has(k) && v !== null && v !== undefined ? 'modificato' : v;
+  return out;
+}
+
+export async function commit(db, { main, also = [], user, opId, entity, entityId, action, changes: rawChanges }) {
+  const changes = entity === 'user' ? rawChanges : auditSafe(rawChanges);
   const table = TABLES[entity];
   const at = nowIso();
   const marked = `EXISTS (SELECT 1 FROM ${table} WHERE id = ?

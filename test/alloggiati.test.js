@@ -411,3 +411,32 @@ test('invio: due "Invia" quasi insieme → una sola spedizione; i passaggi spunt
   assert.equal(steps.alloggiati, 1);
   assert.equal(steps.pagamenti, 1);
 });
+
+test('documenti: cancellati anche se la ricevuta non arriva (invio a mano dal portale) e nelle prenotazioni cancellate', async () => {
+  const { purgeStaleDocs } = await import('../src/questura.js');
+  const { db, admin, b } = await setup({ checkIn: addDays(T, -1) });
+  await addGuests(db, admin, b, famiglia);
+  const doc = () => db.prepare('SELECT doc_number FROM guests WHERE position = 0').first();
+  assert.equal(await purgeStaleDocs(db, T), 0); // niente inviato: il documento serve ancora
+  // Schedine inviate a mano dal portale (passaggio spuntato), nessuna ricevuta nel gestionale.
+  await runOp(db, admin, { opId: op(), type: 'booking.step', payload: { id: b.id, flow: 'checkin', step: 'alloggiati', done: true } });
+  assert.equal(await purgeStaleDocs(db, T), 0); // il giorno dopo l'arrivo serve ancora (file per SPOT Easy)
+  assert.ok((await doc()).doc_number);
+  assert.equal(await purgeStaleDocs(db, addDays(T, 1)), 1);
+  assert.equal((await doc()).doc_number, null);
+  // Prenotazione cancellata dopo che l'ospite aveva compilato il modulo.
+  const s2 = await setup({ checkIn: addDays(T, 20) });
+  await addGuests(s2.db, s2.admin, s2.b, famiglia.slice(0, 1));
+  const cur = await s2.db.prepare('SELECT version FROM bookings WHERE id = ?').bind(s2.b.id).first();
+  await runOp(s2.db, s2.admin, { opId: op(), type: 'booking.cancel', payload: { id: s2.b.id, version: cur.version } });
+  assert.equal(await purgeStaleDocs(s2.db, T), 1);
+});
+
+test('ospite nuovo salvato due volte (risposta persa): resta uno solo', async () => {
+  const { db, admin, b } = await setup();
+  const id = op();
+  await runOp(db, admin, { opId: op(), type: 'guest.save', payload: { bookingId: b.id, id, create: true, guest: capo } });
+  const again = await runOp(db, admin, { opId: op(), type: 'guest.save', payload: { bookingId: b.id, id, create: true, guest: { ...capo, first_name: 'Marco' } } });
+  assert.equal(again.guests.length, 1);
+  assert.equal(again.guests[0].first_name, 'Marco');
+});

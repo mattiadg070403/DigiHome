@@ -181,3 +181,12 @@ test('codici dei link: 12 caratteri senza simboli che si confondono, tutti diver
   }
   assert.equal(seen.size, 2000);
 });
+
+test('"Ho prenotato io" si libera se il gestore elimina gli ospiti di quel telefono', async () => {
+  const { db, admin, token } = await setup();
+  await submitForm(db, token, asLead([lead]));
+  assert.equal((await formInfo(db, token, T, P2)).leaderTaken, true);
+  const g = await db.prepare('SELECT id FROM guests WHERE deleted = 0').first();
+  await runOp(db, admin, { opId: op(), type: 'guest.delete', payload: { id: g.id } });
+  assert.equal((await formInfo(db, token, T, P2)).leaderTaken, false);
+});

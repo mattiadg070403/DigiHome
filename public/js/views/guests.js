@@ -161,6 +161,8 @@ function formBlock(ctx, b, house) {
   }
   const lastDay = addDays(b.check_in, 1);
   if (ui.today > lastDay) return null;
+  // L'informativa del modulo indica il titolare (nome del locatore, dai Dati del contratto).
+  if (!house.contract_ready) out.append(h('p', { class: 'hint warn-text', text: 'Mancano i Dati del contratto della casa (nome del locatore): servono anche per l’informativa privacy del modulo. Completali in Impostazioni → Case.' }));
   const act = (action, message, extra = {}) => ctx.act('booking.guest_link', { id: b.id, action, ...extra }, { message }).catch((e) => ctx.toast(e.message, { bad: true }));
   if (b.guest_form_at) {
     out.append(h('div', null, tag({ text: `Dati inviati dall’ospite il ${fmtShort(todayRome(new Date(b.guest_form_at)))}: controllali all’arrivo`, tone: 'ok' })));
@@ -438,6 +440,7 @@ export function placeField(ctx, { code, name, kind = null, placeholder, onChange
 /* ------------------------------ Scheda dell'ospite ------------------------------ */
 
 function guestDialog(ctx, b, existing, guests, after) {
+  const newGuestId = existing ? null : newId();
   const index = existing ? guests.findIndex((g) => g.id === existing.id) : guests.length;
   const leader = index === 0;
   const lead = guests[0];
@@ -545,7 +548,11 @@ function guestDialog(ctx, b, existing, guests, after) {
     const guest = { ...v, doc_number: (v.doc_number || '').trim() || null };
     if (!leader) { guest.doc_type = null; guest.doc_number = null; guest.doc_place = null; }
     try {
-      const res = await guestsRequest(ctx, 'guest.save', { bookingId: b.id, id: existing ? existing.id : newId(), version: existing ? existing.version : undefined, guest });
+      // Ospite nuovo: lo stesso codice a ogni tentativo di questa finestra (se la risposta si perde e si ritocca
+      // "Salva", non si crea un doppione).
+      const res = await guestsRequest(ctx, 'guest.save', existing
+        ? { bookingId: b.id, id: existing.id, version: existing.version, guest }
+        : { bookingId: b.id, id: newGuestId, create: true, guest });
       dlg.close();
       after(res);
       const miss = guestMissing(res.guests[index] || {}, leader, { today: ctx.ui.today });

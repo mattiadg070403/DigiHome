@@ -55,9 +55,22 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
   let lastSync = 0;
   let staleRetries = 0;
 
-  /** Copia sul dispositivo delle modifiche non ancora confermate (solo i dati da rimandare). */
+  // Modifiche rimaste sul dispositivo da un altro utente (dispositivo condiviso): non si mandano a nome di chi
+  // è entrato adesso; restano lì per quando rientra chi le ha fatte.
+  let foreign = [];
+  const me = () => (data.me && data.me.id) || null;
+
+  /** Copia sul dispositivo delle modifiche non ancora confermate (solo i dati da rimandare), con chi le ha fatte. */
   function saveOutbox() {
-    storage.write(queue.map((op) => ({ opId: op.opId, type: op.type, payload: op.payload, at: op.at })));
+    storage.write([...foreign, ...queue.map((op) => ({ opId: op.opId, type: op.type, payload: op.payload, at: op.at, user: op.user || me() }))]);
+  }
+
+  /** "Esci": toglie dal dispositivo le modifiche in sospeso di chi esce. Restituisce quante erano. */
+  function forgetMine() {
+    const n = queue.length;
+    queue.length = 0;
+    saveOutbox();
+    return n;
   }
 
   function emit(kind) {
@@ -169,7 +182,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
    */
   function mutate(type, payload, { optimistic } = {}) {
     return new Promise((resolve, reject) => {
-      const op = { opId: newId(), type, payload, optimistic, resolve, reject, before: null, at: now() };
+      const op = { opId: newId(), type, payload, optimistic, resolve, reject, before: null, at: now(), user: me() };
       queue.push(op);
       saveOutbox();
       if (optimistic) {
@@ -267,14 +280,18 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     const saved = storage.read();
     const valid = Array.isArray(saved) ? saved.filter((x) => x && typeof x.opId === 'string' && typeof x.type === 'string'
       && x.payload && typeof x.at === 'number') : [];
-    const fresh = valid.filter((x) => now() - x.at < OUTBOX_MAX_AGE_MS);
+    const recent = valid.filter((x) => now() - x.at < OUTBOX_MAX_AGE_MS);
+    // Di un altro utente: restano sul dispositivo (le manderà lui quando rientra), qui non si inviano.
+    foreign = recent.filter((x) => x.user && me() && x.user !== me());
+    resume.others = foreign.length;
+    const fresh = recent.filter((x) => !foreign.includes(x));
     // Modifiche rimaste sul dispositivo per più di 3 giorni: non si mandano più (potrebbero sovrascrivere dati
     // nuovi), ma lo si dice invece di buttarle in silenzio.
     resume.discarded = valid.length - fresh.length;
     const known = new Set(queue.map((op) => op.opId));
     for (const x of fresh) {
       if (known.has(x.opId)) continue;
-      queue.push({ opId: x.opId, type: x.type, payload: x.payload, at: x.at, optimistic: null, before: null,
+      queue.push({ opId: x.opId, type: x.type, payload: x.payload, at: x.at, user: x.user || me(), optimistic: null, before: null,
         resolve: () => {}, reject: () => {} });
     }
     saveOutbox();
@@ -309,6 +326,7 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
     mutate,
     retry,
     resume,
+    forgetMine,
     request,
     accept,
     newId,

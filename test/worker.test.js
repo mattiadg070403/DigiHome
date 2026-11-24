@@ -223,7 +223,7 @@ test('calendari: "Aggiorna ora" solo con accesso e dallo stesso sito; aggiorname
   }
 });
 
-test('copia dei dati: solo l’amministratore, file scaricabile, senza link riservati', async () => {
+test('copia dei dati: solo l’amministratore, file scaricabile, completa (anche i link dei calendari, per il ripristino)', async () => {
   const env = await makeEnv();
   env.DB.sqlite.prepare("UPDATE calendars SET import_url = 'https://www.airbnb.it/calendar/ical/9.ics?s=riservato' WHERE id = 'faro-blu:airbnb'").run();
   const tc = await sign(claims({ email: 'collab@example.invalid' }));
@@ -234,11 +234,18 @@ test('copia dei dati: solo l’amministratore, file scaricabile, senza link rise
   assert.match(r.headers.get('Content-Disposition'), /attachment; filename="digihome-prova-\d{4}-\d{2}-\d{2}\.json"/);
   assert.equal(r.headers.get('Cache-Control'), 'no-store');
   const text = await r.text();
-  assert.ok(!text.includes('riservato'));
+  assert.ok(text.includes('riservato'), 'i link dei calendari servono per il ripristino');
   const data = JSON.parse(text);
   assert.equal(data.app, 'DigiHome');
   assert.equal(data.houses.length, 2);
   assert.ok(Array.isArray(data.audit_log));
+  assert.ok(Array.isArray(data.guests));
+  // Ricevute della Questura di un anno: file a parte, solo per l'amministratore.
+  assert.equal((await call(env, '/api/export/ricevute/2026', { token: tc })).status, 403);
+  const rx = await call(env, '/api/export/ricevute/2026', { token: await sign(claims()) });
+  assert.equal(rx.status, 200);
+  assert.equal((await rx.json()).kind, 'ricevute');
+  assert.equal((await call(env, '/api/export/ricevute/1999', { token: await sign(claims()) })).status, 400);
 });
 
 test('contratto: la firma passa solo dal suo indirizzo, che accetta richieste più grandi; altrove resta il limite', async () => {

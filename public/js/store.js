@@ -265,8 +265,12 @@ export function createStore({ fetchImpl = (...a) => fetch(...a), newId = () => c
    */
   function resume() {
     const saved = storage.read();
-    const fresh = Array.isArray(saved) ? saved.filter((x) => x && typeof x.opId === 'string' && typeof x.type === 'string'
-      && x.payload && typeof x.at === 'number' && now() - x.at < OUTBOX_MAX_AGE_MS) : [];
+    const valid = Array.isArray(saved) ? saved.filter((x) => x && typeof x.opId === 'string' && typeof x.type === 'string'
+      && x.payload && typeof x.at === 'number') : [];
+    const fresh = valid.filter((x) => now() - x.at < OUTBOX_MAX_AGE_MS);
+    // Modifiche rimaste sul dispositivo per più di 3 giorni: non si mandano più (potrebbero sovrascrivere dati
+    // nuovi), ma lo si dice invece di buttarle in silenzio.
+    resume.discarded = valid.length - fresh.length;
     const known = new Set(queue.map((op) => op.opId));
     for (const x of fresh) {
       if (known.has(x.opId)) continue;

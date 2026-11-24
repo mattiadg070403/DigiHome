@@ -144,6 +144,11 @@ const DEMO_DOCS = [['IDENT', 'CARTA DI IDENTITA\''], ['IDELE', 'CARTA IDENTITA\'
 export async function loadDemo(db, user) {
   const at = new Date().toISOString();
   const stmts = [
+    db.prepare('DELETE FROM pay_receipts'),
+    db.prepare('DELETE FROM price_lists'),
+    db.prepare('DELETE FROM market_prices'),
+    db.prepare('DELETE FROM market_jobs'),
+    db.prepare('DELETE FROM market_comps'),
     db.prepare('DELETE FROM contracts'),
     db.prepare('DELETE FROM guests'),
     db.prepare('DELETE FROM alloggiati_receipts'),

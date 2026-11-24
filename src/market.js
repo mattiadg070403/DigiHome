@@ -42,6 +42,7 @@ export function apifyClient(env, fetchImpl = fetch) {
       const msg = data && data.error && data.error.message ? String(data.error.message).slice(0, 200) : `errore ${res.status}`;
       if (res.status === 401) throw new OpError(502, 'apify_auth', 'La chiave di Apify non è valida (controlla APIFY_TOKEN in Cloudflare).');
       if (res.status === 402) throw new OpError(502, 'apify_limit', 'Credito di Apify finito per questo mese (o troppi lavori insieme).');
+      if (res.status === 404) throw new OpError(502, 'apify_missing', 'Apify: lavoro non trovato (chiave o account cambiati?).');
       throw new OpError(502, 'apify', `Apify: ${msg}`);
     }
     return data;
@@ -157,8 +158,14 @@ export async function marketTick(db, env, { fetchImpl = fetch, today = todayRome
   const out = { polled: 0, done: 0, failed: 0, started: 0, queued: 0 };
   // 1. Lavori in corso
   const running = (await db.prepare("SELECT * FROM market_jobs WHERE status = 'running' ORDER BY started_at LIMIT ?").bind(maxPoll).all()).results || [];
+  const tooLong = (job) => Date.now() - Date.parse(job.started_at) > RUN_TIMEOUT_MIN * 60000;
   for (const job of running) {
     out.polled += 1;
+    // Preso da un giro ma mai partito davvero su Apify (giro interrotto): dopo 5 minuti torna in coda.
+    if (!job.run_id) {
+      if (Date.now() - Date.parse(job.started_at) > 5 * 60000) await db.prepare("UPDATE market_jobs SET status = 'queued' WHERE id = ? AND status = 'running' AND run_id IS NULL").bind(job.id).run();
+      continue;
+    }
     try {
       const r = await api.run(job.run_id);
       if (r.status === 'SUCCEEDED') {
@@ -169,13 +176,18 @@ export async function marketTick(db, env, { fetchImpl = fetch, today = todayRome
       } else if (['FAILED', 'ABORTED', 'TIMED-OUT', 'TIMING-OUT', 'ABORTING'].includes(r.status)) {
         await retryOrFail(db, job, `Apify: lavoro ${r.status.toLowerCase()}`);
         out.failed += 1;
-      } else if (Date.now() - Date.parse(job.started_at) > RUN_TIMEOUT_MIN * 60000) {
+      } else if (tooLong(job)) {
         await retryOrFail(db, job, 'Apify: lavoro troppo lungo');
         out.failed += 1;
       }
     } catch (e) {
       if (e instanceof OpError && e.code === 'apify_auth') { await finish(db, job, 'error', e.message, null); out.failed += 1; continue; }
-      // Rete o Apify momentaneamente giù: si riprova al prossimo giro.
+      // Lavoro sparito su Apify, o errori che durano oltre il tempo massimo: si libera il posto (la coda non si blocca).
+      if ((e instanceof OpError && e.code === 'apify_missing') || tooLong(job)) {
+        await retryOrFail(db, job, e.message || 'Apify: lavoro non leggibile');
+        out.failed += 1;
+      }
+      // Altrimenti rete o Apify momentaneamente giù: si riprova al prossimo giro.
     }
   }
   // 2. Aggiornamento settimanale automatico (case con almeno una casa simile scelta)
@@ -189,12 +201,15 @@ export async function marketTick(db, env, { fetchImpl = fetch, today = todayRome
   const free = Math.max(0, Math.min(maxStart, MAX_RUNNING - nowRunning));
   const queued = free ? ((await db.prepare("SELECT * FROM market_jobs WHERE status = 'queued' ORDER BY kind = 'search' DESC, created_at, week_start LIMIT ?").bind(free).all()).results || []) : [];
   for (const job of queued) {
+    // Prima si "prende" il lavoro (un altro giro o "Controlla" nello stesso momento non lo avvia due volte su Apify).
+    const claim = await db.prepare("UPDATE market_jobs SET status = 'running', run_id = NULL, started_at = ?, attempts = attempts + 1 WHERE id = ? AND status = 'queued'")
+      .bind(nowIso(), job.id).run();
+    if (claim.meta.changes !== 1) continue;
     try {
       const input = await jobInput(db, job);
       if (!input) { await finish(db, job, 'error', 'Niente da cercare (case simili non scelte o posizione mancante).', 0); continue; }
       const r = await api.start(job.kind === 'search' ? ACTOR_SEARCH : ACTOR_ROOMS, input);
-      await db.prepare("UPDATE market_jobs SET status = 'running', run_id = ?, dataset_id = ?, started_at = ?, attempts = attempts + 1 WHERE id = ? AND status = 'queued'")
-        .bind(r.runId, r.datasetId, nowIso(), job.id).run();
+      await db.prepare("UPDATE market_jobs SET run_id = ?, dataset_id = ? WHERE id = ?").bind(r.runId, r.datasetId, job.id).run();
       out.started += 1;
     } catch (e) {
       if (e instanceof OpError && ['apify_auth', 'apify_limit'].includes(e.code)) {
@@ -202,7 +217,9 @@ export async function marketTick(db, env, { fetchImpl = fetch, today = todayRome
         out.error = e.message;
         break;
       }
-      break; // Apify non raggiungibile: si riprova al prossimo giro
+      // Apify non raggiungibile: torna in coda (senza contare il tentativo) e si riprova al prossimo giro.
+      await db.prepare("UPDATE market_jobs SET status = 'queued', attempts = attempts - 1 WHERE id = ? AND run_id IS NULL").bind(job.id).run();
+      break;
     }
   }
   return out;

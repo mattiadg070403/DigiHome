@@ -73,11 +73,12 @@ export async function readHistory(db, entityId) {
 }
 
 /**
- * Copia completa dei dati, per l'amministratore ("Scarica una copia dei dati"): basta a ricostruire il gestionale
- * con scripts/ripristino.js (vedi src/restore.js). Contiene dati personali (ospiti, contratti firmati, ricevute
- * della Questura): va conservata in un posto protetto.
- * Fuori dalla copia: credenziali di Alloggiati (cifrate, si reinseriscono), link riservati dei calendari (si
- * ricollegano), tabelle che si riscaricano da sole (luoghi e documenti di Alloggiati, lavori del mercato, ops).
+ * Copia completa dei dati, per l'amministratore ("Scarica una copia dei dati"): con le ricevute della Questura
+ * (file a parte, uno per anno: readReceiptsExport) basta a ricostruire il gestionale con scripts/ripristino.js
+ * (vedi src/restore.js e docs/TECNICO.md, "Backup e ripristino"). Contiene dati personali (ospiti, contratti
+ * firmati) e i link dei calendari: va conservata in un posto protetto.
+ * Fuori dalla copia: credenziali di Alloggiati (cifrate, si reinseriscono), tabelle che si riscaricano (luoghi e
+ * documenti di Alloggiati con "Aggiorna tabelle", lavori del mercato) e i codici delle operazioni.
  */
 export async function readExport(db) {
   const q = (sql) => db.prepare(sql);
@@ -98,17 +99,38 @@ export async function readExport(db) {
     q('SELECT * FROM price_lists ORDER BY house_id, year'),
     q('SELECT * FROM pay_receipts ORDER BY issued_at'),
     q('SELECT * FROM guests ORDER BY booking_id, position'),
-    q('SELECT id, house_id, date, hex(pdf) AS pdf_hex, size, sha256, fetched_at, purge_after FROM alloggiati_receipts ORDER BY date'),
     q('SELECT * FROM market_comps ORDER BY house_id, listing_id'),
     q('SELECT * FROM market_prices ORDER BY house_id, listing_id, week_start'),
+    q('SELECT date FROM alloggiati_receipts ORDER BY date'),
   ]);
   const rows = (i) => r[i].results || [];
   return {
     rev: rows(0)[0]?.rev ?? 0,
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
-    calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
+    // Calendari interi (anche i link): dopo un ripristino i link già dati ad Airbnb e Booking continuano a funzionare.
+    calendars: rows(6), audit_log: rows(7),
     extras: rows(8), expenses: rows(9), deadlines: rows(10), contracts: rows(11), remittances: rows(12), price_lists: rows(13), pay_receipts: rows(14),
-    guests: rows(15), alloggiati_receipts: rows(16), market_comps: rows(17), market_prices: rows(18),
-    backup_format: 2,
+    guests: rows(15), market_comps: rows(16), market_prices: rows(17),
+    receipt_years: [...new Set(rows(18).map((r) => Number(r.date.slice(0, 4))))],
+    backup_format: 3,
   };
+}
+
+/**
+ * Ricevute della Questura di un anno, per la copia dei dati (file a parte: con anni di ricevute un file unico
+ * peserebbe troppo sulla memoria del server). PDF in base64.
+ */
+export async function readReceiptsExport(db, year) {
+  if (!Number.isInteger(year) || year < 2020 || year > 2100) throw new Error('Anno non valido');
+  const r = await db.prepare(`SELECT id, house_id, date, hex(pdf) AS pdf_hex, size, sha256, fetched_at, purge_after
+    FROM alloggiati_receipts WHERE date >= ? AND date < ? ORDER BY date`).bind(`${year}-01-01`, `${year + 1}-01-01`).all();
+  return (r.results || []).map(({ pdf_hex: hex, ...rest }) => ({ ...rest, pdf_base64: hexToBase64(hex) }));
+}
+
+function hexToBase64(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
 }

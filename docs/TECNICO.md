@@ -60,15 +60,15 @@ Tabelle principali:
 ### Backup e ripristino (provato il 24/11/2026, test/restore.test.js)
 Due livelli:
 1. **Time Travel di D1** (automatico, nel database stesso: ultimi 7 giorni con il piano gratuito di Cloudflare, 30 con quello a pagamento): per un errore recente (es. dati cancellati per sbaglio). `npx wrangler d1 time-travel info digihome-ue` mostra il punto attuale; `npx wrangler d1 time-travel restore digihome-ue --timestamp=<data ISO>` riporta il database a quel momento (tutto il database: le modifiche successive si perdono, quindi prima scaricare la copia dei dati).
-2. **Copia dei dati** (Impostazioni → Scarica una copia dei dati, solo amministratore; consigliata una volta al mese e prima di ogni stagione): file .json con TUTTI i dati — case, utenti, prenotazioni, note, cose da fare, extra, spese, scadenze, contratti firmati, versamenti, listino, ricevute del saldo, ospiti, ricevute della Questura (PDF), case del mercato, registro. Fuori dalla copia: credenziali Alloggiati, link riservati dei calendari, tabelle che si riscaricano (luoghi/documenti di Alloggiati, lavori del mercato). Contiene documenti e firme: va tenuta cifrata/protetta.
+2. **Copia dei dati** (Impostazioni → Scarica una copia dei dati, solo amministratore; consigliata una volta al mese e prima di ogni stagione): un file .json principale con TUTTI i dati — case, utenti, calendari (con i link), prenotazioni, note, cose da fare, extra, spese, scadenze, contratti firmati, versamenti, listino, ricevute del saldo, ospiti, case del mercato, registro — più un file per anno con le ricevute della Questura (PDF in base64: `GET /api/export/ricevute/<anno>`; a parte perché con anni di ricevute un file unico peserebbe troppo sulla memoria del Worker). Fuori dalla copia: credenziali Alloggiati (cifrate), luoghi e tipi di documento di Alloggiati (si riscaricano con "Aggiorna tabelle"), lavori del mercato, codici delle operazioni. Contiene documenti, firme e link riservati: va tenuta cifrata/protetta, tutti i file insieme.
 
 Ripristino da una copia (database perso o da ricostruire), in un database D1 NUOVO:
 1. `npx wrangler d1 create digihome-ripristino --jurisdiction eu` → annotare l'id.
-2. `node scripts/ripristino.js digihome-produzione-AAAA-MM-GG.json > ripristino.sql` (controlla la copia e stampa le righe per tabella).
+2. `node scripts/ripristino.js digihome-produzione-AAAA-MM-GG.json digihome-produzione-AAAA-MM-GG-ricevute-*.json > ripristino.sql` (controlla i file, si ferma se manca l'anno di ricevute di qualche anno, stampa le righe per tabella).
 3. Mettere il nuovo `database_id` in produzione/wrangler.jsonc, calendario/wrangler.jsonc e ospiti/wrangler.jsonc; poi `npx wrangler d1 migrations apply DB --remote` (dalla cartella produzione).
 4. `npx wrangler d1 execute digihome-ripristino --remote --file ripristino.sql`.
-5. Pubblicare (push su `produzione`). Poi: reinserire le credenziali di Alloggiati (Impostazioni → Case → Alloggiati Web), ricollegare i calendari di Airbnb e Booking e incollare i nuovi "Link per Airbnb/Booking" sulle piattaforme.
-Il file SQL non usa BEGIN/COMMIT e nessuna istruzione supera i 100 KB (i PDF passano a pezzi); rifarlo due volte non crea doppioni.
+5. Pubblicare (push su `produzione`). Poi: reinserire le credenziali di Alloggiati (Impostazioni → Case → Alloggiati Web, "Salva e prova" riscarica anche le tabelle). I link dei calendari restano quelli di prima.
+Il file SQL non usa BEGIN/COMMIT, nessuna istruzione supera i 100 KB (i PDF passano a pezzi) e rifarlo due volte non crea doppioni. Il contatore delle modifiche fa un salto di 1.000.000: i dispositivi con l'app aperta riscaricano tutto da soli invece di tenere i dati vecchi.
 
 ## 6. Cosa c'è nella beta 0.1
 

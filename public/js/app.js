@@ -325,4 +325,6 @@ render();
 store.load({ force: true }).then(() => {
   const n = store.resume();
   if (n) toast(`${n === 1 ? 'Una modifica rimasta in sospeso viene salvata ora' : `${n} modifiche rimaste in sospeso vengono salvate ora`}.`);
+  const lost = store.resume.discarded || 0;
+  if (lost) toast(`${lost === 1 ? 'Una modifica fatta' : `${lost} modifiche fatte`} senza connessione più di 3 giorni fa non ${lost === 1 ? 'è stata salvata' : 'sono state salvate'}: controlla e rifalle se servono.`, { bad: true });
 });

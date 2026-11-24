@@ -21,7 +21,7 @@ function formDomains(env, name = 'OSPITI_DOMINI') {
     return {};
   }
 }
-import { readExport, readHistory, readState } from './state.js';
+import { readExport, readHistory, readReceiptsExport, readState } from './state.js';
 import { loadDemo } from './demo.js';
 import { syncAll } from './calendars.js';
 import { apifyReady, marketTick, requestRefresh, startDiscovery } from './market.js';
@@ -78,6 +78,15 @@ async function handleApi(request, env, url) {
       const day = new Date().toISOString().slice(0, 10);
       return json({ ok: true, app: 'DigiHome', version: APP_VERSION, env: env.APP_ENV || 'prova', exported_at: new Date().toISOString(), ...data },
         { headers: { 'Content-Disposition': `attachment; filename="digihome-${env.APP_ENV || 'prova'}-${day}.json"` } });
+    }
+    // Ricevute della Questura di un anno (fanno parte della copia dei dati, in file a parte).
+    const rx = path.match(/^\/api\/export\/ricevute\/(\d{4})$/);
+    if (rx) {
+      if (user.role !== 'admin') return fail(403, 'forbidden', 'Solo l’amministratore può scaricare i dati.');
+      const year = Number(rx[1]);
+      if (year < 2020 || year > 2100) return fail(400, 'validation', 'Anno non valido.');
+      return json({ ok: true, app: 'DigiHome', kind: 'ricevute', year, version: APP_VERSION, env: env.APP_ENV || 'prova',
+        exported_at: new Date().toISOString(), alloggiati_receipts: await readReceiptsExport(env.DB, year) });
     }
     const m = path.match(/^\/api\/bookings\/([A-Za-z0-9-]{8,64})\/history$/);
     if (m) return json({ ok: true, history: await readHistory(env.DB, m[1]) });

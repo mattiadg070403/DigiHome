@@ -196,6 +196,23 @@ test('check-out: cauzione obbligatoria, trattenuta con importo e motivo, poi chi
   assert.equal(u.record.stage, 'chiusa');
 });
 
+test('operazione ripetuta (risposta persa): torna anche il record; doppia prenotazione: si correggono i dati senza toccare le date', async () => {
+  const { db, admin } = await setup();
+  const id = op();
+  const payload = { booking: booking({ check_in: addDays(T, 90), check_out: addDays(T, 95) }) };
+  const first = await runOp(db, admin, { opId: id, type: 'booking.create', payload });
+  const again = await runOp(db, admin, { opId: id, type: 'booking.create', payload });
+  assert.equal(again.replay, true);
+  assert.equal(again.record.id, first.record.id);
+  // Una prenotazione arrivata dal calendario si sovrappone (doppia prenotazione vera): il telefono si cambia lo stesso.
+  db.sqlite.prepare(`INSERT INTO bookings (id, house_id, channel, guest_name, guests, check_in, check_out, total_cents, created_at, created_by, updated_at, updated_by)
+    VALUES ('sovrapposta-0001', ?, 'airbnb', 'Ospite Airbnb', 1, ?, ?, 0, ?, 'x', ?, 'x')`).run(first.record.house_id, addDays(T, 92), addDays(T, 97), new Date().toISOString(), new Date().toISOString());
+  const u = await runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: first.record.id, version: first.record.version, changes: { phone: '+39 333 111 2222' } } });
+  assert.equal(u.record.phone, '+39 333 111 2222');
+  // Le date invece restano controllate.
+  await expectOpError(runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: first.record.id, version: u.record.version, changes: { check_out: addDays(T, 96) } } }), 'overlap');
+});
+
 test('operazioni: solo quelle dell’elenco (mai proprietà ereditate come constructor)', async () => {
   const { db, collab } = await setup();
   for (const type of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {

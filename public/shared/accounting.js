@@ -98,6 +98,28 @@ export function expenseYear(x) {
 }
 
 /**
+ * Extra e spese raggruppati per prenotazione (una volta sola per elenco): con anni di dati il conto di ogni
+ * soggiorno non scorre più tutti gli extra e tutte le spese.
+ */
+const INDEX = new WeakMap();
+export function byBookingIndex(list = []) {
+  if (!Array.isArray(list)) return list;
+  if (list.byBooking) return list;
+  let out = INDEX.get(list);
+  if (!out) {
+    const map = new Map();
+    for (const x of list) {
+      if (!x.booking_id) continue;
+      if (!map.has(x.booking_id)) map.set(x.booking_id, []);
+      map.get(x.booking_id).push(x);
+    }
+    out = Object.assign([...list], { byBooking: map });
+    INDEX.set(list, out);
+  }
+  return out;
+}
+
+/**
  * Conto di un soggiorno.
  * Restituisce: prezzo, commissione, cedolare (e quanta trattenuta dalla piattaforma), netto atteso dal portale,
  * extra, cauzione trattenuta, tassa di soggiorno (a parte), costi del soggiorno, ricavo netto e margine.
@@ -110,13 +132,14 @@ export function stayAccount(b, { extras = [], expenses = [], settings }) {
   const commission = cancelled ? 0 : pct(price, effectiveBp(rule));
   const cedolare = pct(price, settings.cedolare_bp);
   const withheld = rule.withheld && !cancelled ? cedolare : 0;
-  const mine = extras.filter((x) => x.booking_id === b.id && !x.deleted);
-  const revExtras = mine.filter((x) => x.kind !== 'tassa_soggiorno');
-  const taxExtras = mine.filter((x) => x.kind === 'tassa_soggiorno');
+  const mine = (extras.byBooking ? extras.byBooking.get(b.id) || [] : extras.filter((x) => x.booking_id === b.id)).filter((x) => !x.deleted);
+  // Cancellata: degli extra contano solo quelli già incassati; la tassa di soggiorno non è dovuta (non ha dormito).
+  const revExtras = mine.filter((x) => x.kind !== 'tassa_soggiorno' && (!cancelled || x.paid));
+  const taxExtras = cancelled ? [] : mine.filter((x) => x.kind === 'tassa_soggiorno');
   const extrasTotal = revExtras.reduce((s, x) => s + x.amount_cents, 0);
   const extrasUnpaid = revExtras.filter((x) => !x.paid).reduce((s, x) => s + x.amount_cents, 0);
   const depositKept = b.security_status === 'trattenuta' ? b.security_withheld_cents || 0 : 0;
-  const costs = expenses.filter((x) => x.booking_id === b.id && !x.deleted);
+  const costs = (expenses.byBooking ? expenses.byBooking.get(b.id) || [] : expenses.filter((x) => x.booking_id === b.id)).filter((x) => !x.deleted);
   const costsTotal = costs.reduce((s, x) => s + x.amount_cents, 0);
   const portal = b.channel !== 'diretto';
   const expectedPayout = portal && !cancelled ? price - commission - withheld : null;
@@ -150,7 +173,7 @@ export function yearReport(data, house, year, today) {
   const y = String(year);
   const bookings = data.bookings.filter((b) => b.house_id === house.id && b.check_in.slice(0, 4) === y);
   const stays = bookings
-    .map((b) => ({ b, a: stayAccount(b, { extras: data.extras, expenses: data.expenses, settings }) }))
+    .map((b) => ({ b, a: stayAccount(b, { extras: byBookingIndex(data.extras), expenses: byBookingIndex(data.expenses), settings }) }))
     .filter(({ a }) => !a.cancelled || a.price > 0)
     .sort((p, q) => (p.b.check_in < q.b.check_in ? -1 : 1));
   const sum = (f) => stays.reduce((s, x) => s + f(x.a), 0);
@@ -216,7 +239,7 @@ export function accountingTodo(data, house, today, { years } = {}) {
   const name = (b) => b.guest_name;
   for (const b of data.bookings) {
     if (b.house_id !== house.id || b.stage === 'cancellata') continue;
-    const a = stayAccount(b, { extras: data.extras, expenses: data.expenses, settings });
+    const a = stayAccount(b, { extras: byBookingIndex(data.extras), expenses: byBookingIndex(data.expenses), settings });
     // Storico (inserito a soggiorno finito): i soldi sono già stati sistemati allora, non si chiede di segnarli.
     if (enteredAfterStay(b)) continue;
     const arrived = b.check_in <= today;

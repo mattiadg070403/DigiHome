@@ -182,3 +182,38 @@ test('case scelte da Mattia con il link: riconoscimento, priorità sulla ricerca
   assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM market_prices WHERE listing_id = '11111'").first()).n, 0);
   assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM market_comps WHERE listing_id = '11111'").first()).n, 0);
 });
+
+test('coda del mercato: un lavoro sparito su Apify non la blocca; due giri insieme non avviano lo stesso lavoro due volte', async () => {
+  const db = freshDb();
+  const at = new Date().toISOString();
+  for (const id of ['j1', 'j2', 'j3']) {
+    db.sqlite.prepare("INSERT INTO market_jobs (id, house_id, kind, week_start, status, run_id, attempts, created_at, started_at) VALUES (?, 'faro-blu', 'prices', '2027-07-03', 'running', ?, 1, ?, ?)")
+      .run(id, `run-${id}`, at, at);
+  }
+  db.sqlite.prepare("INSERT INTO market_jobs (id, house_id, kind, week_start, status, attempts, created_at) VALUES ('q1', 'faro-blu', 'prices', '2027-07-10', 'queued', 0, ?)").run(at);
+  let starts = 0;
+  const fetchImpl = async (url) => {
+    const u = String(url);
+    if (/actor-runs\//.test(u)) return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
+    if (/\/runs\?/.test(u)) {
+      starts += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return new Response(JSON.stringify({ data: { id: `run-${starts}`, defaultDatasetId: `ds-${starts}`, status: 'READY' } }), { status: 201 });
+    }
+    return new Response('[]', { status: 200 });
+  };
+  const { marketTick: tick } = await import('../src/market.js');
+  // Senza case simili scelte il lavoro in coda non ha niente da cercare: ne aggiungo una.
+  db.sqlite.prepare("INSERT INTO market_comps (id, house_id, listing_id, url, selected, found_at) VALUES ('faro-blu:1', 'faro-blu', '1', 'https://www.airbnb.it/rooms/1', 1, ?)").run(at);
+  db.sqlite.prepare("UPDATE market_jobs SET created_at = ? WHERE 1").run(at); // niente aggiornamento settimanale nuovo
+  await Promise.all([tick(db, ENV, { fetchImpl, today: '2027-02-01' }), tick(db, ENV, { fetchImpl, today: '2027-02-01' })]);
+  const rows = db.sqlite.prepare('SELECT id, status, run_id FROM market_jobs ORDER BY id').all().map((r) => ({ ...r }));
+  // I tre lavori spariti tornano in coda (o falliscono): il posto si libera.
+  assert.ok(rows.filter((r) => r.id.startsWith('j')).every((r) => r.status !== 'running' || !r.run_id?.startsWith('run-j')));
+  // Ogni lavoro in coda è partito al massimo una volta.
+  const started = rows.filter((r) => r.status === 'running' && r.run_id);
+  assert.equal(new Set(started.map((r) => r.id)).size, started.length);
+  assert.equal(starts, started.length);
+  assert.ok(starts >= 1, 'il lavoro in coda è partito');
+  assert.ok(rows.every((r) => !String(r.run_id || '').startsWith('run-j')), 'i lavori spariti lasciano il posto (ripartono o falliscono)');
+});

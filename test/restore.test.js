@@ -5,7 +5,7 @@ import { freshDb, addUser } from './d1.js';
 import { runOp } from '../src/ops.js';
 import '../src/guests.js';
 import { loadDemo } from '../src/demo.js';
-import { readExport, readState } from '../src/state.js';
+import { readExport, readReceiptsExport, readState } from '../src/state.js';
 import { buildRestoreSql } from '../src/restore.js';
 import { addDays, todayRome } from '../public/shared/dates.js';
 
@@ -34,8 +34,13 @@ test('ripristino: la copia dei dati ricostruisce il gestionale in un database nu
     VALUES ('faro-blu:123', 'faro-blu', '123', 'https://www.airbnb.it/rooms/123', 'Casa ''Vista''', 8, 1, 'manuale', ?)`).run(new Date().toISOString());
 
   // Copia (come la scarica l'app) → JSON → SQL
+  db.sqlite.prepare("UPDATE calendars SET import_url = 'https://www.airbnb.it/calendar/ical/123.ics?s=abc', export_token = lower(hex(randomblob(24)))").run();
   const copy = JSON.parse(JSON.stringify({ ok: true, app: 'DigiHome', version: 'test', env: 'prova', exported_at: new Date().toISOString(), ...(await readExport(db)) }));
-  const { sql, counts } = buildRestoreSql(copy);
+  assert.deepEqual(copy.receipt_years, [Number(T.slice(0, 4))]);
+  assert.equal(copy.alloggiati_receipts, undefined, 'le ricevute stanno nei file a parte');
+  const rx = JSON.parse(JSON.stringify({ app: 'DigiHome', kind: 'ricevute', year: Number(T.slice(0, 4)), alloggiati_receipts: await readReceiptsExport(db, Number(T.slice(0, 4))) }));
+  assert.throws(() => buildRestoreSql(copy), /Mancano i file delle ricevute/);
+  const { sql, counts } = buildRestoreSql(copy, [rx]);
   assert.ok(counts.bookings > 5 && counts.guests >= 1 && counts.alloggiati_receipts === 1);
   for (const line of sql.split('\n')) assert.ok(line.length < 100_000, 'ogni istruzione entra nei limiti di D1');
   assert.doesNotMatch(sql, /\bBEGIN\b|\bCOMMIT\b/);
@@ -44,14 +49,15 @@ test('ripristino: la copia dei dati ricostruisce il gestionale in un database nu
   const fresh = freshDb();
   fresh.sqlite.exec(sql);
   for (const t of TABLES) assert.deepEqual(dump(fresh, t), dump(db, t), `tabella ${t}`);
-  const cal = (d) => d.sqlite.prepare('SELECT id, house_id, channel, last_sync_at, last_ok_at, last_error, last_count, version FROM calendars ORDER BY id').all().map((r) => ({ ...r }));
+  // Calendari con i link: quelli già dati ad Airbnb e Booking continuano a funzionare.
+  const cal = (d) => d.sqlite.prepare('SELECT id, house_id, channel, import_url, export_token, last_sync_at, last_ok_at, last_error, last_count, version FROM calendars ORDER BY id').all().map((r) => ({ ...r }));
   assert.deepEqual(cal(fresh), cal(db));
   const hexOf = (d) => d.sqlite.prepare("SELECT hex(pdf) AS h, size FROM alloggiati_receipts WHERE id = 'r1'").get();
   assert.deepEqual({ ...hexOf(fresh) }, { ...hexOf(db) });
   assert.equal(fresh.sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = '_ripristino_pezzi'").get().n, 0);
   // Il gestionale ripristinato funziona: lo stato si legge e si può continuare a lavorare.
   const rev = (d) => d.sqlite.prepare("SELECT value FROM meta WHERE key = 'rev'").get().value;
-  assert.ok(rev(fresh) >= rev(db));
+  assert.ok(rev(fresh) >= rev(db) + 1_000_000, 'salto in avanti: i dispositivi aperti riscaricano tutto');
   const st = await readState(fresh, { ...admin, role: 'admin' });
   assert.equal(st.bookings.length, (await readState(db, { ...admin, role: 'admin' })).bookings.length);
   await runOp(fresh, admin, { opId: crypto.randomUUID(), type: 'booking.update', payload: { id: b.id, version: b.version, changes: { guests: 1, notes: 'dopo il ripristino' } } });
@@ -60,12 +66,12 @@ test('ripristino: la copia dei dati ricostruisce il gestionale in un database nu
   fresh.sqlite.exec(sql);
   assert.equal(fresh.sqlite.prepare('SELECT count(*) AS n FROM bookings').get().n, db.sqlite.prepare('SELECT count(*) AS n FROM bookings').get().n);
   assert.throws(() => buildRestoreSql({ app: 'Altro' }), /Non è una copia/);
-  assert.throws(() => buildRestoreSql({ ...copy, bookings: [{ "id'); DROP TABLE x; --": 1 }] }), /Colonna non valida/);
+  assert.throws(() => buildRestoreSql({ ...copy, bookings: [{ "id'); DROP TABLE x; --": 1 }] }, [rx]), /Colonna non valida/);
 });
 
-test('copia dei dati: niente credenziali né link riservati dei calendari', async () => {
+test('copia dei dati: niente credenziali di Alloggiati', async () => {
   const db = freshDb();
-  db.sqlite.prepare("UPDATE calendars SET import_url = 'https://www.airbnb.it/calendar/ical/segreto.ics', export_token = 'tok-segreto-' || id").run();
+  db.sqlite.prepare("INSERT INTO house_secrets (house_id, alloggiati, set_at) VALUES ('faro-blu', 'cifrato-segreto', '2026-01-01')").run();
   const ex = JSON.stringify(await readExport(db));
-  assert.doesNotMatch(ex, /segreto/);
+  assert.doesNotMatch(ex, /cifrato-segreto/);
 });

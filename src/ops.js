@@ -203,11 +203,14 @@ async function bookingUpdate(db, user, opId, p) {
   if (Object.keys(changes).length === 0) return { record: cur, unchanged: true };
   const cols = Object.keys(changes).filter((c) => c !== 'needs_details');
   const at = nowIso();
+  // Il controllo delle date sovrapposte solo se cambiano le date: con una doppia prenotazione già presente
+  // (es. arrivata dal calendario) si devono poter correggere nome, telefono, persone…
+  const datesChange = Object.hasOwn(changes, 'check_in') || Object.hasOwn(changes, 'check_out');
   const main = db.prepare(`UPDATE bookings SET ${cols.map((c) => `${c} = ?, `).join('')}needs_details = 0,
       version = version + 1, rev = ${REV_NEXT}, updated_at = ?, updated_by = ?
-    WHERE id = ? AND version = ? AND NOT ${OVERLAP}`)
+    WHERE id = ? AND version = ?${datesChange ? ` AND NOT ${OVERLAP}` : ''}`)
     .bind(...cols.map((c) => value[c]), at, user.email, p.id, p.version,
-      cur.house_id, p.id, merged.check_out, merged.check_in);
+      ...(datesChange ? [cur.house_id, p.id, merged.check_out, merged.check_in] : []));
   const done = await commit(db, { main, user, opId, entity: 'booking', entityId: p.id, action: 'update', changes });
   if (!done) await explainBookingFailure(db, p.id, p.version, merged);
   return { record: await getBooking(db, p.id) };
@@ -731,11 +734,20 @@ async function userUpdate(db, user, opId, p) {
   const changes = diff(cur, v);
   if (!Object.keys(changes).length) return { record: cur, unchanged: true };
   const cols = Object.keys(changes);
+  // Il controllo "resta almeno un amministratore" anche dentro l'UPDATE: due amministratori che si tolgono il ruolo
+  // a vicenda nello stesso istante non possono lasciare il gestionale senza amministratori.
+  const keepAdmin = losesAdmin ? " AND (SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1 AND id <> ?) >= 1" : '';
   const main = db.prepare(`UPDATE users SET ${cols.map((k) => `${k} = ?`).join(', ')}, version = version + 1, rev = ${REV_NEXT},
-      updated_at = ?, updated_by = ? WHERE id = ? AND version = ?`)
-    .bind(...cols.map((k) => v[k]), nowIso(), user.email, p.id, p.version);
+      updated_at = ?, updated_by = ? WHERE id = ? AND version = ?${keepAdmin}`)
+    .bind(...cols.map((k) => v[k]), nowIso(), user.email, p.id, p.version, ...(losesAdmin ? [p.id] : []));
   const done = await commit(db, { main, user, opId, entity: 'user', entityId: p.id, action: 'update', changes });
-  if (!done) throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
+  if (!done) {
+    if (losesAdmin) {
+      const admins = await db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1").first();
+      if (admins.n <= 1) throw bad('Deve restare almeno un amministratore attivo.');
+    }
+    throw new OpError(409, 'conflict', 'Nel frattempo è stato modificato da un altro dispositivo.');
+  }
   return { record: await db.prepare('SELECT * FROM users WHERE id = ?').bind(p.id).first() };
 }
 
@@ -1368,6 +1380,25 @@ export function registerOps(map, { private: isPrivate = false } = {}) {
  * Esegue un'operazione. Se lo stesso opId è già stato eseguito, non la ripete.
  * Restituisce { ok: true, record?, replay? } oppure lancia OpError.
  */
+/**
+ * Risposta di un'operazione già fatta (la risposta di prima si era persa): con il record com'è adesso, come la
+ * prima volta, così l'app continua (es. salva la tassa di soggiorno della prenotazione appena creata).
+ */
+async function replayResult(db, raw) {
+  const r = JSON.parse(raw);
+  const table = Object.hasOwn(TABLES, r.entity) ? TABLES[r.entity] : null;
+  if (table && typeof r.id === 'string') {
+    const row = await db.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(r.id).first();
+    if (row) {
+      if (r.entity === 'calendar') r.record = publicCalendar(row);
+      else if (r.entity === 'house') r.record = publicHouse(row, true);
+      else if (r.entity === 'contract') r.record = contractMeta(row);
+      else if (r.entity !== 'guest') r.record = row;
+    }
+  }
+  return r;
+}
+
 export async function runOp(db, user, body) {
   if (!body || typeof body !== 'object') throw bad('Richiesta non valida');
   const { opId, type, payload } = body;
@@ -1379,7 +1410,7 @@ export async function runOp(db, user, body) {
   const prev = await db.prepare('SELECT user_email, result FROM ops WHERE op_id = ?').bind(opId).first();
   if (prev) {
     if (prev.user_email !== user.email) throw bad('Codice operazione non valido');
-    return { ok: true, replay: true, ...JSON.parse(prev.result) };
+    return { ok: true, replay: true, ...(await replayResult(db, prev.result)) };
   }
   try {
     const out = await handler(db, user, opId, payload || {});
@@ -1388,7 +1419,7 @@ export async function runOp(db, user, body) {
     // Due invii identici arrivati insieme: il secondo trova il codice già usato.
     if (!(e instanceof OpError) && /UNIQUE constraint failed: ops\.op_id/.test(String(e && e.message))) {
       const again = await db.prepare('SELECT result FROM ops WHERE op_id = ?').bind(opId).first();
-      if (again) return { ok: true, replay: true, ...JSON.parse(again.result) };
+      if (again) return { ok: true, replay: true, ...(await replayResult(db, again.result)) };
     }
     throw e;
   }

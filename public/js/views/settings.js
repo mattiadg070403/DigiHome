@@ -240,15 +240,24 @@ function exportBlock(ctx) {
     const btn = e.currentTarget;
     btn.disabled = true;
     try {
+      const save = (obj, name) => {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(obj)], { type: 'application/json' }));
+        const a = h('a', { href: url, attrs: { download: name } });
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      };
       const data = await ctx.store.request('/api/export');
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = h('a', { href: url, attrs: { download: `digihome-${data.env}-${data.exported_at.slice(0, 10)}.json` } });
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      ctx.toast('Copia dei dati scaricata');
+      const day = data.exported_at.slice(0, 10);
+      save(data, `digihome-${data.env}-${day}.json`);
+      // Ricevute della Questura: un file per anno (con anni di ricevute un file unico sarebbe troppo pesante).
+      for (const year of data.receipt_years || []) {
+        const rx = await ctx.store.request(`/api/export/ricevute/${year}`, { timeout: 60000 });
+        save(rx, `digihome-${data.env}-${day}-ricevute-${year}.json`);
+      }
+      const n = 1 + (data.receipt_years || []).length;
+      ctx.toast(n === 1 ? 'Copia dei dati scaricata' : `Copia dei dati scaricata (${n} file: tienili insieme)`);
     } catch (err) {
       ctx.toast(err.message, { bad: true });
     } finally {

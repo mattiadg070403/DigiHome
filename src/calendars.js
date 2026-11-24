@@ -12,6 +12,11 @@
 // - Prenotazione futura sparita dal calendario → cancellata in automatico, con avviso e possibilità di ripristino.
 //   Se il calendario arriva vuoto non si cancella nulla: si segnala da verificare.
 // - Le prenotazioni passate non si importano e non si toccano.
+// - Booking rilegge il calendario di DigiHome solo ogni qualche ora: le date di una prenotazione di un altro canale
+//   cancellata o spostata da poco (48 ore) possono essere ancora chiuse su Booking → sono la sua copia, non una
+//   prenotazione nuova.
+// - Se dal calendario sparisce più della metà delle prenotazioni future (e più di 2), o restano solo blocchi,
+//   non si cancella niente: si segnala da verificare (link sbagliato, annuncio sospeso, errore della piattaforma).
 
 import { parseIcs, isBlock, airbnbInfo } from './ical.js';
 import { commit, REV_NEXT } from './ops.js';
@@ -24,6 +29,31 @@ const MAX_BYTES = 3 * 1024 * 1024;
 const TIMEOUT_MS = 20000;
 const LABEL = { airbnb: 'Airbnb', booking: 'Booking' };
 const CLOSURE_NIGHTS = 28; // Booking: da qui in su è una chiusura delle date, non un soggiorno
+const RECENT_MS = 48 * 60 * 60 * 1000; // copie di Booking ancora "vecchie": prenotazioni cambiate nelle ultime 48 ore
+const codeOf = (url) => (/\/details\/([A-Z0-9]{6,14})\b/.exec(url || '') || [])[1] || null;
+
+/** Notti liberate da poco da prenotazioni degli altri canali (cancellate o con le date cambiate nelle ultime 48 ore). */
+async function recentlyFreedNights(db, rows, ch, now = Date.now()) {
+  const since = new Date(now - RECENT_MS).toISOString();
+  const others = rows.filter((b) => b.channel !== ch);
+  const out = new Set();
+  const addRange = (a, b) => { if (a && b && a < b) for (let d = a; d < b; d = addDays(d, 1)) out.add(d); };
+  for (const b of others) if (b.stage === 'cancellata' && (b.updated_at || '') >= since) addRange(b.check_in, b.check_out);
+  if (others.length) {
+    const byId = new Map(others.map((b) => [b.id, b]));
+    const log = (await db.prepare(`SELECT entity_id, changes FROM audit_log WHERE entity = 'booking' AND at >= ?
+      AND (changes LIKE '%check_in%' OR changes LIKE '%check_out%')`).bind(since).all()).results || [];
+    for (const x of log) {
+      const cur = byId.get(x.entity_id);
+      if (!cur) continue;
+      let c;
+      try { c = JSON.parse(x.changes || '{}'); } catch { continue; }
+      if (!Array.isArray(c.check_in) && !Array.isArray(c.check_out)) continue;
+      addRange(Array.isArray(c.check_in) ? c.check_in[0] : cur.check_in, Array.isArray(c.check_out) ? c.check_out[0] : cur.check_out);
+    }
+  }
+  return out;
+}
 
 class SyncError extends Error {}
 
@@ -97,15 +127,20 @@ export async function applyEvents(db, cal, events, today = todayRome()) {
   const linked = rows.filter((b) => b.channel === ch && b.ext_uid);
   const byUid = new Map(linked.map((b) => [b.ext_uid, b]));
 
+  // Lo stesso codice due volte nello stesso calendario: si tiene il primo (altrimenti l'aggiornamento si blocca).
+  const seenUid = new Set();
   const reservations = events.filter((e) => !(ch === 'airbnb' ? isBlock(e)
-    : e.status === 'CANCELLED' || daysBetween(e.start, e.end) >= CLOSURE_NIGHTS));
+    : e.status === 'CANCELLED' || daysBetween(e.start, e.end) >= CLOSURE_NIGHTS))
+    .filter((e) => (seenUid.has(e.uid) ? false : (seenUid.add(e.uid), true)));
   const inFeed = new Set(reservations.map((e) => e.uid));
   const otherNights = occupiedNights(rows.filter((b) => b.channel !== ch), cal.house_id);
+  if (ch === 'booking') for (const d of await recentlyFreedNights(db, rows, ch)) otherNights.add(d);
   const future = reservations.filter((e) => e.end > today && !(ch === 'booking' && covered(e, otherNights)));
   out.count = future.length;
 
   // Prenotazioni future collegate che non sono più nel calendario.
   const gone = linked.filter((b) => b.stage === 'confermata' && b.check_in > today && !inFeed.has(b.ext_uid));
+  const futureLinked = linked.filter((b) => b.stage === 'confermata' && b.check_in > today).length;
 
   for (const ev of future) {
     const b = byUid.get(ev.uid);
@@ -128,8 +163,16 @@ export async function applyEvents(db, cal, events, today = todayRome()) {
       if (await write(db, b, set, changes, set.stage ? 'restore' : 'sync')) out.updated++;
       continue;
     }
-    // Stessa prenotazione con un nuovo codice (es. date cambiate su Airbnb): si sposta quella vecchia.
-    const moved = gone.find((g) => overlaps(g.check_in, g.check_out, ev.start, ev.end));
+    // Stessa prenotazione con un nuovo codice (es. date cambiate su Airbnb): si sposta quella vecchia. Solo se è
+    // davvero la stessa: stesso codice di prenotazione di Airbnb, oppure (senza codici) stesso arrivo o stessa
+    // partenza. Una cancellata e una nuova di un altro ospite sulle stesse date restano due prenotazioni diverse.
+    const evCode = ch === 'airbnb' ? airbnbInfo(ev).code : null;
+    const moved = gone.find((g) => {
+      if (!overlaps(g.check_in, g.check_out, ev.start, ev.end)) return false;
+      const gCode = codeOf(g.ext_url);
+      if (evCode && gCode) return evCode === gCode;
+      return g.check_in === ev.start || g.check_out === ev.end;
+    });
     if (moved) {
       gone.splice(gone.indexOf(moved), 1);
       const set = { ext_uid: ev.uid, check_in: ev.start, check_out: ev.end, ext_gone: 0 };
@@ -159,9 +202,11 @@ export async function applyEvents(db, cal, events, today = todayRome()) {
     }
   }
 
-  const feedHasEvents = events.length > 0;
+  // Si cancella solo se il calendario ha ancora prenotazioni vere e non ne è sparita la maggior parte in un colpo.
+  const massGone = gone.length > 2 && gone.length * 2 > futureLinked;
+  const trustFeed = reservations.length > 0 && !massGone;
   for (const g of gone) {
-    if (feedHasEvents) {
+    if (trustFeed) {
       const set = { stage: 'cancellata', prev_stage: g.stage, ext_gone: 1 };
       const changes = { stage: [g.stage, 'cancellata'], motivo: [null, `non è più nel calendario ${LABEL[ch]}`] };
       if (await write(db, g, set, changes, 'cancel')) out.cancelled++;
@@ -172,8 +217,13 @@ export async function applyEvents(db, cal, events, today = todayRome()) {
   return out;
 }
 
-async function setStatus(db, id, fields) {
+async function setStatus(db, id, fields, bump = true) {
   const cols = Object.keys(fields);
+  if (!bump) {
+    // Niente di nuovo da mostrare (stesso esito del giro prima): solo l'ora, senza far riscaricare i dispositivi.
+    await db.prepare(`UPDATE calendars SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).bind(...cols.map((c) => fields[c]), id).run();
+    return;
+  }
   await db.batch([
     db.prepare(`UPDATE calendars SET ${cols.map((c) => `${c} = ?`).join(', ')}, rev = ${REV_NEXT} WHERE id = ?`)
       .bind(...cols.map((c) => fields[c]), id),
@@ -188,12 +238,13 @@ export async function syncCalendar(db, cal, { fetcher = fetch, today = todayRome
     const parsed = parseIcs(await download(cal.import_url, fetcher));
     if (!parsed.ok) throw new SyncError(parsed.error);
     const res = await applyEvents(db, cal, parsed.events, today);
-    await setStatus(db, cal.id, { last_sync_at: at, last_ok_at: at, last_error: null, last_count: res.count });
+    const same = !cal.last_error && cal.last_count === res.count && cal.last_ok_at;
+    await setStatus(db, cal.id, { last_sync_at: at, last_ok_at: at, last_error: null, last_count: res.count }, !same);
     return { ok: true, id: cal.id, ...res };
   } catch (e) {
     const error = e instanceof SyncError ? e.message : 'Aggiornamento non riuscito. Riprovo più tardi.';
     if (!(e instanceof SyncError)) console.error('Calendario', cal.id, e && e.stack ? e.stack : e);
-    await setStatus(db, cal.id, { last_sync_at: at, last_error: error });
+    await setStatus(db, cal.id, { last_sync_at: at, last_error: error }, cal.last_error !== error);
     return { ok: false, id: cal.id, error };
   }
 }

@@ -1,14 +1,16 @@
 // Ripristino della copia dei dati ("Scarica una copia dei dati", GET /api/export) in un database D1 nuovo.
 //
-// Uso (vedi docs/TECNICO.md, "Ripristino"):
-//   node scripts/ripristino.js digihome-produzione-AAAA-MM-GG.json > ripristino.sql
+// Uso (vedi docs/TECNICO.md, "Backup e ripristino"):
+//   node scripts/ripristino.js digihome-produzione-AAAA-MM-GG.json [digihome-…-ricevute-AAAA.json …] > ripristino.sql
 //   npx wrangler d1 migrations apply <database nuovo> --remote
 //   npx wrangler d1 execute <database nuovo> --remote --file ripristino.sql
 //
 // Il file SQL non contiene BEGIN/COMMIT (D1 non li accetta) e nessuna istruzione supera i limiti di D1
 // (100 KB): i PDF delle ricevute della Questura passano a pezzi da una tabella di appoggio.
-// Case e calendari esistono già nel database nuovo (le crea la prima migrazione): si aggiornano.
-// I link riservati dei calendari e le credenziali di Alloggiati non sono nella copia: si ricollegano a mano.
+// Case e calendari esistono già nel database nuovo (le crea la prima migrazione): si aggiornano, link compresi
+// (così quelli già dati ad Airbnb e Booking continuano a funzionare). Le credenziali di Alloggiati non sono nella
+// copia: si reinseriscono. Il contatore delle modifiche fa un salto in avanti, così i telefoni e i computer
+// ancora aperti riscaricano tutto invece di tenere i dati vecchi.
 
 const ORDER = [
   // tabella della copia → tabella del database (prima i "genitori", poi chi li richiama)
@@ -31,8 +33,9 @@ const ORDER = [
   ['audit_log', 'audit_log'],
 ];
 
-// Campi della copia che non sono colonne (i calendari arrivano nella forma "pubblica", senza link).
-const NOT_COLUMNS = { calendars: new Set(['connected', 'url_hint', 'export_token', 'import_url']) };
+// Campi della copia che non sono colonne (le copie fino alla 0.19 avevano i calendari nella forma "pubblica").
+const NOT_COLUMNS = { calendars: new Set(['connected', 'url_hint']) };
+const REV_JUMP = 1_000_000;
 const IDENT = /^[a-z_][a-z0-9_]*$/;
 const MAX_STMT = 90_000; // sotto il limite di D1 (100 KB per istruzione)
 const CHUNK = 80_000; // caratteri esadecimali per pezzo di PDF
@@ -57,11 +60,29 @@ function insert(table, row, skip) {
   return sql;
 }
 
-/** Testo SQL che ricostruisce i dati della copia. Lancia un errore se la copia non è valida. */
-export function buildRestoreSql(data) {
-  if (!data || data.app !== 'DigiHome' || !Array.isArray(data.bookings) || !Array.isArray(data.houses)) {
+function base64ToHex(b64) {
+  const bin = atob(String(b64 || ''));
+  let hex = '';
+  for (let i = 0; i < bin.length; i++) hex += bin.charCodeAt(i).toString(16).padStart(2, '0');
+  return hex.toUpperCase();
+}
+
+/**
+ * Testo SQL che ricostruisce i dati della copia (file principale + file delle ricevute della Questura).
+ * Lancia un errore se la copia non è valida o se manca il file delle ricevute di un anno.
+ */
+export function buildRestoreSql(data, receiptFiles = []) {
+  if (!data || data.app !== 'DigiHome' || data.kind === 'ricevute' || !Array.isArray(data.bookings) || !Array.isArray(data.houses)) {
     throw new Error('Non è una copia dei dati di DigiHome');
   }
+  const receiptsIn = [];
+  for (const f of receiptFiles) {
+    if (!f || f.app !== 'DigiHome' || f.kind !== 'ricevute' || !Array.isArray(f.alloggiati_receipts)) throw new Error('Un file delle ricevute non è valido');
+    for (const r of f.alloggiati_receipts) receiptsIn.push({ ...r, pdf_hex: r.pdf_hex || base64ToHex(r.pdf_base64) });
+  }
+  const years = new Set(receiptFiles.map((f) => f.year));
+  const missing = (data.receipt_years || []).filter((y) => !years.has(y));
+  if (missing.length) throw new Error(`Mancano i file delle ricevute della Questura del ${missing.join(', ')}`);
   const out = [
     '-- Ripristino della copia di DigiHome',
     `-- copia del ${data.exported_at || '?'} · versione ${data.version || '?'} · ambiente ${data.env || '?'}`,
@@ -76,7 +97,7 @@ export function buildRestoreSql(data) {
     for (const row of rows) out.push(insert(table, row, NOT_COLUMNS[key]));
   }
   // Ricevute della Questura (PDF): a pezzi in una tabella di appoggio, poi ricomposte con unhex().
-  const receipts = data.alloggiati_receipts || [];
+  const receipts = [...(data.alloggiati_receipts || []), ...receiptsIn];
   if (receipts.length) {
     out.push('CREATE TABLE IF NOT EXISTS _ripristino_pezzi (rid TEXT NOT NULL, seq INTEGER NOT NULL, hex TEXT NOT NULL, PRIMARY KEY (rid, seq));');
     for (const r of receipts) {
@@ -96,7 +117,9 @@ export function buildRestoreSql(data) {
     out.push('DROP TABLE _ripristino_pezzi;');
     counts.alloggiati_receipts = receipts.length;
   }
-  // Contatore delle modifiche: mai più basso di quello della copia (i telefoni si riallineano da soli).
-  if (Number.isInteger(data.rev)) out.push(`UPDATE meta SET value = max(value, ${data.rev}) WHERE key = 'rev';`);
+  // Contatore delle modifiche: un salto in avanti, oltre qualsiasi valore già visto da un dispositivo, così chi ha
+  // l'app aperta riceve lo stato intero nuovo (altrimenti scarterebbe le risposte come "più vecchie").
+  const rev = Number.isInteger(data.rev) ? data.rev : 0;
+  out.push(`UPDATE meta SET value = max(value, ${rev}) + ${REV_JUMP} WHERE key = 'rev';`);
   return { sql: `${out.join('\n')}\n`, counts };
 }

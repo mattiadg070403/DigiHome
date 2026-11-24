@@ -307,9 +307,11 @@ async function sha256Hex(bytes) {
 }
 
 /** Scarica e salva la ricevuta di un giorno per una casa. Poi cancella i dati dei documenti di quel giorno. */
-export async function fetchReceipt(db, env, houseId, date, { fetchImpl = fetch, client } = {}) {
+export async function fetchReceipt(db, env, houseId, date, { fetchImpl = fetch, client, today = todayRome() } = {}) {
   if (typeof houseId !== 'string' || !/^[a-z0-9-]{2,40}$/.test(houseId)) throw bad('Casa non valida');
   if (!isIsoDate(date)) throw bad('Data non valida');
+  // La ricevuta di un giorno è completa solo dal giorno dopo (il portale la dà per gli ultimi 30 giorni, oggi escluso).
+  if (date >= today) throw bad('La ricevuta di un giorno si può scaricare dal giorno dopo.');
   const have = await db.prepare('SELECT id FROM alloggiati_receipts WHERE house_id = ? AND date = ?').bind(houseId, date).first();
   if (have) return { ok: true, id: have.id, existing: true };
   const c = client || alloggiatiClient(await credentialsFor(db, env, houseId), { fetchImpl });
@@ -358,7 +360,7 @@ export async function receiptJob(db, env, { fetchImpl = fetch, today = todayRome
     const have = await db.prepare('SELECT 1 FROM alloggiati_receipts WHERE house_id = ? AND date = ?').bind(house, day).first();
     if (have) continue;
     try {
-      const r = await fetchReceipt(db, env, house, day, { fetchImpl });
+      const r = await fetchReceipt(db, env, house, day, { fetchImpl, today });
       if (r.ok) out.fetched += 1; else out.missing.push(`${house} ${day}`);
     } catch (e) {
       out.errors.push(`${house} ${day}: ${e.message}`);

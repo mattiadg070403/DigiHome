@@ -188,5 +188,10 @@ export async function purgeGuests(db, today = todayRome()) {
   await db.prepare(`UPDATE bookings SET guest_form_token = NULL, guest_form_leader_part = NULL
     WHERE guest_form_token IS NOT NULL AND check_out < date(?, '-30 days')`).bind(today).run();
   const r = await db.prepare(`DELETE FROM guests WHERE booking_id IN (SELECT id FROM bookings WHERE check_out < date(?, '-365 days'))`).bind(today).run();
+  // Contatori sulla prenotazione allineati (niente "2 di 2 completi" per ospiti che non ci sono più).
+  if (r.meta.changes) {
+    await db.prepare(`UPDATE bookings SET guests_entered = 0, guests_done = 0 WHERE guests_entered > 0 AND check_out < date(?, '-365 days')
+      AND NOT EXISTS (SELECT 1 FROM guests g WHERE g.booking_id = bookings.id)`).bind(today).run();
+  }
   return r.meta.changes || 0;
 }

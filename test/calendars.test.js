@@ -153,22 +153,27 @@ test('cancellata su Airbnb: si cancella da sola; se ricompare torna; calendario 
   await connect('isola-bella:airbnb', AIRBNB_URL);
   const blk = ev({ uid: 'blk', start: addDays(T, 200), end: addDays(T, 210), summary: 'Airbnb (Not available)' });
   await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14) }), blk) }) });
-  // Sparita (il calendario ha altri eventi): cancellata in automatico
-  const [r] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(blk) }) });
+  // Restano solo blocchi (link sbagliato? annuncio sospeso?): non si cancella, si segnala.
+  const [r0] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(blk) }) });
+  assert.equal(r0.cancelled, 0);
+  assert.equal(r0.flagged, 1);
+  // Sparita mentre il calendario ha altre prenotazioni: cancellata in automatico
+  const other = ev({ uid: 'a9', start: addDays(T, 60), end: addDays(T, 64) });
+  const [r] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(blk, other) }) });
   assert.equal(r.cancelled, 1);
   let [b] = await bookings();
   assert.equal(b.stage, 'cancellata');
   assert.equal(b.ext_gone, 1);
   // Ricompare: torna confermata
-  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14) }), blk) }) });
+  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14) }), blk, other) }) });
   [b] = await bookings();
   assert.equal(b.stage, 'confermata');
   assert.equal(b.ext_gone, 0);
   // Calendario completamente vuoto: non si cancella, si segnala
   const [r3] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics() }) });
   assert.equal(r3.cancelled, 0);
-  assert.equal(r3.flagged, 1);
-  [b] = await bookings();
+  assert.equal(r3.flagged, 2); // a1 e a9
+  [b] = (await bookings()).filter((x) => x.ext_uid === 'a1');
   assert.equal(b.stage, 'confermata');
   assert.equal(b.ext_gone, 1);
   // "È ancora valida"
@@ -176,9 +181,9 @@ test('cancellata su Airbnb: si cancella da sola; se ricompare torna; calendario 
   assert.equal(ack.record.ext_gone, 0);
   assert.equal(ack.record.ext_uid, null, 'staccata dal calendario');
   // Al prossimo aggiornamento non viene ricancellata
-  const [r4] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(blk) }) });
+  const [r4] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(blk, other) }) });
   assert.equal(r4.cancelled, 0);
-  [b] = await bookings();
+  [b] = (await bookings()).filter((x) => x.id === b.id);
   assert.equal(b.stage, 'confermata');
 });
 
@@ -187,13 +192,13 @@ test('cancellata in automatico e poi ripristinata a mano: resta, non viene rican
   await connect('isola-bella:airbnb', AIRBNB_URL);
   const blk = ev({ uid: 'blk', start: addDays(T, 200), end: addDays(T, 210), summary: 'Airbnb (Not available)' });
   await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14) }), blk) }) });
-  const only = fetcherFor({ [AIRBNB_URL]: ics(blk) });
+  const only = fetcherFor({ [AIRBNB_URL]: ics(blk, ev({ uid: 'a9', start: addDays(T, 60), end: addDays(T, 64) })) });
   await syncAll(db, { fetcher: only });
-  let [b] = await bookings();
+  let [b] = (await bookings()).filter((x) => x.ext_uid === 'a1');
   assert.equal(b.stage, 'cancellata');
   await runOp(db, admin, { opId: op(), type: 'booking.restore', payload: { id: b.id, version: b.version } });
   await syncAll(db, { fetcher: only });
-  [b] = await bookings();
+  [b] = (await bookings()).filter((x) => x.id === b.id);
   assert.equal(b.stage, 'confermata');
   assert.equal(b.ext_uid, null);
   assert.equal(b.ext_gone, 0);
@@ -258,16 +263,70 @@ test('codice cambiato con le date (Airbnb): si sposta la stessa prenotazione, se
   const { db, admin, connect, bookings } = await setup();
   await connect('faro-blu:airbnb', AIRBNB_URL);
   const blk = ev({ uid: 'blk', start: addDays(T, 300), end: addDays(T, 301), summary: 'Airbnb (Not available)' });
-  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14) }), blk) }) });
+  const desc = (code) => `Reservation URL: https://www.airbnb.com/hosting/reservations/details/${code}\\nPhone Number (Last 4 Digits): 1234`;
+  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 14), description: desc('HMAAA11111') }), blk) }) });
   let [b] = await bookings();
   await runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: b.id, version: b.version, changes: { guest_name: 'Luca Neri' } } });
-  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a2', start: addDays(T, 11), end: addDays(T, 15) }), blk) }) });
+  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a2', start: addDays(T, 11), end: addDays(T, 15), description: desc('HMAAA11111') }), blk) }) });
   const list = await bookings();
   assert.equal(list.length, 1);
   [b] = list;
   assert.equal(b.guest_name, 'Luca Neri');
   assert.equal(b.check_in, addDays(T, 11));
   assert.equal(b.stage, 'confermata');
+});
+
+test('una cancellata e una nuova di un altro ospite sulle stesse date: due prenotazioni diverse, nessun dato passa', async () => {
+  const { db, admin, connect, bookings } = await setup();
+  await connect('faro-blu:airbnb', AIRBNB_URL);
+  const desc = (code) => `Reservation URL: https://www.airbnb.com/hosting/reservations/details/${code}`;
+  const other = ev({ uid: 'x9', start: addDays(T, 80), end: addDays(T, 84), description: desc('HMZZZ99999') });
+  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'a1', start: addDays(T, 10), end: addDays(T, 17), description: desc('HMROSSI111') }), other) }) });
+  let [rossi] = (await bookings()).filter((x) => x.ext_uid === 'a1');
+  await runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: rossi.id, version: rossi.version, changes: { guest_name: 'Mario Rossi', guests: 4, phone: '+39 333 000 0000' } } });
+  // Rossi cancella; nello stesso aggiornamento arriva B (12–19), sovrapposta.
+  await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(ev({ uid: 'b1', start: addDays(T, 12), end: addDays(T, 19), description: desc('HMBIANCHI2') }), other) }) });
+  const list = await bookings();
+  [rossi] = list.filter((x) => x.id === rossi.id);
+  const nuova = list.find((x) => x.ext_uid === 'b1');
+  assert.equal(rossi.stage, 'cancellata');
+  assert.equal(rossi.guest_name, 'Mario Rossi');
+  assert.ok(nuova && nuova.id !== rossi.id);
+  assert.equal(nuova.needs_details, 1);
+  assert.match(nuova.guest_name, /^Ospite Airbnb/);
+});
+
+test('Booking: le date di una diretta appena cancellata non diventano una prenotazione fantasma', async () => {
+  const { db, admin, connect, bookings } = await setup();
+  await connect('faro-blu:booking', BOOKING_URL);
+  const d = (await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', channel: 'diretto', guest_name: 'Diretto', guests: 2, check_in: addDays(T, 40), check_out: addDays(T, 44), total_cents: 50000 } } })).record;
+  const s = await runOp(db, admin, { opId: op(), type: 'booking.update', payload: { id: d.id, version: d.version, changes: { check_out: addDays(T, 43) } } });
+  const e = (await runOp(db, admin, { opId: op(), type: 'booking.create', payload: { booking: {
+    house_id: 'faro-blu', channel: 'diretto', guest_name: 'Altra', guests: 2, check_in: addDays(T, 50), check_out: addDays(T, 53), total_cents: 50000 } } })).record;
+  await runOp(db, admin, { opId: op(), type: 'booking.cancel', payload: { id: e.id, version: e.version } });
+  // Booking non ha ancora riletto DigiHome: ha ancora chiuse le date vecchie (40–44) e quelle della cancellata (50–53).
+  const [r] = await syncAll(db, { fetcher: fetcherFor({ [BOOKING_URL]: ics(
+    ev({ uid: 'copia1', start: addDays(T, 40), end: addDays(T, 44), summary: 'CLOSED - Not available' }),
+    ev({ uid: 'copia2', start: addDays(T, 50), end: addDays(T, 53), summary: 'CLOSED - Not available' }),
+    ev({ uid: 'vera', start: addDays(T, 70), end: addDays(T, 73), summary: 'CLOSED - Not available' })) }) });
+  assert.equal(r.created, 1);
+  assert.deepEqual((await bookings()).filter((x) => x.channel === 'booking').map((x) => x.ext_uid), ['vera']);
+  assert.ok(s.record);
+});
+
+test('calendario: lo stesso codice due volte non blocca l’aggiornamento; se sparisce quasi tutto non si cancella niente', async () => {
+  const { db, connect, bookings } = await setup();
+  await connect('faro-blu:airbnb', AIRBNB_URL);
+  const evs = [10, 20, 30, 40].map((n) => ev({ uid: `a${n}`, start: addDays(T, n), end: addDays(T, n + 3) }));
+  const [r1] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(...evs, evs[0]) }) });
+  assert.equal(r1.ok, true);
+  assert.equal(r1.created, 4);
+  // Ne resta una sola delle 4: probabilmente un errore → solo segnalate.
+  const [r2] = await syncAll(db, { fetcher: fetcherFor({ [AIRBNB_URL]: ics(evs[3]) }) });
+  assert.equal(r2.cancelled, 0);
+  assert.equal(r2.flagged, 3);
+  assert.equal((await bookings()).filter((x) => x.stage === 'cancellata').length, 0);
 });
 
 test('errori: link non più valido, risposta non calendario, sito irraggiungibile', async () => {
@@ -350,7 +409,10 @@ test('calendario pubblico per Airbnb: solo date delle prenotazioni dirette e di 
   assert.deepEqual((await readState(db, collab)).calendars, []);
   assert.ok((await readState(db, admin)).calendars.every((c) => /^[a-f0-9]{48}$/.test(c.export_token)));
   const { readExport } = await import('../src/state.js');
-  assert.ok(!JSON.stringify(await readExport(db)).includes(tok));
+  // Il link non arriva ai collaboratori (nella copia dei dati dell'amministratore invece c'è, per il ripristino).
+  const { readState: stateFor } = await import('../src/state.js');
+  assert.ok(!JSON.stringify(await stateFor(db, collab)).includes(tok));
+  assert.ok(JSON.stringify(await readExport(db)).includes(tok));
   // Link nuovo: quello vecchio smette di funzionare (solo amministratore)
   const cal = await db.prepare("SELECT version FROM calendars WHERE id = 'faro-blu:airbnb'").first();
   await assert.rejects(runOp(db, collab, { opId: op(), type: 'calendar.regenerate', payload: { id: 'faro-blu:airbnb', version: cal.version } }), (e) => e.code === 'forbidden');

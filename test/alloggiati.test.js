@@ -265,7 +265,9 @@ test('ricevute: scaricate il giorno dopo, conservate 5 anni, dati dei documenti 
   assert.ok(g.doc_purged_at);
   assert.equal(g.last_name, 'Rossi');
   // Già scaricata: non si riscarica.
-  assert.equal((await fetchReceipt(db, ENV, 'faro-blu', day, { fetchImpl: portal.fetchImpl })).existing, true);
+  assert.equal((await fetchReceipt(db, ENV, 'faro-blu', day, { fetchImpl: portal.fetchImpl, today: addDays(day, 1) })).existing, true);
+  // La ricevuta di oggi (o di un giorno futuro) non si chiede: sarebbe incompleta.
+  await assert.rejects(fetchReceipt(db, ENV, 'faro-blu', T, { fetchImpl: portal.fetchImpl, today: T }), /dal giorno dopo/);
   // Dopo 5 anni si cancella da sola.
   job = await receiptJob(db, ENV, { fetchImpl: portal.fetchImpl, today: addDays(day, 5 * 366) });
   assert.equal(job.purged, 1);

@@ -47,6 +47,8 @@ export function message(ctx, kind, b) {
   }
 }
 
+const inFlight = new Map(); // id prenotazione → ultima modifica partita dai pulsanti degli avvisi
+
 /** Pulsanti per un avviso. Restituisce un elemento o null. */
 export function alertActions(ctx, b, alert) {
   const latest = () => ctx.store.data.bookings.find((x) => x.id === b.id) || b;
@@ -56,12 +58,16 @@ export function alertActions(ctx, b, alert) {
       ? h('a', { class: 'btn small', href: link, target: '_blank', rel: 'noopener noreferrer' }, icon('chat', { size: 16 }), 'Chiedi su WhatsApp')
       : h('button', { class: 'btn small', type: 'button', onClick: () => openBookingForm(ctx, { existing: latest(), focus: 'phone' }) }, 'Aggiungi il telefono per scrivergli');
   };
+  // Due pulsanti toccati di fila sulla stessa prenotazione: il secondo parte dopo il primo, con la versione nuova
+  // (altrimenti verrebbe rifiutato come "modificata da un altro dispositivo").
   const update = (label, changes, done, undoChanges) => h('button', { class: 'btn small', type: 'button', onClick: () => {
-    const cur = latest();
-    ctx.act('booking.update', { id: b.id, version: cur.version, changes }, {
+    const run = () => ctx.act('booking.update', { id: b.id, version: latest().version, changes }, {
       message: done,
       undo: (r) => ctx.act('booking.update', { id: b.id, version: r.record.version, changes: undoChanges }),
     }).catch(() => {});
+    const chain = (inFlight.get(b.id) || Promise.resolve()).then(run);
+    inFlight.set(b.id, chain);
+    chain.finally(() => { if (inFlight.get(b.id) === chain) inFlight.delete(b.id); });
   } }, icon('check', { size: 16 }), label);
   const edit = (label, focus) => h('button', { class: 'btn small', type: 'button', onClick: () => openBookingForm(ctx, { existing: latest(), focus }) }, icon('edit', { size: 16 }), label);
   const next = (label, action) => h('button', { class: 'btn small house', type: 'button', text: label, onClick: () => runNextAction(ctx, latest(), action) });

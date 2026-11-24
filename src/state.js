@@ -73,8 +73,11 @@ export async function readHistory(db, entityId) {
 }
 
 /**
- * Copia completa dei dati, per l'amministratore ("Scarica una copia dei dati").
- * Il link riservato dei calendari non è incluso.
+ * Copia completa dei dati, per l'amministratore ("Scarica una copia dei dati"): basta a ricostruire il gestionale
+ * con scripts/ripristino.js (vedi src/restore.js). Contiene dati personali (ospiti, contratti firmati, ricevute
+ * della Questura): va conservata in un posto protetto.
+ * Fuori dalla copia: credenziali di Alloggiati (cifrate, si reinseriscono), link riservati dei calendari (si
+ * ricollegano), tabelle che si riscaricano da sole (luoghi e documenti di Alloggiati, lavori del mercato, ops).
  */
 export async function readExport(db) {
   const q = (sql) => db.prepare(sql);
@@ -94,6 +97,10 @@ export async function readExport(db) {
     q('SELECT * FROM remittances ORDER BY date'),
     q('SELECT * FROM price_lists ORDER BY house_id, year'),
     q('SELECT * FROM pay_receipts ORDER BY issued_at'),
+    q('SELECT * FROM guests ORDER BY booking_id, position'),
+    q('SELECT id, house_id, date, hex(pdf) AS pdf_hex, size, sha256, fetched_at, purge_after FROM alloggiati_receipts ORDER BY date'),
+    q('SELECT * FROM market_comps ORDER BY house_id, listing_id'),
+    q('SELECT * FROM market_prices ORDER BY house_id, listing_id, week_start'),
   ]);
   const rows = (i) => r[i].results || [];
   return {
@@ -101,5 +108,7 @@ export async function readExport(db) {
     houses: rows(1), users: rows(2), bookings: rows(3), notes: rows(4), tasks: rows(5),
     calendars: rows(6).map((c) => { const { export_token: _t, ...rest } = publicCalendar(c); return rest; }), audit_log: rows(7),
     extras: rows(8), expenses: rows(9), deadlines: rows(10), contracts: rows(11), remittances: rows(12), price_lists: rows(13), pay_receipts: rows(14),
+    guests: rows(15), alloggiati_receipts: rows(16), market_comps: rows(17), market_prices: rows(18),
+    backup_format: 2,
   };
 }

@@ -256,7 +256,7 @@ function exportBlock(ctx) {
     }
   };
   return h('div', { class: 'stack' },
-    h('p', { class: 'small muted', text: 'Copia di sicurezza: scarica tutti i dati in un file (prenotazioni, note, cose da fare, storico). Contiene dati degli ospiti: tienilo in un posto sicuro.' }),
+    h('p', { class: 'small muted', text: 'Copia di sicurezza: tutti i dati in un file (prenotazioni, ospiti, contratti firmati, ricevute della Questura, contabilità, listino, storico). Con questo file il gestionale si ricostruisce da zero. Contiene documenti e firme degli ospiti: tienilo in un posto protetto, mai in chat o per email.' }),
     h('div', null, h('button', { class: 'btn small', type: 'button', onClick: run }, icon('download', { size: 16 }), 'Scarica una copia dei dati')));
 }
 

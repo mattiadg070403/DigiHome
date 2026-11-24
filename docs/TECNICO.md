@@ -57,6 +57,19 @@ Tabelle principali:
 - Due ambienti: **prova** (dati inventati) e, quando la beta sarà approvata, **produzione** (dati veri), con database separati.
 - Ritorno alla versione precedente: dal pannello Cloudflare (Deployments → Rollback). Database: Time Travel di D1 per tornare a un momento precedente.
 
+### Backup e ripristino (provato il 24/11/2026, test/restore.test.js)
+Due livelli:
+1. **Time Travel di D1** (automatico, nel database stesso: ultimi 7 giorni con il piano gratuito di Cloudflare, 30 con quello a pagamento): per un errore recente (es. dati cancellati per sbaglio). `npx wrangler d1 time-travel info digihome-ue` mostra il punto attuale; `npx wrangler d1 time-travel restore digihome-ue --timestamp=<data ISO>` riporta il database a quel momento (tutto il database: le modifiche successive si perdono, quindi prima scaricare la copia dei dati).
+2. **Copia dei dati** (Impostazioni → Scarica una copia dei dati, solo amministratore; consigliata una volta al mese e prima di ogni stagione): file .json con TUTTI i dati — case, utenti, prenotazioni, note, cose da fare, extra, spese, scadenze, contratti firmati, versamenti, listino, ricevute del saldo, ospiti, ricevute della Questura (PDF), case del mercato, registro. Fuori dalla copia: credenziali Alloggiati, link riservati dei calendari, tabelle che si riscaricano (luoghi/documenti di Alloggiati, lavori del mercato). Contiene documenti e firme: va tenuta cifrata/protetta.
+
+Ripristino da una copia (database perso o da ricostruire), in un database D1 NUOVO:
+1. `npx wrangler d1 create digihome-ripristino --jurisdiction eu` → annotare l'id.
+2. `node scripts/ripristino.js digihome-produzione-AAAA-MM-GG.json > ripristino.sql` (controlla la copia e stampa le righe per tabella).
+3. Mettere il nuovo `database_id` in produzione/wrangler.jsonc, calendario/wrangler.jsonc e ospiti/wrangler.jsonc; poi `npx wrangler d1 migrations apply DB --remote` (dalla cartella produzione).
+4. `npx wrangler d1 execute digihome-ripristino --remote --file ripristino.sql`.
+5. Pubblicare (push su `produzione`). Poi: reinserire le credenziali di Alloggiati (Impostazioni → Case → Alloggiati Web), ricollegare i calendari di Airbnb e Booking e incollare i nuovi "Link per Airbnb/Booking" sulle piattaforme.
+Il file SQL non usa BEGIN/COMMIT e nessuna istruzione supera i 100 KB (i PDF passano a pezzi); rifarlo due volte non crea doppioni.
+
 ## 6. Cosa c'è nella beta 0.1
 
 - Oggi: le due case (soggiorno in corso o prossimo, etichette di stato, prossimo passo), avvisi, cose da fare.

@@ -127,7 +127,7 @@ test('riepilogo dell’anno: ricavi netti, spese per tipo, cedolare (trattenuta,
   const kinds = todo.map((x) => x.kind);
   assert.ok(kinds.includes('payout')); // Airbnb di luglio senza pagamento segnato
   assert.ok(kinds.includes('costs')); // pulizie da pagare
-  assert.ok(kinds.includes('cedolare'));
+  assert.ok(!kinds.includes('cedolare')); // "Cedolare da versare" tolto (Mattia, 24/11)
   assert.ok(kinds.includes('tassa'));
   assert.ok(!kinds.includes('payout_diff')); // 1 centesimo di differenza: va bene
 });

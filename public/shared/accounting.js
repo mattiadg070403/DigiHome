@@ -243,7 +243,7 @@ export function accountingTodo(data, house, today, { years } = {}) {
   for (const y of yearsList.sort()) {
     if (y > Number(today.slice(0, 4)) || !live.has(y)) continue;
     const r = yearReport(data, house, y, today);
-    if (r.totals.cedolareToPay > 0) out.push({ level: 'attenzione', kind: 'cedolare', year: y, amount: r.totals.cedolareToPay, text: `Cedolare ${y} da versare` });
+    // "Cedolare da versare": tolto su richiesta di Mattia (24/11), non gli interessa.
     if (r.tourist.toRemit > 0) out.push({ level: 'attenzione', kind: 'tassa', year: y, amount: r.tourist.toRemit, text: `Tassa di soggiorno ${y} da versare al Comune` });
   }
   return out;

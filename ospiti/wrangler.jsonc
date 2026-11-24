@@ -1,6 +1,6 @@
 // Modulo online per gli ospiti – VERSIONE DEFINITIVA (Worker pubblico, senza Cloudflare Access).
 // Si pubblica dal ramo "produzione" (Workers Builds, cartella ospiti/). Serve solo la pagina del modulo
-// per un link valido: niente gestionale, nessun dato già salvato. Usa lo stesso database della definitiva.
+// per un link valido: niente gestionale, nessun dato già salvato. Usa lo stesso database della definitiva. (Root directory = ospiti)
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "digihome-ospiti",

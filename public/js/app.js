@@ -4,6 +4,13 @@ import { h, icon } from './dom.js';
 import { createStore } from './store.js';
 import { APP_VERSION } from '../shared/version.js';
 import { timeRome, todayRome } from '../shared/dates.js';
+
+// Schermata fissa (richiesta di Mattia, 26/11): niente zoom con due dita né con il doppio tocco, come un'app.
+// Safari su iPad e iPhone ignora user-scalable=no nel viewport: si fermano i gesti di zoom.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 import { checkinOverdue, extrasOf } from '../shared/booking.js';
 import { renderToday } from './views/today.js';
 import { renderBookings } from './views/bookings.js';

@@ -3,7 +3,7 @@
 // - Mentre si scrive, tutto viene salvato come bozza sul dispositivo (si riprende dopo una ricarica).
 // - Calendario stile Airbnb con notti occupate bloccate, date anche scrivibili a mano.
 
-import { h } from '../dom.js';
+import { h, icon, newId } from '../dom.js';
 import { openDialog, field, setFieldError, switchRow, segmented, houseVars, confirmDialog } from '../ui.js';
 import { dateField, dateRangeField, timeField } from '../pickers.js';
 import { readDraft, writeDraft, clearDraft } from '../drafts.js';
@@ -11,6 +11,7 @@ import { fmtShort, isIsoDate, nights } from '../../shared/dates.js';
 import { fmtEuro, parseEuro, centsToInput } from '../../shared/money.js';
 import { CHANNELS, MINORS, validateBooking, balanceDue, occupiedNights, TAX_MANUAL } from '../../shared/booking.js';
 import { taxSettings, touristTax, explainTax } from '../../shared/tax.js';
+import { PAY_METHODS } from '../../shared/accounting.js';
 
 const MONEY = ['total_cents', 'deposit_cents', 'security_cents'];
 
@@ -60,6 +61,8 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     v.tax_paid = t ? t.paid : 0;
   }
   initTax();
+  // Extra a parte (garage, transfer…) già dalla nuova prenotazione: si salvano insieme a lei (richiesta di Mattia, 27/11).
+  if (isNew && !Array.isArray(v.extras)) v.extras = [];
 
   const house = () => d.houses.find((x) => x.id === v.house_id) || d.houses[0];
   // Soggiorno già finito: storico degli anni passati. Si salva chiuso, senza i campi che servono solo per l'arrivo.
@@ -195,6 +198,70 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
       h('div', { class: 'full' }, switchRow('Tassa già incassata', { checked: Boolean(v.tax_paid), onChange: (c) => { v.tax_paid = c ? 1 : 0; changed(); } })));
   }
 
+  /* ---------------- Extra a parte (solo nuova prenotazione) ---------------- */
+  const extrasBox = h('div', { class: 'stack' });
+  let extraInputs = []; // per riga: { label, amount } (per evidenziare gli errori)
+  const extraFilled = (x) => x.label.trim() !== '' || x.amount > 0 || x.amountText.trim() !== '';
+  function drawExtras() {
+    extraInputs = [];
+    const rows = v.extras.map((x, i) => {
+      const label = h('input', { class: 'input', name: `extra_label_${i}`, maxlength: '80', autocomplete: 'off', value: x.label, placeholder: 'es. garage, transfer, animale',
+        attrs: { 'aria-label': `Extra ${i + 1}: descrizione` },
+        onInput: (e) => { x.label = e.target.value; setFieldError(label, ''); changed(); } });
+      const amount = h('input', { class: 'input', name: `extra_amount_${i}`, inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: x.amountText,
+        attrs: { 'aria-label': `Extra ${i + 1}: importo in euro` },
+        onInput: (e) => {
+          x.amountText = e.target.value;
+          const c = parseEuro(e.target.value);
+          setFieldError(amount, c === null ? 'Importo non valido' : '');
+          if (c !== null) x.amount = c;
+          changed();
+        } });
+      extraInputs.push({ label, amount });
+      const method = x.paid ? h('div', { class: 'field full' }, h('div', { class: 'label', text: 'Come è stato pagato' }),
+        segmented(Object.entries(PAY_METHODS).map(([k, l]) => ({ value: k, label: l })), x.method, (m) => { x.method = m; changed(); drawExtras(); }, 'Come è stato pagato')) : null;
+      return h('div', { class: 'form-grid extra-new' },
+        h('div', { class: 'full extra-new-head' },
+          h('strong', { text: `Extra ${i + 1}` }),
+          h('button', { class: 'btn small ghost', type: 'button', attrs: { 'aria-label': `Togli l’extra ${i + 1}` },
+            onClick: () => { v.extras.splice(i, 1); changed(); drawExtras(); } }, icon('close', { size: 16 }), 'Togli')),
+        field('Descrizione', label),
+        field('Importo (€)', amount),
+        h('div', { class: 'full' }, switchRow('Già incassato', { checked: Boolean(x.paid), onChange: (c) => { x.paid = c ? 1 : 0; if (!c) x.method = null; changed(); drawExtras(); } })),
+        method);
+    });
+    extrasBox.replaceChildren(...[
+      ...rows,
+      rows.length ? null : h('p', { class: 'hint', text: `Quello che l’ospite paga a parte${v.channel !== 'diretto' ? `, fuori da ${CHANNELS[v.channel].label}` : ''}. La tassa di soggiorno si mette sopra.` }),
+      h('div', null, h('button', { class: 'btn small', type: 'button', onClick: () => {
+        v.extras.push({ label: '', amount: 0, amountText: '', paid: 0, method: null });
+        changed(); drawExtras();
+        setTimeout(() => extraInputs[extraInputs.length - 1]?.label.focus(), 30);
+      } }, icon('plus', { size: 16 }), rows.length ? 'Aggiungi un altro extra' : 'Aggiungi extra'))].filter(Boolean));
+  }
+  /** Controlla gli extra prima di salvare: righe vuote si ignorano, quelle a metà si segnalano. */
+  function checkExtras() {
+    if (!isNew) return true;
+    for (const [i, x] of v.extras.entries()) {
+      if (!extraFilled(x)) continue;
+      const el = extraInputs[i];
+      if (!x.label.trim()) { setFieldError(el.label, 'Scrivi a cosa si riferisce'); el.label.focus(); return false; }
+      if (parseEuro(x.amountText) === null) { setFieldError(el.amount, 'Importo non valido'); el.amount.focus(); return false; }
+      if (!(x.amount > 0)) { setFieldError(el.amount, 'Scrivi l’importo'); el.amount.focus(); return false; }
+    }
+    return true;
+  }
+  async function saveExtras(bookingId) {
+    let failed = 0;
+    for (const x of v.extras.filter(extraFilled)) {
+      const extra = { kind: 'altro', label: x.label.trim(), amount_cents: x.amount, paid: x.paid ? 1 : 0, paid_method: x.paid ? x.method || null : null };
+      try {
+        await ctx.act('extra.add', { id: newId(), bookingId, extra }, { quiet: true });
+      } catch { failed += 1; }
+    }
+    return failed;
+  }
+
   function build() {
     const h0 = house();
     const occupied = occupiedNights(store.data.bookings, v.house_id, existing ? existing.id : null);
@@ -265,6 +332,8 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
       summary,
       fut(h('h3', { text: 'Tassa di soggiorno' })),
       fut(taxBlock()),
+      isNew ? h('h3', { text: 'Extra (a parte)' }) : null,
+      isNew ? extrasBox : null,
       h('h3', { text: 'Dettagli' }),
       h('div', { class: 'form-grid' },
         h('div', null, switchRow('Lenzuola', { checked: Boolean(v.linens), onChange: (c) => { v.linens = c ? 1 : 0; v.linens_touched = true; changed(); } })),
@@ -273,6 +342,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
         field('Note', notes, { full: true }),
       ),
     );
+    if (isNew) drawExtras();
     refresh();
   }
 
@@ -301,6 +371,8 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     if (n) parts.push(h('span', null, h('strong', { text: `${n} ${n === 1 ? 'notte' : 'notti'}` }), ` · ${fmtShort(v.check_in)} → ${fmtShort(v.check_out)}`));
     if (v.channel === 'diretto' && v.total_cents > 0 && !past) parts.push(h('span', { text: `${v.deposit_paid ? 'Saldo all’arrivo' : 'Ancora da incassare'}: ${fmtEuro(balanceDue(v))}` }));
     if (n && v.total_cents > 0) parts.push(h('span', { class: 'muted', text: `${fmtEuro(Math.round(v.total_cents / n))} a notte` }));
+    const extrasSum = isNew ? v.extras.reduce((a, x) => a + (x.label.trim() && x.amount > 0 ? x.amount : 0), 0) : 0;
+    if (extrasSum) parts.push(h('span', { text: `Extra a parte: ${fmtEuro(extrasSum)}` }));
     summary.replaceChildren(...(parts.length ? parts : [h('span', { class: 'muted', text: 'Scegli le date per vedere il riepilogo.' })]));
   }
 
@@ -359,6 +431,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
         clearDraft();
         v = existing ? { ...existing } : EMPTY(ui.houseId, d.houses);
         initTax();
+        if (isNew) v.extras = [];
         dirty = false;
         dlg.setBanner('');
         build();
@@ -399,6 +472,7 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
     if (!past && !timeOk) { dlg.setBanner('Orario di arrivo non valido (es. 16:30).'); controls.arrival_time.focus(); return; }
     if (!past && v.tax_persons > Number(v.guests)) { dlg.setBanner('Tassa di soggiorno: le persone che pagano sono più di quelle della prenotazione.'); controls.tax_persons.focus(); return; }
     if (!past && v.tax_manual && parseEuro(controls.tax_amount.value) === null) { controls.tax_amount.focus(); return; }
+    if (!checkExtras()) { dlg.setBanner('Extra: completa descrizione e importo, oppure togli la riga.'); return; }
     const p = payload();
     const check = validateBooking({ ...p, house_id: v.house_id }, { house: house(), partial: !isNew });
     if (!check.ok) { dlg.setBanner('Controlla i campi evidenziati.'); showErrors(check.errors); return; }
@@ -413,11 +487,13 @@ export function openBookingForm(ctx, { existing = null, preset = {}, focus = nul
           undo: (r) => ctx.act('booking.cancel', { id: r.record.id, version: r.record.version }, { message: 'Prenotazione annullata' }),
         });
         await saveTax(res.record.id).catch(() => {});
+        const extrasFailed = await saveExtras(res.record.id);
         clearTimeout(draftTimer);
         clearDraft();
         dirty = false;
         dlg.close();
         ctx.go(`p/${res.record.id}`);
+        if (extrasFailed) ctx.toast(`${extrasFailed === 1 ? 'Un extra non è stato salvato' : `${extrasFailed} extra non sono stati salvati`}: aggiungilo dalla scheda della prenotazione.`, { bad: true });
       } else {
         const changes = {};
         for (const [k, val] of Object.entries(p)) {

@@ -445,9 +445,11 @@ async function extraAdd(db, user, opId, p) {
   const at = nowIso();
   // Tassa con importo 0 (tutti esenti): non c'è niente da incassare.
   const paid = v.amount_cents === 0 ? 1 : v.paid;
-  const main = db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, persons, amount_cents, paid, paid_at, created_at, created_by, updated_at, updated_by, rev)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
-    .bind(id, b.id, v.kind, v.label, v.persons ?? null, v.amount_cents, paid, paid ? at : null, at, user.email, at, user.email);
+  // Come è stato pagato: si salva solo se è già incassato (prima andava perso alla creazione).
+  const method = paid && v.amount_cents > 0 ? v.paid_method ?? null : null;
+  const main = db.prepare(`INSERT INTO booking_extras (id, booking_id, kind, label, persons, amount_cents, paid, paid_method, paid_at, created_at, created_by, updated_at, updated_by, rev)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${REV_NEXT})`)
+    .bind(id, b.id, v.kind, v.label, v.persons ?? null, v.amount_cents, paid, method, paid ? at : null, at, user.email, at, user.email);
   await commit(db, { main, user, opId, entity: 'extra', entityId: id, action: 'create', changes: { booking_id: b.id, ...v } });
   return { record: await db.prepare('SELECT * FROM booking_extras WHERE id = ?').bind(id).first() };
 }

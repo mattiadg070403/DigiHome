@@ -164,6 +164,11 @@ test('server: modo di pagamento, pagamento della piattaforma, versamenti, regole
   const x = (await runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: d.id, extra: { kind: 'altro', label: 'Garage', amount_cents: 4000, paid: 0 } } })).record;
   const x2 = await runOp(db, admin, { opId: op(), type: 'extra.update', payload: { id: x.id, version: x.version, changes: { paid: 1, paid_method: 'contanti' } } });
   assert.equal(x2.record.paid_method, 'contanti');
+  // Extra già incassato fin dalla creazione (nuova prenotazione con gli extra): il modo di pagamento resta salvato.
+  const x3 = (await runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: d.id, extra: { kind: 'altro', label: 'Transfer', amount_cents: 3000, paid: 1, paid_method: 'bonifico' } } })).record;
+  assert.equal(x3.paid_method, 'bonifico');
+  const x4 = (await runOp(db, admin, { opId: op(), type: 'extra.add', payload: { bookingId: d.id, extra: { kind: 'altro', label: 'Animale', amount_cents: 2000, paid: 0, paid_method: 'contanti' } } })).record;
+  assert.equal(x4.paid_method, null, 'da incassare: niente modo di pagamento');
   // Versamenti
   const rem = await runOp(db, collab, { opId: op(), type: 'remittance.add', payload: { remittance: { house_id: 'faro-blu', kind: 'tassa_soggiorno', year: 2026, amount_cents: 12300, date: '2026-11-20' } } });
   assert.equal(rem.record.amount_cents, 12300);
